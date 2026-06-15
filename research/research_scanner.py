@@ -77,6 +77,7 @@ import pandas as pd
 
 import core.config as cfg
 from core.research_mode import SYSTEM_MODE, RESEARCH_ONLY_BANNER
+from research.research_scoring import earliness_label as _earliness_label, consensus_label as _consensus_label
 
 VERSION = "RESEARCH_SCANNER_V1"
 PRICE_DIR = cfg.CACHE_DIR / "prices"
@@ -1207,11 +1208,13 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
     logger.info("Scanning category 6: Long-Term Asymmetric Watch")
     asymmetric = scan_asymmetric(universe, spy_closes, offline=offline)
 
-    # Deduped master watchlist (highest score per ticker)
+    # Deduped master watchlist (highest score per ticker) + track all categories
     seen: Dict[str, Dict[str, Any]] = {}
+    all_categories_by_ticker: Dict[str, List[str]] = {}
     all_results = early_acc + beaten + leaders + catalyst + social + asymmetric
     for item in all_results:
         t = item["ticker"]
+        all_categories_by_ticker.setdefault(t, []).append(item["category"])
         if t not in seen or item["research_score"] > seen[t]["research_score"]:
             seen[t] = item
     watchlist = sorted(seen.values(), key=lambda x: x["research_score"], reverse=True)
@@ -1219,6 +1222,23 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
     # Enrich each watchlist item with company metadata, sub-component scores, data freshness
     profile_cache = _batch_fmp_profiles([item["ticker"] for item in watchlist[:25]])
     watchlist = [_enrich_item(item, profile_cache.get(item["ticker"])) for item in watchlist]
+
+    # Add earliness and consensus scores (Phase 4A)
+    for item in watchlist:
+        item["earliness_label"] = _earliness_label(
+            rs_63=item.get("rs_63d_vs_spy"),
+            rs_20=item.get("rs_20d_vs_spy"),
+            above_ma50=item.get("above_ma50"),
+            above_ma200=item.get("above_ma200"),
+            dd_from_high_pct=item.get("dd_from_high_pct"),
+            vol_trend_ratio=item.get("vol_trend_ratio"),
+            extension_vs_ma200_pct=item.get("extension_vs_ma200_pct"),
+        )
+        item["all_categories"] = sorted(set(all_categories_by_ticker.get(item["ticker"], [item.get("category", "")])))
+        item["consensus_label"] = _consensus_label(
+            item["all_categories"],
+            research_score=item.get("research_score"),
+        )
 
     # Label summary
     label_counts: Dict[str, int] = {}

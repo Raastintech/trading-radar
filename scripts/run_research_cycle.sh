@@ -1079,6 +1079,40 @@ cmd_sector_leadership() {
     run_or_warn "sector leadership" "$PY" research/sector_leadership_report.py "$@"
 }
 
+cmd_research_coverage() {
+    # Phase 4A Task 1 — Data confidence audit per ticker.  Checks price bar
+    # depth, parquet age, FMP profile cache coverage, and options snapshot
+    # availability.  Outputs HIGH/MEDIUM/LOW/INVALID per ticker.  Cache-only.
+    log "[CACHE] Phase 4A research coverage audit (cache-only)"
+    run_or_warn "research coverage" "$PY" research/research_coverage_audit.py "$@"
+}
+
+cmd_research_changes() {
+    # Phase 4A Task 4 — Scanner watchlist change detector.  Compares current
+    # research_scanner_latest.json against the previous snapshot to surface
+    # new entries, dropped names, score movements, and label reclassifications.
+    # Rotates current → prev on each run.  Cache-only.
+    log "[CACHE] Phase 4A research change detector (cache-only)"
+    run_or_warn "research changes" "$PY" research/research_change_detector.py "$@"
+}
+
+cmd_research_forward_tracker() {
+    # Phase 4A Task 5 — Watchlist forward outcome tracker.  Records watchlist
+    # entries by date and computes 5d/10d/20d forward returns from the price
+    # cache.  Appends to data/research/research_watchlist_history.jsonl.
+    # Outputs verdicts by label bucket.  Cache-only.
+    log "[CACHE] Phase 4A research watchlist forward tracker (cache-only)"
+    run_or_warn "research forward tracker" "$PY" research/research_watchlist_forward_tracker.py "$@"
+}
+
+cmd_ten_x_candidates() {
+    # Phase 4A Task 6 — 10x speculative candidate radar.  Scans for names with
+    # large ATH drawdown + turning momentum + theme exposure.  SPECULATIVE —
+    # requires manual research.  No trade recommendations.  Cache-only.
+    log "[CACHE] Phase 4A 10x candidate radar (cache-only, speculative)"
+    run_or_warn "ten-x candidates" "$PY" research/ten_x_candidate_radar.py "$@"
+}
+
 _disabled_execution_cmd() {
     echo "RESEARCH_ONLY_MODE: command disabled."
 }
@@ -1310,6 +1344,10 @@ case "$SUB" in
     provider-health)         cmd_provider_health         "${POS[@]}" ;;
     data-freshness)          cmd_data_freshness          "${POS[@]}" ;;
     sector-leadership)       cmd_sector_leadership       "${POS[@]}" ;;
+    research-coverage)         cmd_research_coverage         "${POS[@]}" ;;
+    research-changes)          cmd_research_changes          "${POS[@]}" ;;
+    research-forward-tracker)  cmd_research_forward_tracker  "${POS[@]}" ;;
+    ten-x-candidates)          cmd_ten_x_candidates          "${POS[@]}" ;;
     live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
         _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;
