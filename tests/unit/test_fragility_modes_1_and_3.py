@@ -195,8 +195,8 @@ class TestModeThreeForecastDetailed:
         assert first_fragile < first_regime, out
         # 30d horizon in header.
         assert "30d" in out
-        # Strategies block demoted.
-        assert "Strategy favorability (advisory)" in out
+        # Research posture block demoted.
+        assert "Research posture (advisory)" in out
         assert "regime not confirmed — advisory only" in out
 
     def test_normal_path_keeps_existing_labels(self):
@@ -213,7 +213,7 @@ class TestModeThreeForecastDetailed:
         # NOTE: Rich grid wraps the right column, so a literal newline
         # check isn't portable. The presence test + absence of advisory
         # marker is what we actually care about.
-        assert "Strategy favorability" in out
+        assert "Research posture" in out
         assert "(advisory)" not in out
         assert "regime not confirmed" not in out
 

@@ -181,7 +181,7 @@ class TestStrategiesDemotionUnderFragile:
         )
         out = _render(hq.PB.market_forecast_context(data))
         # Label rewrites + footer suffix appear only in the demoted path.
-        assert "Strategies (advisory):" in out, out
+        assert "Research board (advisory):" in out, out
         assert "regime not confirmed" in out, out
 
     def test_strategies_label_unchanged_when_normal(self):
@@ -191,8 +191,8 @@ class TestStrategiesDemotionUnderFragile:
         data = _FakeData(blob={"market_forecast": forecast, "vix": 17.0},
                          lens_by_ticker={})
         out = _render(hq.PB.market_forecast_context(data))
-        assert "Strategies:" in out, out
-        assert "Strategies (advisory)" not in out, out
+        assert "Research board:" in out, out
+        assert "Research board (advisory)" not in out, out
         assert "regime not confirmed" not in out, out
 
     def test_demoted_when_only_low_conf_without_breach(self):
@@ -204,4 +204,4 @@ class TestStrategiesDemotionUnderFragile:
         data = _FakeData(blob={"market_forecast": forecast, "vix": 17.0},
                          lens_by_ticker={})
         out = _render(hq.PB.market_forecast_context(data))
-        assert "Strategies (advisory):" in out
+        assert "Research board (advisory):" in out

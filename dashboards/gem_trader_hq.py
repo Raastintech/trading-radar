@@ -5834,43 +5834,21 @@ class PB:  # PanelBuilder — all static
 
         sf = f.get("strategy_favorability") or {}
         if sf:
-            # Phase 1F+ #2: the strategy-favorability mapping reflects
-            # research-side allowability, not current operational safety.
-            # Under FRAGILE/STRESS the panel headline is red and a green
-            # "VOYAGER:allowed" reads as approval. Demote the stance
-            # styling to dim/yellow when the panel is in a non-NORMAL
-            # state so the operator's eye doesn't catch a green light
-            # against an otherwise red panel. The underlying stance text
-            # is unchanged so anyone scripting against the JSON cache
-            # sees no difference.
             _demote_stances = bool(breached or _low_conf)
-            label = "Strategies (advisory)" if _demote_stances else "Strategies"
-            t.append(f"{label}: ", style="dim")
-            ordered = ["VOYAGER", "SNIPER_V6", "SHORT_A", "ALPHA_DISCOVERY"]
-            parts = []
-            for name in ordered:
-                row = sf.get(name) or {}
-                stance = row.get("stance", "—")
-                short = name.replace("_V6", "").replace("ALPHA_DISCOVERY", "Alpha")
-                parts.append((short, stance))
-            for i, (n, st) in enumerate(parts):
-                t.append(f"{n}:", style="dim")
+            # Show only ALPHA_DISCOVERY (research board context); strategy-named
+            # rows are omitted — no active strategies in research terminal.
+            ad = sf.get("ALPHA_DISCOVERY") or {}
+            if ad:
+                label = "Research board (advisory)" if _demote_stances else "Research board"
+                stance = ad.get("stance", "—")
+                t.append(f"{label}: ", style="dim")
+                style = PB._stance_style(stance)
+                if _demote_stances and "green" in style:
+                    style = "yellow"
+                t.append(f"{stance}", style=style)
                 if _demote_stances:
-                    # Green "allowed" → muted yellow; everything else
-                    # already reads as caution and stays as-is.
-                    style = PB._stance_style(st)
-                    if "green" in style:
-                        style = "yellow"
-                    else:
-                        style = "dim " + style if style != "dim" else style
-                    t.append(f"{st}", style=style)
-                else:
-                    t.append(f"{st}", style=PB._stance_style(st))
-                if i < len(parts) - 1:
-                    t.append(" · ", style="dim")
-            if _demote_stances:
-                t.append("  · regime not confirmed", style="dim yellow")
-            t.append("\n")
+                    t.append("  · regime not confirmed", style="dim yellow")
+                t.append("\n")
 
         if invalid and invalid != "—":
             # Substitute the cached-at-build VIX value with the live one so
@@ -5888,7 +5866,7 @@ class PB:  # PanelBuilder — all static
             t.append("Invalidation: ", style="dim")
             t.append(_clip(str(invalid), 200), style="white")
 
-        return Panel(t, title="[bold]MARKET FORECAST[/] [dim]research-only · probabilistic · not trade approval[/]",
+        return Panel(t, title="[bold]MARKET FORECAST[/] [dim]research-only · probabilistic[/]",
                      border_style="cyan", padding=(0,1))
 
     @staticmethod
@@ -6310,7 +6288,7 @@ class PB:  # PanelBuilder — all static
             top = invals[0] if isinstance(invals, list) else invals
             t.append(_clip(str(top), 200), style="white")
 
-        title = f"[bold]STOCK LENS — {ticker}[/] [dim]research-only · not trade approval[/]"
+        title = f"[bold]STOCK LENS — {ticker}[/] [dim]research-only[/]"
         return Panel(t, title=title, border_style="cyan", padding=(0,1))
 
     @staticmethod
@@ -6360,7 +6338,7 @@ class PB:  # PanelBuilder — all static
             t = Text()
             t.append("No ticker selected · ", style="dim")
             t.append("Executive Gatekeeper appears here", style="dim")
-            return Panel(t, title="[bold]EXECUTIVE GATEKEEPER[/] [dim]research-only · not trade approval[/]",
+            return Panel(t, title="[bold]EXECUTIVE GATEKEEPER[/] [dim]research-only[/]",
                          border_style="cyan", padding=(0, 0))
 
         # Earnings calendar already lives on the DataLayer (Mode 3 earnings
@@ -6377,7 +6355,7 @@ class PB:  # PanelBuilder — all static
             t.append(f"Executive Gatekeeper missing for {ticker}", style="yellow")
             t.append("  ·  run: ", style="dim")
             t.append(PB._gatekeeper_run_hint(ticker), style="dim")
-            return Panel(t, title=f"[bold]EXECUTIVE GATEKEEPER — {ticker}[/] [dim]research-only · not trade approval[/]",
+            return Panel(t, title=f"[bold]EXECUTIVE GATEKEEPER — {ticker}[/] [dim]research-only[/]",
                          border_style="cyan", padding=(0, 0))
 
         status   = str(gk.get("final_status") or "—")
@@ -6471,7 +6449,7 @@ class PB:  # PanelBuilder — all static
                 t.append(PB._gatekeeper_run_hint(ticker), style="dim")
 
         title = (f"[bold]EXECUTIVE GATEKEEPER — {ticker}[/] "
-                 f"[dim]research-only · not trade approval · manual review required[/]")
+                 f"[dim]research-only · manual review required[/]")
         return Panel(t, title=title, border_style="cyan", padding=(0, 1))
 
     @staticmethod
@@ -6634,22 +6612,16 @@ class PB:  # PanelBuilder — all static
         right.append(", ".join(defens) or "—", style="yellow"); right.append("\n")
 
         if sf:
-            # Phase 1F+: same demotion discipline as Mode 2 — under
-            # FRAGILE / CONFLICTED the green "allowed" stances read as
-            # an unwarranted approval, so we rewrite the header to
-            # "Strategy favorability (advisory)" and shift any green to
-            # yellow. Underlying stance values unchanged.
             _demote = bool(breached or low_conf)
-            sf_header = ("Strategy favorability (advisory)"
-                         if _demote else "Strategy favorability")
+            sf_header = ("Research posture (advisory)" if _demote else "Research posture")
             right.append(f"\n{sf_header}\n", style="bold dim")
-            for name in ("VOYAGER", "SNIPER_V6", "SHORT_A", "ALPHA_DISCOVERY"):
-                row = sf.get(name) or {}
-                if not row:
-                    continue
-                stance = row.get("stance", "—")
-                reason = row.get("reason", "")
-                right.append(f"  {name:<16}", style="dim")
+            # Show only ALPHA_DISCOVERY research context; strategy-named rows
+            # (VOYAGER/SNIPER_V6/SHORT_A) are omitted — no active strategies.
+            ad_row = sf.get("ALPHA_DISCOVERY") or {}
+            if ad_row:
+                stance = ad_row.get("stance", "—")
+                reason = ad_row.get("reason", "")
+                right.append("  Research board    ", style="dim")
                 style = PB._stance_style(stance)
                 if _demote and "green" in style:
                     style = "yellow"
@@ -6708,7 +6680,7 @@ class PB:  # PanelBuilder — all static
         body = Group(header, Text(""), grid)
         return Panel(
             body,
-            title="[bold]MARKET FORECAST — DETAIL[/] [dim]research-only · probabilistic · not trade approval[/]",
+            title="[bold]MARKET FORECAST — DETAIL[/] [dim]research-only · probabilistic[/]",
             border_style="cyan", padding=(0, 1),
         )
 
