@@ -2548,20 +2548,19 @@ class PB:  # PanelBuilder — all static
         else:
             t.append("VIX loading…\n\n", style="dim")
 
-        # SHORT_A frozen 2026-05-24 (Phase 1G.3) — research-only, no new paper
-        # emissions. Short-side awareness lives in the Short Opportunity Radar.
-        gates = [("SNIPER", vix is not None and vix<20,  "VIX>=20"),
-                 ("VOYAGER",True,                         "")]
-        for name, active, why in gates:
-            t.append(f"  {name:<9}", style="white")
-            if active:
-                t.append("ENABLED\n", style="bold green")
+        # VIX market stress context — research framing only
+        if vix is not None:
+            if vix < 15:
+                t.append("  complacency zone — options pricing cheap\n", style="green")
+            elif vix < 20:
+                t.append("  low vol — constructive research environment\n", style="green")
+            elif vix < 25:
+                t.append("  moderate vol — elevated watchlist caution\n", style="yellow")
+            elif vix < 30:
+                t.append("  high vol — risk-off, defensive rotation\n", style="red")
             else:
-                t.append(f"GATED [{why}]\n", style="yellow")
-        t.append("\n  [dim]Frozen this phase:[/]\n")
-        for row in registry_rows(frozen_strategies()):
-            t.append(f"  {row.display_name:<14}FROZEN\n", style="dim")
-        return Panel(t, title="[bold]VIX & GATES[/] [dim]regime shorthand[/]", border_style="magenta", padding=(0,1))
+                t.append("  extreme vol — stress regime active\n", style="bold red")
+        return Panel(t, title="[bold]VIX & MARKET STRESS[/] [dim]research context[/]", border_style="magenta", padding=(0,1))
 
     # ── open positions ────────────────────────────────────────────────────────
     @staticmethod
@@ -3010,13 +3009,7 @@ class PB:  # PanelBuilder — all static
         t.append(f"premarket     fc {fc_age}  alpha {al_age}\n",
                  style="white" if pm_ok else "yellow")
 
-        # ── paper-evidence pipeline ──
-        t.append(f"resolver      {age_from_iso(str(ev.get('last_success_at') or ''))}    "
-                 f"scoreboard {age_from_iso(str(ev.get('scoreboard_mtime') or ''))}\n",
-                 style="white")
-        ok = ev.get("ok")
-        t.append(f"paper loop    {'OK' if ok else 'UNKNOWN'}", style="green" if ok else "yellow")
-        return Panel(t, title="[bold]EVIDENCE FRESHNESS[/]",
+        return Panel(t, title="[bold]RESEARCH DATA FRESHNESS[/]",
                      border_style="cyan", padding=(0,1))
 
     # ── Phase 2B.1 MCP audit summary strip ────────────────────────────────────
@@ -3686,7 +3679,7 @@ class PB:  # PanelBuilder — all static
             f"snap {int(snap.get('_file_age_seconds') or 0)//60}m old\n",
             style=risk_style,
         )
-        t.append("advisory only · not active paper evidence\n", style="dim")
+        t.append("advisory only · research context\n", style="dim")
         if a_set:
             t.append("*A = also on Alpha Discovery board\n\n", style="dim")
         else:
@@ -3731,7 +3724,7 @@ class PB:  # PanelBuilder — all static
         # collapse to a single advisory line so Alpha gets the vertical space.
         if not any_focus and not liquid and not movers:
             t.append("Market Posture summary only · no candidate names from current snapshot\n", style="dim")
-            return Panel(t, title="[bold]RESEARCH ASSIST[/] [dim]not paper evidence[/]",
+            return Panel(t, title="[bold]RESEARCH ASSIST[/]",
                          border_style="blue", padding=(0, 1))
 
         # Phase 1F Tasks 3+5: status is now run through
@@ -3797,7 +3790,7 @@ class PB:  # PanelBuilder — all static
                 )
 
         if not movers:
-            return Panel(t, title="[bold]RESEARCH ASSIST[/] [dim]not paper evidence[/]",
+            return Panel(t, title="[bold]RESEARCH ASSIST[/]",
                          border_style="blue", padding=(0, 1))
 
         t.append("\nMovers", style="bold dim")
@@ -3814,7 +3807,7 @@ class PB:  # PanelBuilder — all static
                 style=tag_color,
             )
 
-        return Panel(t, title="[bold]RESEARCH ASSIST[/] [dim]not paper evidence[/]",
+        return Panel(t, title="[bold]RESEARCH ASSIST[/]",
                      border_style="blue", padding=(0,1))
 
     @staticmethod
@@ -3902,7 +3895,7 @@ class PB:  # PanelBuilder — all static
                 padding=(0, 1),
             )
 
-        t.append("research-only · twice-weekly · not paper evidence · not trade approval\n", style="bold yellow")
+        t.append("research-only · twice-weekly\n", style="bold yellow")
         if not board:
             t.append("\nNo Social Arb artifact loaded\n", style="dim")
             t.append("Run research/social_arb_radar.py after market close.\n", style="dim")
@@ -4055,7 +4048,7 @@ class PB:  # PanelBuilder — all static
 
         t = Text()
         if compact_detail:
-            t.append("manual research board · not sleeve approval · not paper evidence\n", style="dim")
+            t.append("manual research board\n", style="dim")
         else:
             t.append("RESEARCH-ONLY ALPHA BOARD\n", style="bold yellow")
             t.append("pre-sleeve discovery · manual research only\n", style="dim")
@@ -4070,7 +4063,7 @@ class PB:  # PanelBuilder — all static
             t.append("Run nightly build first; premarket overlay is optional.\n", style="dim")
             return Panel(
                 t,
-                title="[bold]ALPHA DISCOVERY[/] [dim]not paper evidence[/]",
+                title="[bold]ALPHA DISCOVERY[/] [dim]research candidates[/]",
                 border_style="magenta",
                 padding=(0, 1),
             )
@@ -4406,7 +4399,7 @@ class PB:  # PanelBuilder — all static
             renderables.append(detail)
             return Panel(
                 Group(*renderables),
-                title="[bold]ALPHA DISCOVERY[/] [dim]not paper evidence[/]",
+                title="[bold]ALPHA DISCOVERY[/] [dim]research candidates[/]",
                 border_style="magenta",
                 padding=(0, 1),
             )
@@ -4518,10 +4511,10 @@ class PB:  # PanelBuilder — all static
                         style="dim",
                     )
                 renderables.append(foot)
-        renderables.append(Text("manual research board · not sleeve approval · not paper evidence", style="dim"))
+        renderables.append(Text("manual research board", style="dim"))
         return Panel(
             Group(*renderables),
-            title="[bold]ALPHA DISCOVERY[/] [dim]not paper evidence[/]",
+            title="[bold]ALPHA DISCOVERY[/] [dim]research candidates[/]",
             border_style="magenta",
             padding=(0, 1),
         )
@@ -4943,11 +4936,11 @@ class PB:  # PanelBuilder — all static
         t = Text()
 
         # Section 1: blocked summary + council-gated scanner signals
-        t.append("  BLOCK SUMMARY  ", style="bold dim")
+        t.append("  FILTER SUMMARY  ", style="bold dim")
         t.append(
-            f"council={block_counts['council']}  alloc={block_counts['allocator']}  "
-            f"exec_fail={block_counts['execution']}  dup/open={block_counts['duplicate']}  "
-            f"frozen={block_counts['frozen']}  data={block_counts['missing']}  "
+            f"score_gate={block_counts['council']}  alloc={block_counts['allocator']}  "
+            f"data_err={block_counts['execution']}  dup={block_counts['duplicate']}  "
+            f"inactive={block_counts['frozen']}  data={block_counts['missing']}  "
             f"stale={block_counts['stale']}\n",
             style="dim",
         )
@@ -4957,18 +4950,18 @@ class PB:  # PanelBuilder — all static
             t.append("  stale bars: none\n", style="dim")
 
         if vetoed:
-            t.append("\n  BLOCKED / GATED  ", style="bold dim")
-            t.append("scanner-confirmed · blocked after scan stage\n", style="dim")
+            t.append("\n  FILTERED / LOW-SCORE  ", style="bold dim")
+            t.append("scanner-confirmed · filtered after scan stage\n", style="dim")
             for d in vetoed[:4]:
                 dirn   = str(d.get("direction") or "").upper()[:4]
                 dc     = "green" if dirn in ("LONG","BUY") else "red"
                 status = str(d.get("status") or "GATED").upper()
-                # Distinguish the blocking stage clearly
+                # Distinguish the filter stage clearly
                 if status == "ALLOCATION_BLOCKED":
-                    stage  = Text("ALLOC-BLK", style="bold red")
-                    reason = _clip(str(d.get("veto_reason") or "allocator blocked"), 34)
+                    stage  = Text("ALLOC-FILT", style="bold red")
+                    reason = _clip(str(d.get("veto_reason") or "allocator filtered"), 34)
                 else:
-                    stage  = Text(str(d.get("veto_agent") or "council")[:9], style="yellow")
+                    stage  = Text(str(d.get("veto_agent") or "score_gate")[:10], style="yellow")
                     reason = _clip(str(d.get("veto_reason") or "—"), 34)
                 score  = float(d.get("score") or 0)
                 t.append(f"  {str(d.get('ticker','—')):<7}", style="bold white")
@@ -4978,7 +4971,7 @@ class PB:  # PanelBuilder — all static
                 t.append(stage); t.append("  ", style="")
                 t.append(f"{reason}\n", style="dim")
         else:
-            t.append("\n  No gated/blocked scanner rows in last 24h\n", style="dim")
+            t.append("\n  No filtered scanner rows in last 24h\n", style="dim")
 
         # Section 2: Universe structural developing candidates
         # Header now mirrors the column layout below: ticker | sleeve | dir |
@@ -5035,8 +5028,8 @@ class PB:  # PanelBuilder — all static
                 "No near-threshold candidates — market below average quality"
             ) + "\n", style="dim")
 
-        return Panel(t, title="[bold]GATED / BLOCKED — NEAR-THRESHOLD[/]",
-                     subtitle="[dim]scanner frictions + stale-bar visibility + near-threshold structural names[/]",
+        return Panel(t, title="[bold]RESEARCH FILTER FRICTION[/]",
+                     subtitle="[dim]filter breakdown + stale-bar visibility + near-threshold structural names[/]",
                      border_style="dim", padding=(0,1))
 
     # ── universe readiness summary (per-strategy counts from snapshot) ───────────
@@ -5508,13 +5501,11 @@ class PB:  # PanelBuilder — all static
 
     @staticmethod
     def _forecast_run_hint() -> str:
-        return ("SNIPER_ENV_PATH=/home/gem/secure/trading.env "
-                ".venv/bin/python research/regime_forecast.py")
+        return "./scripts/run_research_cycle.sh nightly"
 
     @staticmethod
     def _stock_lens_run_hint(ticker: str) -> str:
-        return ("SNIPER_ENV_PATH=/home/gem/secure/trading.env "
-                f".venv/bin/python research/regime_forecast.py --ticker {ticker}")
+        return f"./scripts/run_research_cycle.sh nightly  # then: research/stock_lens.py --ticker {ticker}"
 
     @staticmethod
     def _confidence_style(conf: str) -> str:
@@ -7472,10 +7463,7 @@ def build_risk(state,data,claude):
         Layout(PB.mcp_audit_summary(data), name="mcp_audit", size=9),
         Layout(name="earn_row", size=9),
     )
-    body["top"].split_row(
-        Layout(PB.evidence_freshness(data), name="fresh",    ratio=5),
-        Layout(PB.risk_telemetry(data),     name="risk_tel", ratio=5),
-    )
+    body["top"].update(PB.evidence_freshness(data))
     body["forecast"].update(PB.market_forecast_detailed(data))
     body["forward"].update(PB.forecast_forward_status(data))
     body["weekly"].update(PB.weekly_review_strip(data))

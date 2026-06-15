@@ -8,11 +8,16 @@ Covers the display-only fixes from the June Dashboard Truth Audit:
   F4  frozen sleeves render as FROZEN / research-only, not an active "/30".
   F2/F3 are exercised through the same render path where practical.
 
+Phase 3D.1 additions:
+  Verify that all four normal dashboard modes contain no legacy trading/strategy
+  forbidden terms after the research-terminal purge.
+
 All assertions render through Rich so the target is the on-screen text.  No
 provider calls, no DB writes — the dashboard remains cache-only.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +29,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from dashboards.gem_trader_hq import (  # noqa: E402
     PB,
+    ClaudeAnalyzer,
+    State,
+    _BUILDERS,
     mcp_stale_kind,
     selection_edge_status,
 )
@@ -195,3 +203,141 @@ def test_dashboard_does_not_import_execution_or_live_capital():
     ]
     for token in forbidden:
         assert token not in src, f"dashboard must stay read-only: found {token!r}"
+
+
+# ── Phase 3D.1: research-terminal forbidden-term checks ──────────────────────
+
+# Forbidden terms that must not appear in any rendered normal mode output.
+_FORBIDDEN_PATTERN = re.compile(
+    r"TRADE READINESS|PORTFOLIO RISK|P&L|Gross Long|Gross Short|Net Long"
+    r"|(?<!\w)SNIPER(?!\w)"       # strategy name — not a substring of SNIPER_ENV_PATH etc
+    r"|(?<!\w)VOYAGER(?!\w)"
+    r"|REMORA|CONTRARIAN|SHORT_A|(?<!\w)LRR(?!\w)"
+    r"|paper loop|paper evidence|broker snap|clean epoch"
+    r"|participation|starved|sniper_flow|last_decision"
+    r"|(?<!\w)Veto(?!\w)|trade selection|active paper"
+    r"|broker account|strategy tournament|READY_FOR_DEEPER_BACKTEST"
+    r"|paper signal|live signal",
+    re.IGNORECASE,
+)
+
+
+class _EmptyDataLayer:
+    """Minimal DataLayer stub returning empty/None for all keys."""
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return default
+
+    def provider_status(self):
+        return True, True
+
+    def system_health(self):
+        return "OK", "bold green", ""
+
+    def scanner_status(self):
+        return {"running": False, "status": "offline", "last_run": None}
+
+    def get_stock_lens(self, ticker: str):
+        return {"_missing": True, "ticker": (ticker or "").upper()}
+
+    def get_research_note(self, ticker: str):
+        return {"_missing": True, "ticker": (ticker or "").upper()}
+
+    def get_executive_gatekeeper(self, ticker: str):
+        return {"_missing": True, "ticker": (ticker or "").upper()}
+
+    def get_weekly_review(self):
+        return {"_missing": True}
+
+
+def _render_mode(mode_num: int) -> str:
+    state = State()
+    state.mode = mode_num
+    data = _EmptyDataLayer()
+    claude = ClaudeAnalyzer()
+    layout = _BUILDERS[mode_num](state, data, claude)
+    c = Console(record=True, width=132, height=40, force_terminal=False, color_system=None)
+    c.print(layout)
+    return c.export_text()
+
+
+def test_mode1_market_no_forbidden_terms():
+    out = _render_mode(1)
+    hit = _FORBIDDEN_PATTERN.search(out)
+    assert hit is None, f"Mode 1 MARKET contains forbidden term: {hit.group()!r}"
+
+
+def test_mode2_watchlist_no_forbidden_terms():
+    out = _render_mode(2)
+    hit = _FORBIDDEN_PATTERN.search(out)
+    assert hit is None, f"Mode 2 WATCHLIST contains forbidden term: {hit.group()!r}"
+
+
+def test_mode3_intel_no_forbidden_terms():
+    out = _render_mode(3)
+    hit = _FORBIDDEN_PATTERN.search(out)
+    assert hit is None, f"Mode 3 INTEL contains forbidden term: {hit.group()!r}"
+
+
+def test_mode4_research_no_forbidden_terms():
+    out = _render_mode(4)
+    hit = _FORBIDDEN_PATTERN.search(out)
+    assert hit is None, f"Mode 4 RESEARCH contains forbidden term: {hit.group()!r}"
+
+
+def test_vix_panel_shows_market_stress_not_strategy_gates():
+    data = _StubDataLayer(vix=22.5)
+    out = _render(PB.vix_gates(data))
+    assert "VIX & MARKET STRESS" in out
+    assert "moderate vol" in out.lower()
+    # Strategy names must not appear
+    assert "SNIPER" not in out
+    assert "VOYAGER" not in out
+    assert "FROZEN" not in out
+
+
+def test_evidence_freshness_panel_renamed_no_paper_loop():
+    data = _StubDataLayer(
+        evidence_status={"ok": True, "last_success_at": None, "scoreboard_mtime": None}
+    )
+    out = _render(PB.evidence_freshness(data))
+    assert "RESEARCH DATA FRESHNESS" in out
+    assert "paper loop" not in out.lower()
+    assert "resolver" not in out.lower()
+    assert "scoreboard" not in out.lower()
+
+
+def test_alpha_discovery_panel_title_no_paper_evidence():
+    data = _StubDataLayer()
+    out = _render(PB.alpha_discovery(data))
+    assert "not paper evidence" not in out.lower()
+    assert "research candidates" in out.lower()
+
+
+def test_research_assist_panel_title_no_paper_evidence():
+    data = _StubDataLayer()
+    out = _render(PB.research_assist(data))
+    assert "not paper evidence" not in out.lower()
+
+
+def test_developing_soon_research_framing():
+    data = _StubDataLayer()
+    out = _render(PB.developing_soon(data))
+    assert "FILTER SUMMARY" in out
+    assert "BLOCK SUMMARY" not in out
+    assert "exec_fail" not in out.lower()
+    assert "ALLOC-BLK" not in out
+    assert "GATED / BLOCKED" not in out
+
+
+def test_mode3_intel_shows_research_data_freshness():
+    out = _render_mode(3)
+    assert "RESEARCH DATA FRESHNESS" in out
+
+
+def test_all_normal_modes_show_research_only_badge():
+    for mode_num in (1, 2, 3, 4):
+        out = _render_mode(mode_num)
+        assert "RESEARCH ONLY" in out, (
+            f"Mode {mode_num} missing RESEARCH ONLY badge"
+        )
