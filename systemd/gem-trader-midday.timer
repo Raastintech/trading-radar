@@ -1,0 +1,16 @@
+[Unit]
+Description=gem-trader midday cache-only refresh timer (12:30 ET Mon-Fri)
+Requires=gem-trader-midday.service
+
+[Timer]
+# Fire 12:30 America/New_York Mon-Fri — middle of the regular session.
+# Cache-only, no provider calls, no FMP cost.  Refreshes forward outcome
+# summaries, delta, and the paper-only risk telemetry sidecars so the
+# dashboard reflects the day so far.  Systemd honors the named timezone
+# across DST.
+OnCalendar=Mon-Fri 12:30 America/New_York
+
+Persistent=true
+
+[Install]
+WantedBy=timers.target

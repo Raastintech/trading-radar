@@ -1,0 +1,13 @@
+[Unit]
+Description=gem-trader daily paper evidence timer (18:15 ET Mon-Fri)
+Requires=gem-trader-paper-evidence.service
+
+[Timer]
+# Fire after the regular US equity session and after daily bars should be
+# settled for Alpaca SIP/cache reads. Systemd uses the named wall-clock timezone,
+# so this remains 18:15 ET across DST changes.
+OnCalendar=Mon-Fri 18:15 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=gem-trader options chain snapshot timer (15:45 ET Mon-Fri, Phase 1J.2)
+Requires=gem-trader-options-snapshot.service
+
+[Timer]
+# Fire 15:45 America/New_York Mon-Fri — late regular session so quotes are
+# live (not post-close stale) and OI/IV enrichment is fresh. Systemd honors
+# the named timezone across DST so this stays 15:45 ET year-round.
+OnCalendar=Mon-Fri 15:45 America/New_York
+
+# If the host was off at fire time, run once on next boot. The collector is
+# idempotent per (symbol, date), so a late catch-up run is safe; it captures
+# that day's chains rather than leaving a permanent hole.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

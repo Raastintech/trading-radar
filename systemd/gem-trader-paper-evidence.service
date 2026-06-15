@@ -1,0 +1,12 @@
+[Unit]
+Description=gem-trader daily paper evidence resolver and scoreboard
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gem
+WorkingDirectory=/home/gem/trading-production
+EnvironmentFile=/home/gem/secure/trading.env
+ExecStart=/home/gem/trading-production/.venv/bin/python3 -u scripts/run_paper_evidence.py
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-paper-evidence.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-paper-evidence.log

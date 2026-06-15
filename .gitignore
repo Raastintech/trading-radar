@@ -38,6 +38,11 @@ cache/prices/
 *.feather
 *.sqlite
 *.db
+*.db-shm
+*.db-wal
+
+# Backups (DB snapshots, not source)
+backups/
 
 # Backups / archives
 *.bak

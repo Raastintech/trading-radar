@@ -1,0 +1,12 @@
+[Unit]
+Description=gem-trader nightly data refresh and cache cleanup
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gem
+WorkingDirectory=/home/gem/trading-production
+EnvironmentFile=/home/gem/secure/trading.env
+ExecStart=/home/gem/trading-production/.venv/bin/python3 -u scripts/nightly_refresh.py
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-nightly.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-nightly.log

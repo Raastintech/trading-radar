@@ -1,0 +1,15 @@
+[Unit]
+Description=gem-trader premarket research cycle timer (08:00 ET Mon-Fri)
+Requires=gem-trader-premarket.service
+
+[Timer]
+# Fire 08:00 America/New_York Mon-Fri so forecast/alpha/overlay/delta are
+# <2h old when the US session opens at 09:30 ET.  Systemd honors the named
+# timezone across DST so this stays at 08:00 ET year-round.
+OnCalendar=Mon-Fri 08:00 America/New_York
+
+# If the host was off at fire time, run once on next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

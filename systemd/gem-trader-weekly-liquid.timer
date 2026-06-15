@@ -1,0 +1,15 @@
+[Unit]
+Description=gem-trader weekly liquid-top stock lens refresh timer (Sat 14:00 ET)
+Requires=gem-trader-weekly-liquid.service
+
+[Timer]
+# Fire 14:00 America/New_York every Saturday.  Markets are closed, no
+# competing FMP load.  Refreshes the top-80 ADV stock lens coverage tier
+# (curated union still applies) so off-curated tickers stop drifting past
+# a week of staleness.  Estimated cost: ~300-500 FMP calls per week.
+OnCalendar=Sat 14:00 America/New_York
+
+Persistent=true
+
+[Install]
+WantedBy=timers.target

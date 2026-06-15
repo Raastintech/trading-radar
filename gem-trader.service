@@ -1,0 +1,48 @@
+[Unit]
+Description=gem-trader — Algorithmic Trading Engine (5 Strategies)
+Documentation=https://github.com/your-repo/trading-production
+After=network-online.target
+Wants=network-online.target
+# Restart on failure, but not on clean exit (code 0)
+
+[Service]
+Type=simple
+User=gem
+Group=gem
+WorkingDirectory=/home/gem/trading-production
+
+# Load all credentials from .env — never hardcode them
+EnvironmentFile=/home/gem/trading-production/.env
+
+# Use the .venv python
+ExecStart=/home/gem/trading-production/.venv/bin/python /home/gem/trading-production/main.py
+
+# Restart policy
+Restart=on-failure
+RestartSec=30s
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+# Logging — goes to journald; also tee'd to LOG_DIR/gem-trader.log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gem-trader
+
+# Resource limits
+# Prevent runaway memory (28 GB RAM, allow up to 8 GB per process)
+MemoryMax=8G
+CPUQuota=80%
+
+# File descriptor limit (for SQLite + Parquet + Alpaca connections)
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/gem/trading-production/db
+ReadWritePaths=/home/gem/trading-production/cache
+ReadWritePaths=/home/gem/trading-production/logs
+
+[Install]
+WantedBy=multi-user.target

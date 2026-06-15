@@ -1,0 +1,14 @@
+[Unit]
+Description=gem-trader midday cache-only refresh (resolve + reports + delta + risk-telemetry)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gem
+WorkingDirectory=/home/gem/trading-production
+EnvironmentFile=/home/gem/secure/trading.env
+Environment=SNIPER_ENV_PATH=/home/gem/secure/trading.env
+ExecStart=/home/gem/trading-production/scripts/run_research_cycle.sh midday
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-midday.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-midday.log
+TimeoutStartSec=15min

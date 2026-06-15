@@ -1,0 +1,14 @@
+[Unit]
+Description=gem-trader weekly liquid-top stock lens refresh (top-80 ADV coverage tier)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gem
+WorkingDirectory=/home/gem/trading-production
+EnvironmentFile=/home/gem/secure/trading.env
+Environment=SNIPER_ENV_PATH=/home/gem/secure/trading.env
+ExecStart=/home/gem/trading-production/scripts/run_research_cycle.sh lenses-liquid 80
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-weekly-liquid.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-weekly-liquid.log
+TimeoutStartSec=45min

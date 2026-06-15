@@ -1,0 +1,1113 @@
+{
+  "generated_at": "2026-05-04T16:54:09+00:00",
+  "evidence_rigor_report_path": "docs/scorecards/evidence_rigor_report.json",
+  "data_sources": {
+    "trades_dir": "research/sleeves/trades",
+    "price_cache_backtest": "cache/backtest_prices",
+    "price_cache_live": "cache/prices",
+    "vix_parquet": "cache/research/regime_validation_vix.parquet"
+  },
+  "sleeves": {
+    "SHORT_A": {
+      "verdict_label": "WEAK_AND_THIN",
+      "n_closed": 13,
+      "n_total": 15,
+      "primary_horizon": 5,
+      "aggregate": {
+        "n_closed": 13,
+        "n_total": 15,
+        "avg_raw_pct": -4.343226230769231,
+        "avg_adj_pct": -4.854290538461539,
+        "avg_adj_ci": [
+          -8.036197461538462,
+          -1.684196076923077
+        ],
+        "wr": 30.76923076923077,
+        "wr_ci": [
+          7.6923076923076925,
+          61.53846153846154
+        ],
+        "expectancy": -4.854290538461539,
+        "expectancy_ci": [
+          -8.036197461538462,
+          -1.684196076923077
+        ],
+        "stop_hit_pct": 46.15384615384615,
+        "stop_hit_ci": [
+          23.076923076923077,
+          76.92307692307693
+        ],
+        "target_hit_pct": 0.0,
+        "target_hit_ci": [
+          0.0,
+          0.0
+        ],
+        "max_dd_pct": 52.19761695310932
+      },
+      "random_control": {
+        "n": 10,
+        "skipped": 0,
+        "wr_pct": 40.0,
+        "avg_raw_pct": -0.759805086228291,
+        "avg_adj_pct": -0.759805086228291,
+        "stop_hit_pct": 20.0,
+        "target_hit_pct": 0.0
+      },
+      "friction_sensitivity": [
+        {
+          "friction_rt_pct": 0.0,
+          "n": 2,
+          "avg_adj_pct": 1.9902000000000002,
+          "avg_adj_lo": 1.4991,
+          "avg_adj_hi": 2.4813,
+          "wr_pct": 100.0,
+          "wr_lo": 100.0,
+          "wr_hi": 100.0,
+          "expectancy_pct": 1.9902000000000002
+        },
+        {
+          "friction_rt_pct": 0.3,
+          "n": 2,
+          "avg_adj_pct": 1.6902000000000001,
+          "avg_adj_lo": 1.1991,
+          "avg_adj_hi": 2.1813000000000002,
+          "wr_pct": 100.0,
+          "wr_lo": 100.0,
+          "wr_hi": 100.0,
+          "expectancy_pct": 1.6902000000000001
+        },
+        {
+          "friction_rt_pct": 0.5,
+          "n": 2,
+          "avg_adj_pct": 1.4902000000000002,
+          "avg_adj_lo": 0.9991000000000001,
+          "avg_adj_hi": 1.9813,
+          "wr_pct": 100.0,
+          "wr_lo": 100.0,
+          "wr_hi": 100.0,
+          "expectancy_pct": 1.4902000000000002
+        },
+        {
+          "friction_rt_pct": 1.0,
+          "n": 2,
+          "avg_adj_pct": 0.9902000000000001,
+          "avg_adj_lo": 0.4991000000000001,
+          "avg_adj_hi": 1.4813,
+          "wr_pct": 100.0,
+          "wr_lo": 100.0,
+          "wr_hi": 100.0,
+          "expectancy_pct": 0.9902000000000001
+        }
+      ],
+      "analysis": {
+        "rows": [
+          {
+            "ticker": "ABT",
+            "sector": "Healthcare",
+            "entry_date": "2026-04-22",
+            "exit_date": "2026-04-27",
+            "horizon": 3,
+            "baseline_tag": "live_paper_db",
+            "entry_price": 92.72,
+            "raw_return_pct": -0.0863,
+            "adjusted_return_pct": -0.3863,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": null,
+            "borrow_pct": null,
+            "gap_risk_pct": null,
+            "intraday_range_pct": null,
+            "mae_pct_against": 1.42,
+            "mfe_pct_for": 2.16,
+            "spy_fwd_pct_same_window": null,
+            "spy_close": 708.72,
+            "spy_above_50dma": true,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": 9.27,
+            "spy_trend": "bullish (above 50/200dma)",
+            "qqq_20d_ret_pct": 11.26,
+            "vix": 18.92,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "ABT",
+            "sector": "Healthcare",
+            "entry_date": "2026-04-22",
+            "exit_date": "2026-04-29",
+            "horizon": 5,
+            "baseline_tag": "live_paper_db",
+            "entry_price": 92.72,
+            "raw_return_pct": 1.4991,
+            "adjusted_return_pct": 1.1991,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": null,
+            "borrow_pct": null,
+            "gap_risk_pct": null,
+            "intraday_range_pct": null,
+            "mae_pct_against": 2.23,
+            "mfe_pct_for": 2.16,
+            "spy_fwd_pct_same_window": null,
+            "spy_close": 708.72,
+            "spy_above_50dma": true,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": 9.27,
+            "spy_trend": "bullish (above 50/200dma)",
+            "qqq_20d_ret_pct": 11.26,
+            "vix": 18.92,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "ABT",
+            "sector": "Healthcare",
+            "entry_date": "2026-04-22",
+            "exit_date": null,
+            "horizon": 10,
+            "baseline_tag": "live_paper_db",
+            "entry_price": 92.72,
+            "raw_return_pct": null,
+            "adjusted_return_pct": null,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": null,
+            "borrow_pct": null,
+            "gap_risk_pct": null,
+            "intraday_range_pct": null,
+            "mae_pct_against": 2.23,
+            "mfe_pct_for": 4.44,
+            "spy_fwd_pct_same_window": null,
+            "spy_close": 708.72,
+            "spy_above_50dma": true,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": 9.27,
+            "spy_trend": "bullish (above 50/200dma)",
+            "qqq_20d_ret_pct": 11.26,
+            "vix": 18.92,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "PEGA",
+            "sector": "Technology",
+            "entry_date": "2026-04-23",
+            "exit_date": "2026-04-28",
+            "horizon": 3,
+            "baseline_tag": "live_paper_db",
+            "entry_price": 37.48,
+            "raw_return_pct": 4.0555,
+            "adjusted_return_pct": 3.7555,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": null,
+            "borrow_pct": null,
+            "gap_risk_pct": null,
+            "intraday_range_pct": null,
+            "mae_pct_against": 1.63,
+            "mfe_pct_for": 8.39,
+            "spy_fwd_pct_same_window": null,
+            "spy_close": 708.72,
+            "spy_above_50dma": true,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": 9.27,
+            "spy_trend": "bullish (above 50/200dma)",
+            "qqq_20d_ret_pct": 11.26,
+            "vix": 19.31,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "PEGA",
+            "sector": "Technology",
+            "entry_date": "2026-04-23",
+            "exit_date": "2026-04-30",
+            "horizon": 5,
+            "baseline_tag": "live_paper_db",
+            "entry_price": 37.48,
+            "raw_return_pct": 2.4813,
+            "adjusted_return_pct": 2.1813,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": null,
+            "borrow_pct": null,
+            "gap_risk_pct": null,
+            "intraday_range_pct": null,
+            "mae_pct_against": 1.63,
+            "mfe_pct_for": 8.39,
+            "spy_fwd_pct_same_window": null,
+            "spy_close": 708.72,
+            "spy_above_50dma": true,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": 9.27,
+            "spy_trend": "bullish (above 50/200dma)",
+            "qqq_20d_ret_pct": 11.26,
+            "vix": 19.31,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "PEGA",
+            "sector": "Technology",
+            "entry_date": "2026-04-23",
+            "exit_date": null,
+            "horizon": 10,
+            "baseline_tag": "live_paper_db",
+            "entry_price": 37.48,
+            "raw_return_pct": null,
+            "adjusted_return_pct": null,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": null,
+            "borrow_pct": null,
+            "gap_risk_pct": null,
+            "intraday_range_pct": null,
+            "mae_pct_against": 1.95,
+            "mfe_pct_for": 8.39,
+            "spy_fwd_pct_same_window": null,
+            "spy_close": 708.72,
+            "spy_above_50dma": true,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": 9.27,
+            "spy_trend": "bullish (above 50/200dma)",
+            "qqq_20d_ret_pct": 11.26,
+            "vix": 19.31,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "VST",
+            "sector": "Utilities",
+            "entry_date": "2024-07-25",
+            "exit_date": "2024-07-31",
+            "horizon": 6,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 69.62,
+            "raw_return_pct": -10.0,
+            "adjusted_return_pct": -10.716438,
+            "stop_hit": true,
+            "target_hit": false,
+            "score": 67.8,
+            "borrow_pct": 0.0164,
+            "gap_risk_pct": 3.2095,
+            "intraday_range_pct": 10.2089,
+            "mae_pct_against": null,
+            "mfe_pct_for": null,
+            "spy_fwd_pct_same_window": -1.024,
+            "spy_close": 527.33,
+            "spy_above_50dma": false,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": -1.3,
+            "spy_trend": "mixed",
+            "qqq_20d_ret_pct": -4.6,
+            "vix": 18.46,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "HON",
+            "sector": "Industrials",
+            "entry_date": "2024-07-25",
+            "exit_date": "2024-09-06",
+            "horizon": 43,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 183.83,
+            "raw_return_pct": 1.599304,
+            "adjusted_return_pct": 1.281495,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": 61.0,
+            "borrow_pct": 0.1178,
+            "gap_risk_pct": 0.4076,
+            "intraday_range_pct": 2.3466,
+            "mae_pct_against": null,
+            "mfe_pct_for": null,
+            "spy_fwd_pct_same_window": 6.199,
+            "spy_close": 527.33,
+            "spy_above_50dma": false,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": -1.3,
+            "spy_trend": "mixed",
+            "qqq_20d_ret_pct": -4.6,
+            "vix": 18.46,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "MSTR",
+            "sector": "Technology (Bitcoin-proxy)",
+            "entry_date": "2025-02-24",
+            "exit_date": "2025-03-05",
+            "horizon": 9,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 282.53,
+            "raw_return_pct": -10.0,
+            "adjusted_return_pct": -10.724658,
+            "stop_hit": true,
+            "target_hit": false,
+            "score": 62.3,
+            "borrow_pct": 0.0247,
+            "gap_risk_pct": 2.9305,
+            "intraday_range_pct": 11.5106,
+            "mae_pct_against": null,
+            "mfe_pct_for": null,
+            "spy_fwd_pct_same_window": -3.566,
+            "spy_close": 588.67,
+            "spy_above_50dma": false,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": -1.77,
+            "spy_trend": "mixed",
+            "qqq_20d_ret_pct": -1.84,
+            "vix": 18.98,
+            "vix_bucket": "normal (15-20)"
+          },
+          {
+            "ticker": "VST",
+            "sector": "Utilities",
+            "entry_date": "2025-03-03",
+            "exit_date": "2025-03-24",
+            "horizon": 21,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 123.11,
+            "raw_return_pct": -10.0,
+            "adjusted_return_pct": -10.757534,
+            "stop_hit": true,
+            "target_hit": false,
+            "score": 67.8,
+            "borrow_pct": 0.0575,
+            "gap_risk_pct": 3.6867,
+            "intraday_range_pct": 17.8193,
+            "mae_pct_against": null,
+            "mfe_pct_for": null,
+            "spy_fwd_pct_same_window": -3.616,
+            "spy_close": 575.42,
+            "spy_above_50dma": false,
+            "spy_above_200dma": true,
+            "spy_20d_ret_pct": -3.0,
+            "spy_trend": "mixed",
+            "qqq_20d_ret_pct": -4.83,
+            "vix": 22.78,
+            "vix_bucket": "elevated (20-30)"
+          },
+          {
+            "ticker": "GS",
+            "sector": "Financials",
+            "entry_date": "2025-03-10",
+            "exit_date": "2025-03-25",
+            "horizon": 15,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 520.87,
+            "raw_return_pct": -10.0,
+            "adjusted_return_pct": -10.741096,
+            "stop_hit": true,
+            "target_hit": false,
+            "score": 61.0,
+            "borrow_pct": 0.0411,
+            "gap_risk_pct": 1.2642,
+            "intraday_range_pct": 6.0148,
+            "mae_pct_against": 10.4,
+            "mfe_pct_for": 2.18,
+            "spy_fwd_pct_same_window": 0.089,
+            "spy_close": 552.56,
+            "spy_above_50dma": false,
+            "spy_above_200dma": false,
+            "spy_20d_ret_pct": -6.69,
+            "spy_trend": "bearish (below 50/200dma)",
+            "qqq_20d_ret_pct": -9.6,
+            "vix": 27.86,
+            "vix_bucket": "elevated (20-30)"
+          },
+          {
+            "ticker": "JPM",
+            "sector": "Financials",
+            "entry_date": "2025-03-10",
+            "exit_date": "2025-04-24",
+            "horizon": 45,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 226.4,
+            "raw_return_pct": -5.998233,
+            "adjusted_return_pct": -6.321521,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": 61.0,
+            "borrow_pct": 0.1233,
+            "gap_risk_pct": 0.6454,
+            "intraday_range_pct": 4.8749,
+            "mae_pct_against": 9.63,
+            "mfe_pct_for": 12.39,
+            "spy_fwd_pct_same_window": 4.999,
+            "spy_close": 552.56,
+            "spy_above_50dma": false,
+            "spy_above_200dma": false,
+            "spy_20d_ret_pct": -6.69,
+            "spy_trend": "bearish (below 50/200dma)",
+            "qqq_20d_ret_pct": -9.6,
+            "vix": 27.86,
+            "vix_bucket": "elevated (20-30)"
+          },
+          {
+            "ticker": "HON",
+            "sector": "Industrials",
+            "entry_date": "2025-04-07",
+            "exit_date": "2025-04-29",
+            "horizon": 22,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 172.91,
+            "raw_return_pct": -10.0,
+            "adjusted_return_pct": -10.760274,
+            "stop_hit": true,
+            "target_hit": false,
+            "score": 61.0,
+            "borrow_pct": 0.0603,
+            "gap_risk_pct": 0.8602,
+            "intraday_range_pct": 7.2884,
+            "mae_pct_against": null,
+            "mfe_pct_for": null,
+            "spy_fwd_pct_same_window": 12.03,
+            "spy_close": 498.66,
+            "spy_above_50dma": false,
+            "spy_above_200dma": false,
+            "spy_20d_ret_pct": -9.75,
+            "spy_trend": "bearish (below 50/200dma)",
+            "qqq_20d_ret_pct": -10.24,
+            "vix": 46.98,
+            "vix_bucket": "high (>=30)"
+          },
+          {
+            "ticker": "ZTS",
+            "sector": "Healthcare",
+            "entry_date": "2025-04-07",
+            "exit_date": "2025-05-12",
+            "horizon": 35,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 146.33,
+            "raw_return_pct": -10.0,
+            "adjusted_return_pct": -10.79589,
+            "stop_hit": true,
+            "target_hit": false,
+            "score": 61.0,
+            "borrow_pct": 0.0959,
+            "gap_risk_pct": 0.5876,
+            "intraday_range_pct": 4.6675,
+            "mae_pct_against": null,
+            "mfe_pct_for": null,
+            "spy_fwd_pct_same_window": 16.524,
+            "spy_close": 498.66,
+            "spy_above_50dma": false,
+            "spy_above_200dma": false,
+            "spy_20d_ret_pct": -9.75,
+            "spy_trend": "bearish (below 50/200dma)",
+            "qqq_20d_ret_pct": -10.24,
+            "vix": 46.98,
+            "vix_bucket": "high (>=30)"
+          },
+          {
+            "ticker": "EL",
+            "sector": "Consumer Staples",
+            "entry_date": "2026-03-23",
+            "exit_date": "2026-05-01",
+            "horizon": 39,
+            "baseline_tag": "short_history_v1",
+            "entry_price": 79.29,
+            "raw_return_pct": -0.012612,
+            "adjusted_return_pct": -0.319461,
+            "stop_hit": false,
+            "target_hit": false,
+            "score": 61.0,
+            "borrow_pct": 0.1068,
+            "gap_risk_pct": 1.2844,
+            "intraday_range_pct": 6.9568,
+            "mae_pct_against": 14.84,
+            "mfe_pct_for": 16.48,
+            "spy_fwd_pct_same_window": 8.139,
+            "spy_close": 655.38,
+            "spy_above_50dma": false,
+            "spy_above_200dma": false,
+            "spy_20d_ret_pct": -3.69,
+            "spy_trend": "bearish (below 50/200dma)",
+            "qqq_20d_ret_pct": -2.11,
+            "vix": 26.15,
+            "vix_bucket": "elevated (20-30)"
+          }
+        ],
+        "stop_hit_count": 6,
+        "n_closed": 13,
+        "n_open": 2,
+        "winners_n": 4,
+        "losers_n": 9,
+        "by_baseline_cohort": {
+          "live_paper_db": {
+            "n_total": 6,
+            "n_closed": 4,
+            "wr_pct": 75.0,
+            "stop_hit_pct": 0.0,
+            "avg_adj_pct": 1.687
+          },
+          "short_history_v1": {
+            "n_total": 9,
+            "n_closed": 9,
+            "wr_pct": 11.11,
+            "stop_hit_pct": 66.67,
+            "avg_adj_pct": -7.762
+          }
+        },
+        "spy_total_return_during_history_window_pct": 24.28,
+        "history_window": {
+          "start": "2024-07-25",
+          "end": "2026-03-23"
+        },
+        "winners_vs_losers": {
+          "winners": {
+            "n": 4,
+            "tickers": [
+              "ABT",
+              "HON",
+              "PEGA"
+            ],
+            "sectors": [
+              "Healthcare",
+              "Industrials",
+              "Technology"
+            ],
+            "horizon_avg": 14.0,
+            "horizon_min": 3,
+            "horizon_max": 43,
+            "score_avg": 61.0,
+            "borrow_avg": 0.118,
+            "gap_risk_avg": 0.408,
+            "intraday_range_avg": 2.347,
+            "spy_20d_avg_pct": 6.627,
+            "spy_above_200dma_count": 4,
+            "vix_avg": 19.0,
+            "mae_against_avg_pct": 1.83
+          },
+          "losers": {
+            "n": 9,
+            "tickers": [
+              "ABT",
+              "EL",
+              "GS",
+              "HON",
+              "JPM",
+              "MSTR",
+              "VST",
+              "ZTS"
+            ],
+            "sectors": [
+              "Consumer Staples",
+              "Financials",
+              "Healthcare",
+              "Industrials",
+              "Technology (Bitcoin-proxy)",
+              "Utilities"
+            ],
+            "horizon_avg": 21.667,
+            "horizon_min": 3,
+            "horizon_max": 45,
+            "score_avg": 62.862,
+            "borrow_avg": 0.066,
+            "gap_risk_avg": 1.809,
+            "intraday_range_avg": 8.668,
+            "spy_20d_avg_pct": -3.708,
+            "spy_above_200dma_count": 4,
+            "vix_avg": 28.33,
+            "mae_against_avg_pct": 9.072
+          }
+        }
+      }
+    },
+    "VOYAGER_PAPER": {
+      "verdict_label": "INDISTINGUISHABLE_FROM_RANDOM",
+      "n_closed": 64,
+      "n_total": 64,
+      "primary_horizon": 252,
+      "aggregate": {
+        "n_closed": 64,
+        "n_total": 64,
+        "avg_raw_pct": 9.5175,
+        "avg_adj_pct": 9.2175,
+        "avg_adj_ci": [
+          3.70171875,
+          15.43984375
+        ],
+        "wr": 59.375,
+        "wr_ci": [
+          46.875,
+          70.3125
+        ],
+        "expectancy": 9.2175,
+        "expectancy_ci": [
+          3.70171875,
+          15.43984375
+        ],
+        "max_dd_pct": 64.47362825956169
+      },
+      "random_control": {
+        "n": 80,
+        "skipped": 0,
+        "wr_pct": 48.75,
+        "avg_raw_pct": 6.422648915985475,
+        "avg_adj_pct": 6.422648915985475,
+        "stop_hit_pct": 47.5,
+        "target_hit_pct": 31.25
+      },
+      "friction_sensitivity": [
+        {
+          "friction_rt_pct": 0.0,
+          "n": 16,
+          "avg_adj_pct": 20.52875,
+          "avg_adj_lo": 3.6412500000000003,
+          "avg_adj_hi": 38.483125,
+          "wr_pct": 62.5,
+          "wr_lo": 37.5,
+          "wr_hi": 87.5,
+          "expectancy_pct": 20.52875
+        },
+        {
+          "friction_rt_pct": 0.3,
+          "n": 16,
+          "avg_adj_pct": 20.22875,
+          "avg_adj_lo": 3.3412500000000005,
+          "avg_adj_hi": 38.183125,
+          "wr_pct": 62.5,
+          "wr_lo": 37.5,
+          "wr_hi": 87.5,
+          "expectancy_pct": 20.22875
+        },
+        {
+          "friction_rt_pct": 0.5,
+          "n": 16,
+          "avg_adj_pct": 20.02875,
+          "avg_adj_lo": 3.1412500000000003,
+          "avg_adj_hi": 37.983125,
+          "wr_pct": 62.5,
+          "wr_lo": 37.5,
+          "wr_hi": 87.5,
+          "expectancy_pct": 20.02875
+        },
+        {
+          "friction_rt_pct": 1.0,
+          "n": 16,
+          "avg_adj_pct": 19.52875,
+          "avg_adj_lo": 2.6412500000000003,
+          "avg_adj_hi": 37.483125,
+          "wr_pct": 56.25,
+          "wr_lo": 31.25,
+          "wr_hi": 81.25,
+          "expectancy_pct": 19.52875
+        }
+      ],
+      "analysis": {
+        "n_unique_entries": 16,
+        "by_horizon": {
+          "30": {
+            "n": 16,
+            "wr_pct": 56.25,
+            "avg_adj_pct": 0.996,
+            "avg_spy_fwd_pct_same_window": 4.777,
+            "delta_vs_spy_pct": -3.781
+          },
+          "90": {
+            "n": 16,
+            "wr_pct": 56.25,
+            "avg_adj_pct": 7.393,
+            "avg_spy_fwd_pct_same_window": 9.597,
+            "delta_vs_spy_pct": -2.204
+          },
+          "130": {
+            "n": 16,
+            "wr_pct": 62.5,
+            "avg_adj_pct": 8.253,
+            "avg_spy_fwd_pct_same_window": 10.401,
+            "delta_vs_spy_pct": -2.148
+          },
+          "252": {
+            "n": 16,
+            "wr_pct": 62.5,
+            "avg_adj_pct": 20.229,
+            "avg_spy_fwd_pct_same_window": 22.54,
+            "delta_vs_spy_pct": -2.311
+          }
+        },
+        "ticker_concentration": {
+          "n_unique_tickers": 11,
+          "top_tickers": [
+            {
+              "ticker": "GE",
+              "n": 4,
+              "sum_adj_pct": 227.35,
+              "avg_adj_pct": 56.84
+            },
+            {
+              "ticker": "XOM",
+              "n": 12,
+              "sum_adj_pct": 207.76,
+              "avg_adj_pct": 17.31
+            },
+            {
+              "ticker": "COST",
+              "n": 4,
+              "sum_adj_pct": 117.35,
+              "avg_adj_pct": 29.34
+            },
+            {
+              "ticker": "LLY",
+              "n": 4,
+              "sum_adj_pct": 98.43,
+              "avg_adj_pct": 24.61
+            },
+            {
+              "ticker": "ABBV",
+              "n": 8,
+              "sum_adj_pct": 69.39,
+              "avg_adj_pct": 8.67
+            }
+          ],
+          "top3_share_of_total_pct": 93.6,
+          "bottom3_share_of_total_pct": -35.4
+        },
+        "by_sector": {
+          "Consumer Staples": {
+            "n": 8,
+            "avg_adj_pct": 19.234,
+            "wr_pct": 100.0
+          },
+          "Energy": {
+            "n": 20,
+            "avg_adj_pct": 7.485,
+            "wr_pct": 50.0
+          },
+          "Healthcare": {
+            "n": 24,
+            "avg_adj_pct": 8.737,
+            "wr_pct": 66.67
+          },
+          "Industrials": {
+            "n": 4,
+            "avg_adj_pct": 56.837,
+            "wr_pct": 100.0
+          },
+          "Technology": {
+            "n": 4,
+            "avg_adj_pct": -22.447,
+            "wr_pct": 0.0
+          },
+          "Unknown": {
+            "n": 4,
+            "avg_adj_pct": -15.223,
+            "wr_pct": 0.0
+          }
+        },
+        "regime_split": {
+          "spy_bull_at_entry_n": 40,
+          "spy_bull_avg_adj_pct": 7.894,
+          "spy_bear_at_entry_n": 24,
+          "spy_bear_avg_adj_pct": 11.424
+        }
+      }
+    },
+    "SNIPER_V6": {
+      "verdict_label": "INDISTINGUISHABLE_FROM_RANDOM",
+      "n_closed": 225,
+      "n_total": 225,
+      "primary_horizon": 10,
+      "aggregate": {
+        "n_closed": 225,
+        "n_total": 225,
+        "avg_raw_pct": 0.8787339155555555,
+        "avg_adj_pct": 0.5787339155555556,
+        "avg_adj_ci": [
+          -0.035709035555555546,
+          1.2156702533333332
+        ],
+        "wr": 47.55555555555556,
+        "wr_ci": [
+          40.88888888888889,
+          54.22222222222223
+        ],
+        "expectancy": 0.5787339155555556,
+        "expectancy_ci": [
+          -0.035709035555555546,
+          1.2156702533333332
+        ],
+        "stop_hit_pct": 40.44444444444444,
+        "stop_hit_ci": [
+          34.22222222222222,
+          46.666666666666664
+        ],
+        "target_hit_pct": 12.88888888888889,
+        "target_hit_ci": [
+          8.444444444444445,
+          17.333333333333336
+        ],
+        "max_dd_pct": 48.94127400779291
+      },
+      "random_control": {
+        "n": 375,
+        "skipped": 0,
+        "wr_pct": 42.13333333333333,
+        "avg_raw_pct": 0.463592100352063,
+        "avg_adj_pct": 0.16359210035206298,
+        "stop_hit_pct": 48.53333333333333,
+        "target_hit_pct": 13.866666666666665
+      },
+      "friction_sensitivity": [
+        {
+          "friction_rt_pct": 0.0,
+          "n": 75,
+          "avg_adj_pct": 0.8667949466666666,
+          "avg_adj_lo": -0.23655725333333336,
+          "avg_adj_hi": 2.023524453333333,
+          "wr_pct": 50.66666666666667,
+          "wr_lo": 38.666666666666664,
+          "wr_hi": 62.66666666666667,
+          "expectancy_pct": 0.8667949466666666
+        },
+        {
+          "friction_rt_pct": 0.3,
+          "n": 75,
+          "avg_adj_pct": 0.5667949466666667,
+          "avg_adj_lo": -0.5365572533333333,
+          "avg_adj_hi": 1.7235244533333332,
+          "wr_pct": 50.66666666666667,
+          "wr_lo": 38.666666666666664,
+          "wr_hi": 62.66666666666667,
+          "expectancy_pct": 0.5667949466666667
+        },
+        {
+          "friction_rt_pct": 0.5,
+          "n": 75,
+          "avg_adj_pct": 0.3667949466666666,
+          "avg_adj_lo": -0.7365572533333334,
+          "avg_adj_hi": 1.5235244533333332,
+          "wr_pct": 48.0,
+          "wr_lo": 36.0,
+          "wr_hi": 60.0,
+          "expectancy_pct": 0.3667949466666666
+        },
+        {
+          "friction_rt_pct": 1.0,
+          "n": 75,
+          "avg_adj_pct": -0.13320505333333338,
+          "avg_adj_lo": -1.2365572533333333,
+          "avg_adj_hi": 1.0235244533333332,
+          "wr_pct": 42.66666666666667,
+          "wr_lo": 30.666666666666664,
+          "wr_hi": 54.666666666666664,
+          "expectancy_pct": -0.13320505333333338
+        }
+      ],
+      "analysis": {
+        "n_unique_entries": 75,
+        "by_score_bucket": {
+          "score_0-79": {
+            "n": 42,
+            "wr_pct": 47.62,
+            "avg_adj_pct": -0.049,
+            "stop_hit_pct": 45.24,
+            "target_hit_pct": 11.9
+          },
+          "score_80-89": {
+            "n": 75,
+            "wr_pct": 52.0,
+            "avg_adj_pct": 0.793,
+            "stop_hit_pct": 33.33,
+            "target_hit_pct": 10.67
+          },
+          "score_90-100": {
+            "n": 108,
+            "wr_pct": 44.44,
+            "avg_adj_pct": 0.674,
+            "stop_hit_pct": 43.52,
+            "target_hit_pct": 14.81
+          }
+        },
+        "by_horizon": {
+          "5": {
+            "n": 75,
+            "wr_pct": 49.33,
+            "avg_adj_pct": 0.462,
+            "stop_hit_pct": 28.0,
+            "target_hit_pct": 2.67
+          },
+          "10": {
+            "n": 75,
+            "wr_pct": 50.67,
+            "avg_adj_pct": 0.567,
+            "stop_hit_pct": 42.67,
+            "target_hit_pct": 13.33
+          },
+          "20": {
+            "n": 75,
+            "wr_pct": 42.67,
+            "avg_adj_pct": 0.707,
+            "stop_hit_pct": 50.67,
+            "target_hit_pct": 22.67
+          }
+        },
+        "by_year": {
+          "2020": {
+            "n": 60,
+            "wr_pct": 40.0,
+            "avg_adj_pct": 0.298,
+            "stop_hit_pct": 51.67,
+            "target_hit_pct": 20.0
+          },
+          "2021": {
+            "n": 48,
+            "wr_pct": 56.25,
+            "avg_adj_pct": 1.31,
+            "stop_hit_pct": 37.5,
+            "target_hit_pct": 12.5
+          },
+          "2022": {
+            "n": 9,
+            "wr_pct": 33.33,
+            "avg_adj_pct": 0.156,
+            "stop_hit_pct": 66.67,
+            "target_hit_pct": 22.22
+          },
+          "2023": {
+            "n": 63,
+            "wr_pct": 50.79,
+            "avg_adj_pct": 1.129,
+            "stop_hit_pct": 31.75,
+            "target_hit_pct": 6.35
+          },
+          "2024": {
+            "n": 45,
+            "wr_pct": 46.67,
+            "avg_adj_pct": -0.513,
+            "stop_hit_pct": 35.56,
+            "target_hit_pct": 11.11
+          }
+        },
+        "by_vix_bucket": {
+          "low (<15)": {
+            "n": 69,
+            "avg_adj_pct": -0.256,
+            "wr_pct": 47.83
+          },
+          "normal (15-20)": {
+            "n": 87,
+            "avg_adj_pct": 1.51,
+            "wr_pct": 54.02
+          },
+          "elevated (20-30)": {
+            "n": 69,
+            "avg_adj_pct": 0.239,
+            "wr_pct": 39.13
+          }
+        },
+        "by_sector": {
+          "Communications": {
+            "n": 24,
+            "wr_pct": 50.0,
+            "avg_adj_pct": 1.713,
+            "stop_hit_pct": 45.83,
+            "target_hit_pct": 12.5
+          },
+          "Consumer Discretionary": {
+            "n": 27,
+            "wr_pct": 14.81,
+            "avg_adj_pct": -2.883,
+            "stop_hit_pct": 62.96,
+            "target_hit_pct": 0.0
+          },
+          "Consumer Staples": {
+            "n": 15,
+            "wr_pct": 20.0,
+            "avg_adj_pct": -1.107,
+            "stop_hit_pct": 53.33,
+            "target_hit_pct": 0.0
+          },
+          "Energy": {
+            "n": 3,
+            "wr_pct": 100.0,
+            "avg_adj_pct": 6.039,
+            "stop_hit_pct": 0.0,
+            "target_hit_pct": 66.67
+          },
+          "Financials": {
+            "n": 21,
+            "wr_pct": 42.86,
+            "avg_adj_pct": 0.048,
+            "stop_hit_pct": 47.62,
+            "target_hit_pct": 19.05
+          },
+          "Healthcare": {
+            "n": 18,
+            "wr_pct": 72.22,
+            "avg_adj_pct": 3.59,
+            "stop_hit_pct": 16.67,
+            "target_hit_pct": 11.11
+          },
+          "Technology": {
+            "n": 60,
+            "wr_pct": 51.67,
+            "avg_adj_pct": 0.757,
+            "stop_hit_pct": 36.67,
+            "target_hit_pct": 13.33
+          },
+          "Unknown": {
+            "n": 57,
+            "wr_pct": 56.14,
+            "avg_adj_pct": 0.954,
+            "stop_hit_pct": 35.09,
+            "target_hit_pct": 17.54
+          }
+        },
+        "by_vol_ratio": {
+          "vol_<1.5": {
+            "n": 42,
+            "wr_pct": 66.67,
+            "avg_adj_pct": 1.556,
+            "stop_hit_pct": 21.43,
+            "target_hit_pct": 16.67
+          },
+          "vol_1.5-2": {
+            "n": 114,
+            "wr_pct": 40.35,
+            "avg_adj_pct": -0.111,
+            "stop_hit_pct": 47.37,
+            "target_hit_pct": 9.65
+          },
+          "vol_2+": {
+            "n": 69,
+            "wr_pct": 47.83,
+            "avg_adj_pct": 1.123,
+            "stop_hit_pct": 40.58,
+            "target_hit_pct": 15.94
+          }
+        },
+        "ticker_concentration": {
+          "n_unique_tickers": 42,
+          "top_5": [
+            {
+              "ticker": "NVDA",
+              "n": 15,
+              "sum_adj_pct": 69.35,
+              "avg_adj_pct": 4.62
+            },
+            {
+              "ticker": "LLY",
+              "n": 9,
+              "sum_adj_pct": 24.56,
+              "avg_adj_pct": 2.73
+            },
+            {
+              "ticker": "REGN",
+              "n": 6,
+              "sum_adj_pct": 24.53,
+              "avg_adj_pct": 4.09
+            },
+            {
+              "ticker": "LOW",
+              "n": 3,
+              "sum_adj_pct": 24.06,
+              "avg_adj_pct": 8.02
+            },
+            {
+              "ticker": "MRVL",
+              "n": 3,
+              "sum_adj_pct": 22.2,
+              "avg_adj_pct": 7.4
+            }
+          ]
+        }
+      }
+    }
+  }
+}

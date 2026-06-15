@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-05-05T05:10:21+00:00",
+  "phase": "12B \u2014 SNIPER H3 forward OOS report",
+  "db_path": "/home/gem/trading-production/db/trading.db",
+  "since": null,
+  "aux_h3_column_present": true,
+  "status_banner": "SNIPER H3 OOS: open 0 \u00b7 closed 0 \u00b7 insufficient until 20\u201330 closed",
+  "thresholds": {
+    "target_closed_lower": 20,
+    "target_closed_upper": 30,
+    "wr_target_pct": 55.0
+  },
+  "sniper_total": {
+    "n_total": 0,
+    "n_closed": 0,
+    "n_open": 0,
+    "wr_pct": null,
+    "avg_adj_pct": null,
+    "stop_hit_pct": null,
+    "target_hit_pct": null,
+    "by_status_count": {},
+    "by_signal_status": {},
+    "tickers": []
+  },
+  "h3_candidates": {
+    "n_total": 0,
+    "n_closed": 0,
+    "n_open": 0,
+    "wr_pct": null,
+    "avg_adj_pct": null,
+    "stop_hit_pct": null,
+    "target_hit_pct": null,
+    "by_status_count": {},
+    "by_signal_status": {},
+    "tickers": []
+  },
+  "non_h3_sniper": {
+    "n_total": 0,
+    "n_closed": 0,
+    "n_open": 0,
+    "wr_pct": null,
+    "avg_adj_pct": null,
+    "stop_hit_pct": null,
+    "target_hit_pct": null,
+    "by_status_count": {},
+    "by_signal_status": {},
+    "tickers": []
+  },
+  "gate_fail_attribution": {
+    "score_80_89_fail": 0,
+    "vix_15_20_fail": 0,
+    "vol_ratio_lt_1_5_fail": 0,
+    "sector_in_HC_COMM_TECH_fail": 0
+  },
+  "missing_metadata_counts": {
+    "daily_entry_validator_state": 0,
+    "market_forecast_regime": 0,
+    "market_forecast_bias_5d": 0,
+    "market_forecast_bias_10d": 0,
+    "market_posture_bias": 0,
+    "options_quality": 0,
+    "stock_extension_state": 0,
+    "alpha_discovery_state": 0,
+    "__rows_with_aux_h3": 0,
+    "__rows_without_aux_h3": 0
+  },
+  "limitations": "Forward instrumentation only. Phase 12B does not change SNIPER thresholds, scanner logic, paper governance, execution, sleeve status, or dashboard scoring. The cohort verdict is INSUFFICIENT_DATA until n_closed \u2265 20\u201330, at which point research/sniper_h3_validation.py should be re-run on the live cohort."
+}

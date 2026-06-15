@@ -1,0 +1,33 @@
+[Unit]
+Description=gem-trader — session-aware trading daemon
+Documentation=file:///home/gem/trading-production/docs/runtime_operations.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gem
+Group=gem
+WorkingDirectory=/home/gem/trading-production
+
+# Load credentials from the secure file (never in the repo)
+EnvironmentFile=/home/gem/secure/trading.env
+
+ExecStart=/home/gem/trading-production/.venv/bin/python3 -u main.py
+
+# Graceful shutdown: SIGTERM first, then SIGKILL after 30 s
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+# Restart on any failure; wait 30 s before retry
+Restart=on-failure
+RestartSec=30s
+
+# stdout/stderr go to the journal; the Python FileHandler owns the log file.
+# This prevents duplicate lines (FileHandler writes to file, StreamHandler
+# writes to stdout which systemd would also redirect to the same file).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

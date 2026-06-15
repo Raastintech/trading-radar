@@ -1,0 +1,308 @@
+{
+  "generated_at": "2026-05-04T23:18:00+00:00",
+  "phase": "12A \u2014 SNIPER H3 narrow-cohort validation",
+  "hypothesis": {
+    "id": "H3",
+    "definition": {
+      "score_band": [
+        80.0,
+        90.0
+      ],
+      "vix_band_at_entry": [
+        15.0,
+        20.0
+      ],
+      "vol_ratio_max": 1.5,
+      "sectors_allowed": [
+        "Communications",
+        "Healthcare",
+        "Technology"
+      ]
+    },
+    "pass_criteria": {
+      "n_min": 30,
+      "wr_min_pct": 55.0,
+      "avg_adj_ci_lo_min": 0.0,
+      "wr_delta_vs_random_min_pp": 5.0,
+      "friction_resilience": "avg adj > 0 at 1.00% RT (preferred) or at 0.50% RT (marginal)",
+      "live_oos": "future 6-month confirmation required before any promotion"
+    }
+  },
+  "data_sources": {
+    "trades_csv": "research/sleeves/trades/SNIPER_V6.csv",
+    "vix_parquet": "cache/research/regime_validation_vix.parquet",
+    "sector_map": "research/sleeve_failure_autopsy.py:_SECTOR_MAP"
+  },
+  "filter_funnel": {
+    "all_rows": 225,
+    "closed": 225,
+    "score_80_89": 75,
+    "vix_15_20": 87,
+    "vol_ratio_lt_1_5": 42,
+    "sector_HC_or_COMM_or_TECH": 102,
+    "score_AND_vix": 33,
+    "score_AND_vix_AND_vol": 6,
+    "all_four_gates": 3,
+    "all_four_gates_closed": 3
+  },
+  "h3_cohort_overview": {
+    "n_total_rows": 3,
+    "n_closed_rows": 3,
+    "n_unique_entries": 1,
+    "horizons_present": [
+      5,
+      10,
+      20
+    ],
+    "date_range": {
+      "min": "2021-10-26",
+      "max": "2021-10-26"
+    }
+  },
+  "h3_cohort_stats": {
+    "n": 3,
+    "avg_adj_pct": 3.455,
+    "avg_adj_ci": [
+      0.291,
+      5.888
+    ],
+    "wr_pct": 100.0,
+    "wr_ci": [
+      100.0,
+      100.0
+    ],
+    "stop_hit_pct": 0.0,
+    "stop_hit_ci": [
+      0.0,
+      0.0
+    ],
+    "target_hit_pct": 33.33,
+    "target_hit_ci": [
+      0.0,
+      100.0
+    ],
+    "max_dd_pct": 0.0
+  },
+  "h3_random_control": {
+    "n": 15,
+    "skipped": 0,
+    "wr_pct": 33.33333333333333,
+    "avg_raw_pct": 0.5523973351154797,
+    "avg_adj_pct": 0.2523973351154799,
+    "stop_hit_pct": 60.0,
+    "target_hit_pct": 33.33333333333333
+  },
+  "h3_friction_sensitivity": [
+    {
+      "friction_rt_pct": 0.0,
+      "n": 3,
+      "avg_adj_pct": 3.755,
+      "avg_adj_ci": [
+        0.591,
+        6.188
+      ],
+      "wr_pct": 100.0,
+      "wr_ci": [
+        100.0,
+        100.0
+      ]
+    },
+    {
+      "friction_rt_pct": 0.3,
+      "n": 3,
+      "avg_adj_pct": 3.455,
+      "avg_adj_ci": [
+        0.291,
+        5.888
+      ],
+      "wr_pct": 100.0,
+      "wr_ci": [
+        100.0,
+        100.0
+      ]
+    },
+    {
+      "friction_rt_pct": 0.5,
+      "n": 3,
+      "avg_adj_pct": 3.255,
+      "avg_adj_ci": [
+        0.091,
+        5.688
+      ],
+      "wr_pct": 100.0,
+      "wr_ci": [
+        100.0,
+        100.0
+      ]
+    },
+    {
+      "friction_rt_pct": 1.0,
+      "n": 3,
+      "avg_adj_pct": 2.755,
+      "avg_adj_ci": [
+        -0.409,
+        5.188
+      ],
+      "wr_pct": 66.67,
+      "wr_ci": [
+        0.0,
+        100.0
+      ]
+    }
+  ],
+  "h3_year_by_year": {
+    "2021": {
+      "n": 3,
+      "wr_pct": 100.0,
+      "avg_adj_pct": 3.455,
+      "stop_hit_pct": 0.0
+    },
+    "__stability": {
+      "n_years": 1,
+      "n_positive_years": 1,
+      "stable_at_majority": true
+    }
+  },
+  "h3_concentration": {
+    "n_unique_tickers": 1,
+    "top_tickers": [
+      {
+        "ticker": "AVGO",
+        "n": 3,
+        "sum_adj_pct": 10.37,
+        "avg_adj_pct": 3.46
+      }
+    ],
+    "top3_share_of_total_pct": 100.0,
+    "by_sector": {
+      "Technology": {
+        "n": 3,
+        "sum_adj_pct": 10.37,
+        "avg_adj_pct": 3.46
+      }
+    }
+  },
+  "h3_per_horizon": {
+    "5": {
+      "n": 1,
+      "avg_adj_pct": 0.291,
+      "avg_adj_ci": [
+        NaN,
+        NaN
+      ],
+      "wr_pct": 100.0,
+      "wr_ci": [
+        NaN,
+        NaN
+      ],
+      "stop_hit_pct": 0.0,
+      "stop_hit_ci": [
+        NaN,
+        NaN
+      ],
+      "target_hit_pct": 0.0,
+      "target_hit_ci": [
+        NaN,
+        NaN
+      ],
+      "max_dd_pct": 0.0
+    },
+    "10": {
+      "n": 1,
+      "avg_adj_pct": 4.186,
+      "avg_adj_ci": [
+        NaN,
+        NaN
+      ],
+      "wr_pct": 100.0,
+      "wr_ci": [
+        NaN,
+        NaN
+      ],
+      "stop_hit_pct": 0.0,
+      "stop_hit_ci": [
+        NaN,
+        NaN
+      ],
+      "target_hit_pct": 0.0,
+      "target_hit_ci": [
+        NaN,
+        NaN
+      ],
+      "max_dd_pct": 0.0
+    },
+    "20": {
+      "n": 1,
+      "avg_adj_pct": 5.888,
+      "avg_adj_ci": [
+        NaN,
+        NaN
+      ],
+      "wr_pct": 100.0,
+      "wr_ci": [
+        NaN,
+        NaN
+      ],
+      "stop_hit_pct": 0.0,
+      "stop_hit_ci": [
+        NaN,
+        NaN
+      ],
+      "target_hit_pct": 100.0,
+      "target_hit_ci": [
+        NaN,
+        NaN
+      ],
+      "max_dd_pct": 0.0
+    }
+  },
+  "h3_leave_one_gate_out": {
+    "drop_score_gate": {
+      "n_closed": 6,
+      "n_unique_entries": 2,
+      "wr_pct": 100.0,
+      "avg_adj_pct": 2.164,
+      "stop_hit_pct": 0.0
+    },
+    "drop_vix_gate": {
+      "n_closed": 9,
+      "n_unique_entries": 3,
+      "wr_pct": 100.0,
+      "avg_adj_pct": 4.138,
+      "stop_hit_pct": 0.0
+    },
+    "drop_vol_gate": {
+      "n_closed": 15,
+      "n_unique_entries": 5,
+      "wr_pct": 60.0,
+      "avg_adj_pct": 3.079,
+      "stop_hit_pct": 33.33
+    },
+    "drop_sector_gate": {
+      "n_closed": 6,
+      "n_unique_entries": 2,
+      "wr_pct": 100.0,
+      "avg_adj_pct": 4.747,
+      "stop_hit_pct": 0.0
+    }
+  },
+  "auxiliary_state_availability": {
+    "daily_entry_validator_state_at_entry": {
+      "available_historically": false,
+      "reason": "DEV state was not snapshotted at trade-entry time in the historical SNIPER backtest CSV; the strategy_evidence_audit / sniper_backtest pipeline does not currently persist DEV pass/fail per signal.",
+      "future_join_plan": "When SNIPER paper signals run forward, persist the DEV state at signal-emit time in db/trading.db (paper_signals.aux_dev_state JSON column already exists for similar use; new column or notes-field tag is acceptable). The H3 live OOS test in Phase 12B will join on that field."
+    },
+    "market_forecast_state_at_entry": {
+      "available_historically": false,
+      "reason": "Market Forecast (regime_forecast_latest.json snapshots) is point-in-time today; historical SNIPER signals were not tagged with the regime label that was in force at their entry date.",
+      "future_join_plan": "Same as DEV: persist the Market Forecast regime label at SNIPER signal-emit time in paper_signals. Once 6 months of forward signals carry both fields, re-run this script with `--include-aux-state` to add per-cohort breakdown (this script is forward-compatible: the funnel block will gain extra gates without changing existing keys)."
+    }
+  },
+  "verdict": {
+    "label": "INSUFFICIENT_DATA",
+    "reasons": [
+      "n_unique_entries=1 below 5; the 3 trade-rows are horizon-multiplicates of 1 independent decision(s), so any bootstrap CI on the row-level series overstates information",
+      "point estimate is positive, but evidence is structurally insufficient \u2014 filter gates compose to a near-empty cohort on the existing 75-entry CSV"
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=gem-trader daily research cycle timer (20:30 ET Mon-Fri)
+Requires=gem-trader-research.service
+
+[Timer]
+# Fire 20:30 America/New_York, Mon-Fri.
+# Rationale: gem-trader-paper-evidence.timer runs at 18:15 ET; this fires
+# ~2h15 later so (a) research_delta + lens prebuild see the freshest
+# resolved paper outcomes, and (b) Alpaca SIP daily bars for today's
+# close (16:00 ET) are reliably published — a 19:00 ET fire repeatedly
+# missed Monday's bar, anchoring the regime forecast on Friday's close.
+# Systemd honors the named timezone across DST.
+OnCalendar=Mon-Fri 20:30 America/New_York
+
+# If the host was off at fire time, run once on next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

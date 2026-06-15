@@ -1,0 +1,15 @@
+[Unit]
+Description=gem-trader nightly data refresh timer (03:30 ET Mon–Fri)
+Requires=gem-trader-nightly.service
+
+[Timer]
+# Fire at 03:30 America/New_York every weekday
+# (8:30 UTC during EST, 7:30 UTC during EDT — systemd uses wall clock in the
+#  specified timezone, so this is always 03:30 ET regardless of DST)
+OnCalendar=Mon-Fri 03:30 America/New_York
+
+# If the system was off at fire time, run once when it comes back up
+Persistent=true
+
+[Install]
+WantedBy=timers.target

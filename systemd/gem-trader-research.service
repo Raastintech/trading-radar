@@ -1,0 +1,14 @@
+[Unit]
+Description=gem-trader daily research cycle (forecast + alpha + delta + lens prebuild + resolve)
+After=network-online.target gem-trader-paper-evidence.service
+
+[Service]
+Type=oneshot
+User=gem
+WorkingDirectory=/home/gem/trading-production
+EnvironmentFile=/home/gem/secure/trading.env
+Environment=SNIPER_ENV_PATH=/home/gem/secure/trading.env
+ExecStart=/home/gem/trading-production/scripts/run_research_cycle.sh nightly
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-research.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-research.log
+TimeoutStartSec=30min

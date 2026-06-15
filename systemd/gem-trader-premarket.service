@@ -1,0 +1,14 @@
+[Unit]
+Description=gem-trader premarket research cycle (forecast + alpha + overlay + delta)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gem
+WorkingDirectory=/home/gem/trading-production
+EnvironmentFile=/home/gem/secure/trading.env
+Environment=SNIPER_ENV_PATH=/home/gem/secure/trading.env
+ExecStart=/home/gem/trading-production/scripts/run_research_cycle.sh premarket
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-premarket.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-premarket.log
+TimeoutStartSec=15min

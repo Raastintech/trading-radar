@@ -1,0 +1,199 @@
+"""
+execution/order_manager.py — Order placement with guard rails.
+
+Wraps AlpacaClient.submit_*_order() with:
+  • Pre-flight checks (account buying power, position already open)
+  • Short selling validation (ALLOW_SHORTS gate)
+  • Position-sizing cap (never exceed MAX_POSITION_PCT × equity)
+  • Phase 0 submission-time gate re-check (session / council / circuit
+    breaker / regime / portfolio risk) immediately before broker call
+  • Fill capture (filled_avg_price, filled_qty, slippage_bps)
+  • Decision logging after fill confirmation
+"""
+from __future__ import annotations
+import logging
+from typing import Any, Dict, List, Optional
+
+from core.alpaca_client import get_alpaca
+from core.config import ALLOW_SHORTS, MAX_POSITION_PCT, PAPER_TRADING
+from core.decision_logger import DecisionLogger
+from core.submission_gate import evaluate as _gate_evaluate
+
+logger = logging.getLogger(__name__)
+
+
+class OrderManager:
+    def __init__(
+        self,
+        decision_logger: DecisionLogger,
+        *,
+        circuit_breakers: Any = None,
+        portfolio_risk: Any = None,
+    ) -> None:
+        """Optional gate dependencies are kwargs so the existing
+        ``OrderManager(dec_log)`` call site in ``main.py`` keeps working
+        unchanged.  When the deps are None the corresponding gate is
+        skipped (fail-open) — the council verdict and session-time gates
+        still run."""
+        self._alpaca = get_alpaca()
+        self._log    = decision_logger
+        self._cb     = circuit_breakers
+        self._pr     = portfolio_risk
+
+    def execute(
+        self,
+        signal: Dict,
+        council_result: Dict,
+        *,
+        portfolio_state: Optional[Dict] = None,
+        open_positions: Optional[List[Dict]] = None,
+        equity: Optional[float] = None,
+    ) -> Optional[Dict]:
+        """
+        Place an order for an approved signal.
+
+        Returns order result dict or None if blocked/failed.
+        """
+        ticker    = signal["ticker"].upper()
+        direction = signal["direction"].upper()
+        strategy  = signal["strategy"].upper()
+        entry     = signal["entry_price"]
+        stop      = signal["stop_loss"]
+        target    = signal["target_price"]
+        shares    = signal.get("shares", 0)
+
+        if council_result.get("verdict") != "APPROVED":
+            logger.info("OrderManager: %s %s blocked by council", strategy, ticker)
+            return None
+
+        if direction == "SHORT" and not ALLOW_SHORTS:
+            logger.warning("Short blocked by config: %s", ticker)
+            return None
+
+        # Validate buying power
+        acct    = self._alpaca.get_account()
+        equity  = acct.get("equity", 0)
+        bp      = acct.get("buying_power", 0)
+        max_val = equity * MAX_POSITION_PCT * 2  # 2× because shorts use buying power differently
+        trade_val = shares * entry
+
+        if trade_val > max_val:
+            shares = max(1, int(max_val / entry))
+            logger.info("Shares clipped to %d (max $%.0f)", shares, max_val)
+
+        if trade_val > bp * 0.95:
+            logger.warning("Insufficient buying power: need $%.0f, have $%.0f", trade_val, bp)
+            return None
+
+        # Check if position already open
+        positions = self._alpaca.get_positions()
+        open_tickers = {p["ticker"].upper() for p in positions}
+        if ticker in open_tickers:
+            logger.info("Position already open: %s — skipping", ticker)
+            return None
+
+        # Phase 0: submission-time gate re-check.  Re-runs session /
+        # council / circuit-breaker / regime / portfolio-risk checks
+        # against the live system state immediately before the broker
+        # call.  See core/submission_gate.py.  If a gate blocks, refuse
+        # submission and write a veto-log row so the trip is auditable.
+        gate_positions = open_positions if open_positions is not None else positions
+        gate_equity    = equity if equity is not None else acct.get("equity", 0)
+        allowed, gate_reason, gate_name = _gate_evaluate(
+            signal,
+            council_result,
+            portfolio_state=portfolio_state,
+            circuit_breakers=self._cb,
+            portfolio_risk=self._pr,
+            open_positions=gate_positions,
+            equity=gate_equity,
+        )
+        if not allowed:
+            logger.warning(
+                "SUBMISSION GATE BLOCKED %s %s %s: %s [%s]",
+                strategy, direction, ticker, gate_reason, gate_name,
+            )
+            try:
+                self._log.log_veto(
+                    ticker=ticker, strategy=strategy,
+                    verdict="VETOED", agent=f"submission_gate.{gate_name}",
+                    reason=gate_reason,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("log_veto write failed: %s", exc)
+            return None
+
+        # Place order
+        side = "buy" if direction == "LONG" else "sell"
+        result = self._alpaca.submit_limit_order(
+            ticker=ticker,
+            qty=shares,
+            side=side,
+            limit_price=entry,
+        )
+        if result is None:
+            logger.error("Order failed for %s %s", strategy, ticker)
+            return None
+
+        # Phase 0: poll for fill so we can capture the actual fill price
+        # and filled qty.  Never assume the limit price == the fill price.
+        # Short timeout — we just want immediate fills (market touches the
+        # limit on submission); resting orders are recorded with whatever
+        # state the broker has when the timeout expires.
+        order_id = result.get("order_id")
+        fill_snap = self._alpaca.wait_for_fill(order_id, timeout_s=5.0,
+                                                poll_interval_s=0.5) or result
+        fill_price  = fill_snap.get("filled_avg_price")
+        fill_qty    = fill_snap.get("filled_qty")
+        fill_status = (fill_snap.get("status") or "").lower() or None
+
+        slippage_bps: Optional[float] = None
+        if fill_price is not None and entry:
+            # Signed slippage in basis points.  For LONG: positive means
+            # we paid more than the signal price (adverse).  For SHORT:
+            # we sold for less than the signal price (adverse).  Caller
+            # interprets sign in conjunction with direction.
+            slippage_bps = round((fill_price - entry) / entry * 1e4, 2)
+
+        # Log decision (now with fill correctness)
+        dec_id = self._log.log_decision(
+            ticker=ticker,
+            strategy=strategy,
+            direction=direction,
+            signal_score=signal.get("score", 0),
+            shares=shares,
+            entry_price=entry,
+            stop_loss=stop,
+            target_price=target,
+            order_id=order_id,
+            position_opened=True,
+            veto_votes=council_result.get("votes", {}),
+            fill_price=fill_price,
+            fill_qty=fill_qty,
+            slippage_bps=slippage_bps,
+            fill_status=fill_status,
+        )
+
+        # Two log lines: ORDER (intent) + FILL (reality).  The pair lets
+        # ops see slippage at a glance and lets us alert on the gap.
+        logger.info(
+            "ORDER %s %s %s x%d @ %.2f  stop=%.2f  target=%.2f  dec=%s",
+            strategy, direction, ticker, shares, entry, stop, target, dec_id,
+        )
+        if fill_price is not None:
+            logger.info(
+                "FILL  %s %s %s qty=%s @ %.4f  vs signal %.4f  slip=%s bps  status=%s",
+                strategy, direction, ticker,
+                fill_qty if fill_qty is not None else "?",
+                fill_price, entry,
+                f"{slippage_bps:+.1f}" if slippage_bps is not None else "?",
+                fill_status or "?",
+            )
+        else:
+            logger.info(
+                "FILL  %s %s %s pending (status=%s); slippage will be "
+                "recorded when reconciler observes the fill",
+                strategy, direction, ticker, fill_status or "?",
+            )
+        return {**fill_snap, "decision_id": dec_id, "shares": shares,
+                "slippage_bps": slippage_bps}

@@ -1,0 +1,35 @@
+# gem-trader production dependencies
+# Install: pip install -r requirements.txt
+
+# Alpaca SDK
+alpaca-py>=0.20.0
+
+# FMP HTTP client
+requests>=2.31.0
+
+# Data
+pandas>=2.0.0
+pyarrow>=14.0.0       # Parquet engine
+
+# Env
+python-dotenv>=1.0.0
+
+# Timezone
+pytz>=2023.3
+tzdata>=2023.4         # stdlib zoneinfo backend on some Linux distros
+
+# Research / backtesting (yfinance is debug-only fallback; FMP+Alpaca are primary)
+yfinance>=0.2.40
+
+# Research-only: Google Trends interest-spike source for Social Arb Radar.
+# Unofficial library; the radar degrades gracefully if missing or rate-limited.
+pytrends>=4.9.2
+
+# SEC EDGAR 13F whale tracking
+edgartools>=2.0.0
+
+# Phase 2A: Stock Lens MCP audit server (read-only, audit_mcp/)
+mcp>=1.27
+
+# Optional: monitoring / alerting
+# slack-sdk>=3.0.0    # uncomment if you add Slack alerts
