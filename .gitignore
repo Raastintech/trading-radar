@@ -45,6 +45,10 @@ cache/prices/
 *.tmp
 archive/execution_disabled/*
 
+# Runtime state files (root level)
+trader_heartbeat.json
+reports/
+
 # OS / editor
 .DS_Store
 .idea/
