@@ -1,6 +1,6 @@
 # Short Detection Truth Audit — QQQ Breakdown / Tactical Short Regime Review
 
-_Phase 1G.16 · research-only · generated 2026-06-13T00:38:03Z · as-of bar 2026-06-12_
+_Phase 1G.16 · research-only · generated 2026-06-15T01:02:53Z · as-of bar 2026-06-12_
 
 > **Scope guard.** This audits the *short-detection layer* only. `SHORT_A` stays **FROZEN** (it failed structurally). No paper signals, no trade proposals, no execution/governance/live-capital/gate/Veto-Council changes, no new active short strategy. Proposed states are research labels.
 
@@ -19,7 +19,7 @@ _Phase 1G.16 · research-only · generated 2026-06-13T00:38:03Z · as-of bar 202
 - QQQ−SPY 5d relative: **1.618%**; tech−SPY 5d: **8.299%**; VXX 3d: **-3.853794199443794%**
 
 ## 2. What the Short Opportunity Radar said
-- state **SHORTS_OFF**, score 15/100, suppressed_bull_tape=True, candidates=5
+- state **SHORTS_OFF**, score 15/100, suppressed_bull_tape=True, candidates=6
 - suppressed because SPY>50d&200d: **True**; VIX just under 20.0: False; score uses QQQ/sector relative weakness: **False**
 - The radar persists only a single _latest.json snapshot; there is no per-day archive, so 'what it said on each day of the drawdown' cannot be reconstructed historically. Phase 1G.16 begins a forward history spine (data/research/short_detection_history.jsonl) to close this gap.
 
@@ -37,34 +37,35 @@ _Phase 1G.16 · research-only · generated 2026-06-13T00:38:03Z · as-of bar 202
 _1/6 simple baselines fired. These are research signals only — no trades. Compare against radar state._
 
 ## 4. Missed-short autopsy
-- examined **190**, sharp 5d drops **19**, missed by radar **17**; by archetype: `{'RELATIVE_WEAKNESS_BREAKDOWN': 16, 'NO_SHORT_EDGE': 2, 'FAILED_LEADER': 1}`
+- examined **191**, sharp 5d drops **22**, missed by radar **19**; by archetype: `{'RELATIVE_WEAKNESS_BREAKDOWN': 18, 'NO_SHORT_EDGE': 3, 'FAILED_LEADER': 1}`
 
 | ticker | 5d | archetype | theme | radar saw |
 |--------|----|-----------|-------|-----------|
 | SMCI | -28.4% | RELATIVE_WEAKNESS_BREAKDOWN | hardware | False |
-| SAIL | -21.5% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| ADBE | -18.9% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | FJET | -15.5% | RELATIVE_WEAKNESS_BREAKDOWN | space_aerospace | False |
 | OLOX | -15.2% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | ORCL | -13.5% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| ADBE | -13.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| TTAN | -11.8% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | CRM | -10.1% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | TE | -10.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | GTLB | -10.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | MX | -9.4% | RELATIVE_WEAKNESS_BREAKDOWN | semiconductors | False |
+| SHAZ | -9.1% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | NOW | -9.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | SEDG | -8.2% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| NMAX | -7.2% | NO_SHORT_EDGE | other | False |
 | MSFT | -6.9% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | QCOM | -6.7% | RELATIVE_WEAKNESS_BREAKDOWN | semiconductors | False |
+| SHLS | -6.5% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 | PD | -6.4% | NO_SHORT_EDGE | other | False |
+| RCAT | -6.2% | RELATIVE_WEAKNESS_BREAKDOWN | hardware | False |
 | NAVN | -6.0% | FAILED_LEADER | other | False |
-| NTAP | -5.2% | NO_SHORT_EDGE | hardware | False |
-| IBM | -5.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| AAPL | -5.3% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 
 ## 5. Suppression-rule diagnosis
 - **Current rule:** `bull tape: SPY>50d & >200d, VIX<20 → short regime suppressed` → {'suppressed': True, 'state': 'SHORTS_OFF'}
 - **Alternative (QQQ-aware):** QQQ-aware: SPY bull is the broad gate, but QQQ/tech tactical breakdown (rel-SPY, EMA20, velocity, tech breadth) or VXX stress escalates to HEDGE_WATCH / FAILED_LEADER_WATCH / TACTICAL_SHORT_RESEARCH → {'state': 'SHORTS_OFF', 'flags': {'bull_tape': True, 'qqq_breakdown': False, 'tech_breakdown': False, 'vxx_stress': False, 'failed_leaders': False}}
-- **Rule too broad:** False · missed=17 · false-positive risk: n/a (proposed also says SHORTS_OFF)
+- **Rule too broad:** False · missed=19 · false-positive risk: n/a (proposed also says SHORTS_OFF)
 - **Recommended (not implemented):**
   - keep rule — proposed QQQ-aware logic agrees with current state today
 

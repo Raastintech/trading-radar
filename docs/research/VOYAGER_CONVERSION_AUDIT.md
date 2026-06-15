@@ -1,6 +1,6 @@
 # VOYAGER Conversion Audit (research-only)
 
-**Generated:** 2026-06-13T00:38:05  
+**Generated:** 2026-06-15T01:02:54  
 **Scope:** read-only (SELECT-only) DB diagnosis. No code/strategy/governance change.
 
 ## Headline numbers

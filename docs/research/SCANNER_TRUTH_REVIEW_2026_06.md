@@ -1,6 +1,6 @@
 # Scanner Truth Review — 2026-05 (Phase 1G.5)
 
-*Generated 2026-06-13T00:38:47.547629+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
+*Generated 2026-06-15T01:03:36.272909+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
 
 ## 1. Executive summary
 
@@ -49,8 +49,8 @@
 
 | root cause | count |
 |---|--:|
-| UNIVERSE_MISS | 112 |
-| FILTER_TOO_STRICT | 110 |
+| UNIVERSE_MISS | 113 |
+| FILTER_TOO_STRICT | 109 |
 | DATA_MISS | 47 |
 | VALID_NO_TRADE | 3 |
 
@@ -72,7 +72,7 @@ As-of 2026-03-18, 60td forward, 284 forward winners in 2271 liquid names.
 | high_50d_breakout | 103 | 2.8% | 7.8% | 3% |
 | vol_strength | 97 | 3.9% | 11.3% | 8% |
 | sector_rs | 413 | 24.3% | 16.7% | 12% |
-| mom_20_60 | 51 | 9.9% | 54.9% | 45% |
+| mom_20_60 | 52 | 9.9% | 53.8% | 43% |
 
 **Verdict:** a SIMPLE baseline ('sector_rs', recall 24.3%) caught more forward winners than the live funnel (2.1%). Sophistication did not buy recall here.
 
@@ -102,9 +102,9 @@ As-of 2026-03-18, 60td forward, 284 forward winners in 2271 liquid names.
 | liquidity_price | price∈[$5,$1000] | 453 | 1115 | 50.8% | BY-DESIGN exclusion |
 | liquidity_dvol | avg$vol≥$5M & vol≥300k | 549 | 2413 | 61.5% | BY-DESIGN exclusion |
 | voyager_max_extension_ma50 | >12% above MA50 → reject | 86 | 344 | 9.6% | KEEP |
-| voyager_ma200_floor | price < MA200×0.92 → reject | 48 | 70 | 5.4% | KEEP |
+| voyager_ma200_floor | price < MA200×0.92 → reject | 50 | 74 | 5.6% | KEEP |
 | voyager_bars_needed_260 | <260 bars → reject | 752 | 4528 | 84.3% | INDETERMINATE |
-| sniper_bars_needed_75 | <75 bars → reject | 726 | 4339 | 81.4% | INDETERMINATE |
+| sniper_bars_needed_75 | <75 bars → reject | 724 | 4331 | 81.2% | INDETERMINATE |
 | alpha_market_cap_band | mcap∉[$300M,$80B] | 59 | 170 | 6.6% | KEEP |
 
 _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental_score; voyager_dvol_trend_ratio; sniper_vol_spike_1.4x / atr_contraction_0.85; earnings_safe_days; options_liquidity / 13F_sponsorship; top_25_board_cap.

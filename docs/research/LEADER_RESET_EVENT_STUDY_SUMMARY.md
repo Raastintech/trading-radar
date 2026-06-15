@@ -1,7 +1,7 @@
 # LEADER_RESET — Event Study Summary (research-only)
 
-**Generated:** 2026-06-13T00:38:05  
-**Source:** `data/state/stock_lens_forward_log.jsonl` (1417 historical lens snapshots)  
+**Generated:** 2026-06-15T01:02:54  
+**Source:** `data/state/stock_lens_forward_log.jsonl` (1522 historical lens snapshots)  
 **Friction:** 0.3% round-trip  
 **Status:** Research only. No paper sleeve, no signals, no registry change.
 
@@ -17,18 +17,18 @@
 | state | n | n(5d resolved) | exp 5d net | exp 10d net | win 5d | rel SPY 5d | mean MAE 5d |
 |---|---|---|---|---|---|---|---|
 | RESEARCH_READY | 1 | 1 | -1.3326 | -1.9102 | 0.0 | 1.3508 | -5.3193 |
-| WATCH_RECLAIM | 246 | 213 | -0.4093 | 0.0952 | 0.4319 | -0.4923 | -4.8839 |
-| LATE_EXTENDED | 248 | 221 | 3.2295 | 5.4632 | 0.5837 | 3.0343 | -4.5028 |
-| BLOCKED | 604 | 507 | 0.8295 | 2.2579 | 0.5661 | 0.518 | -4.2832 |
-| NO_EDGE | 318 | 276 | -0.4505 | -0.4106 | 0.471 | -0.693 | -3.984 |
+| WATCH_RECLAIM | 256 | 213 | -0.4093 | -0.04 | 0.4319 | -0.4923 | -4.8839 |
+| LATE_EXTENDED | 270 | 221 | 3.2295 | 5.4632 | 0.5837 | 3.0343 | -4.5028 |
+| BLOCKED | 645 | 514 | 0.8005 | 2.1505 | 0.5623 | 0.4902 | -4.2818 |
+| NO_EDGE | 350 | 276 | -0.4505 | -0.4106 | 0.471 | -0.693 | -3.984 |
 
-Pooled control (all lens names): n=1417, exp5d_net=0.7565, rel_spy_5d=0.5242.
+Pooled control (all lens names): n=1522, exp5d_net=0.7448, rel_spy_5d=0.5125.
 
 ## Key findings
 
-- RESEARCH_READY = 1: the Stock Lens entry validator reported actionable_now=True in only 1/1417 snapshots. The existing entry layer never emits an actionable reclaim — so LEADER_RESET's trigger must be built fresh; the validator alone will not produce entries. This is the structural reason the system opens almost nothing.
+- RESEARCH_READY = 1: the Stock Lens entry validator reported actionable_now=True in only 1/1522 snapshots. The existing entry layer never emits an actionable reclaim — so LEADER_RESET's trigger must be built fresh; the validator alone will not produce entries. This is the structural reason the system opens almost nothing.
 - In this bull-tape sample, LATE_EXTENDED forward returns (exp5d_net=3.2295, rel_spy_5d=3.0343) BEAT WATCH_RECLAIM (exp5d_net=-0.4093, rel_spy_5d=-0.4923). Momentum outran reset in-sample — a real thesis risk. The reset premise must be tested across regimes (incl. risk-off) in the formal backtest before activation.
-- Closest existing reclaim proxies in entry.view: 'Pullback Forming' n=8, 'Watch Reclaim' n=514.
+- Closest existing reclaim proxies in entry.view: 'Pullback Forming' n=10, 'Watch Reclaim' n=537.
 
 ## Verdict: **NEED_MORE_DATA**
 
