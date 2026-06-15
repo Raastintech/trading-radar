@@ -20,7 +20,7 @@ from typing import Any, Dict, Iterable, List, Optional
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from core.strategy_registry import active_paper_strategies, normalize_strategy, registry_rows  # noqa: E402
+from core.strategy_registry import active_paper_strategies, normalize_strategy, paper_ledger_strategies, registry_rows  # noqa: E402
 
 HOLDOUT_DOC = ROOT / "docs" / "research" / "PRE_REGISTERED_HOLDOUT_2026H2.md"
 WINDOW_START = date(2026, 6, 1)
@@ -159,7 +159,7 @@ def _summarize_evidence(db_path: Path) -> Dict[str, Dict[str, Any]]:
             "primary_horizon_win_rate_pct": None,
             "primary_horizon_avg_return_pct": None,
         }
-        for k in active_paper_strategies()
+        for k in paper_ledger_strategies()
     }
     if not db_path.exists():
         return out
@@ -202,15 +202,16 @@ def _summarize_evidence(db_path: Path) -> Dict[str, Dict[str, Any]]:
                 out[strategy].setdefault("_returns", []).extend(returns)
 
         voyager = [r for r in _rows(conn, "voyager_paper_signals") if _in_window(r.get("logged_at"))]
-        for row in voyager:
-            status = str(row.get("signal_status") or "open").lower()
-            out["VOYAGER"]["raw_signals"] += 1
-            if status == "open":
-                out["VOYAGER"]["open"] += 1
-            else:
-                out["VOYAGER"]["closed"] += 1
-            if row.get("outcome_30d") is not None:
-                out["VOYAGER"].setdefault("_returns", []).append(row.get("outcome_30d"))
+        if "VOYAGER" in out:
+            for row in voyager:
+                status = str(row.get("signal_status") or "open").lower()
+                out["VOYAGER"]["raw_signals"] += 1
+                if status == "open":
+                    out["VOYAGER"]["open"] += 1
+                else:
+                    out["VOYAGER"]["closed"] += 1
+                if row.get("outcome_30d") is not None:
+                    out["VOYAGER"].setdefault("_returns", []).append(row.get("outcome_30d"))
     finally:
         conn.close()
 
