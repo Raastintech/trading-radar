@@ -1044,6 +1044,45 @@ cmd_stock_research_card() {
     run_or_warn "stock research card" "$PY" research/stock_research_card.py "${tickers[@]}"
 }
 
+cmd_fmp_provider_health() {
+    # Phase 3A closure — FMP provider health check.  Reports API key status,
+    # cache_meta staleness, and price parquet freshness.  Research-only diagnostic.
+    log "[CACHE] FMP provider health check (research-only)"
+    run_or_warn "fmp provider health" "$PY" research/fmp_provider_health.py "$@"
+}
+
+cmd_tradier_research_health() {
+    # Phase 3A closure — Tradier research-only health check.  Verifies token,
+    # market clock probe, and confirms execution is permanently disabled.
+    log "[PROVIDER] Tradier research health check (options research-only; no execution)"
+    run_or_warn "tradier research health" "$PY" research/tradier_research_health.py "$@"
+}
+
+cmd_provider_health() {
+    # Combined provider health: FMP + Tradier research checks in sequence.
+    log "=== provider health (FMP + Tradier research-only) ==="
+    cmd_fmp_provider_health
+    cmd_tradier_research_health
+}
+
+cmd_data_freshness() {
+    # Phase 3A closure — cache data freshness audit.  Reports sidecar ages
+    # and price parquet staleness.  Cache-only; no provider calls.
+    log "[CACHE] data freshness audit (cache-only)"
+    run_or_warn "data freshness" "$PY" research/data_freshness_report.py "$@"
+}
+
+cmd_sector_leadership() {
+    # Phase 3A closure — sector leadership ranking from cached price data.
+    # Ranks sector ETFs by RS vs SPY.  Cache-only; no provider calls.
+    log "[CACHE] sector leadership report (cache-only)"
+    run_or_warn "sector leadership" "$PY" research/sector_leadership_report.py "$@"
+}
+
+_disabled_execution_cmd() {
+    echo "RESEARCH_ONLY_MODE: command disabled."
+}
+
 cmd_premarket() {
     log "=== research cycle: PREMARKET ==="
     require_env
@@ -1266,6 +1305,13 @@ case "$SUB" in
     market-heartbeat)      cmd_market_heartbeat      "${POS[@]}" ;;
     research-scanner)      cmd_research_scanner      "${POS[@]}" ;;
     stock-research-card)   cmd_stock_research_card   "${POS[@]}" ;;
+    fmp-provider-health)     cmd_fmp_provider_health     "${POS[@]}" ;;
+    tradier-research-health) cmd_tradier_research_health "${POS[@]}" ;;
+    provider-health)         cmd_provider_health         "${POS[@]}" ;;
+    data-freshness)          cmd_data_freshness          "${POS[@]}" ;;
+    sector-leadership)       cmd_sector_leadership       "${POS[@]}" ;;
+    live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
+        _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;
     *)
         warn "unknown subcommand: $SUB"

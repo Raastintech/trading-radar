@@ -105,12 +105,48 @@ except Exception as e:
 |---|---|---|
 | Market Heartbeat | `./scripts/run_research_cycle.sh market-heartbeat` | `cache/research/market_heartbeat_latest.json` |
 | Research Scanner | `./scripts/run_research_cycle.sh research-scanner` | `cache/research/research_scanner_latest.json` |
-| Stock Research Card | `./scripts/run_research_cycle.sh stock-research-card AAPL` | `cache/research/cards/AAPL_research_card.json` |
+| Stock Research Card | `./scripts/run_research_cycle.sh stock-research-card AAPL` | `cache/research/stock_research_card_AAPL.json` |
 | Regime Forecast | `./scripts/run_research_cycle.sh forecast` | `cache/research/regime_forecast_latest.json` |
 | Alpha Discovery | `./scripts/run_research_cycle.sh alpha` | `cache/research/alpha_discovery_latest.json` |
 | Social Arb Radar | `./scripts/run_research_cycle.sh social` | `cache/research/social_arb_latest.json` |
 | MCP Server | `python -m audit_mcp.stocklens_mcp_server` | stdio MCP tools (read-only) |
 | Dashboard | `SNIPER_ENV_PATH=... .venv/bin/python dashboards/gem_trader_hq.py` | Cache-only TUI |
+
+---
+
+## Phase 3B — Alpaca Dependency Removal (2026-06-14)
+
+Paper trading and holdout validation are permanently archived.
+Alpaca is NOT retained for paper trading or any other purpose.
+
+### Changes
+
+| Item | Before | After |
+|---|---|---|
+| Paper signal generation | PAPER_TRADING_ENABLED=False (since 3A) | Same; ARCHIVED_FOR_HISTORY_ONLY marker added to run_paper_evidence.py |
+| Price bar refresh | FMP (since 3A nightly_refresh.py) | Same; PRICE_BAR_PROVIDER_MIGRATION.md documents all modules |
+| Options research | Tradier-only (since 3A options_feed_factory.py) | Same; token key fixed: TRADIER_ACCESS_TOKEN → TRADIER_API_TOKEN |
+| FMP fundamentals mapping | Bug: all null despite FMP fetch | Fixed: income/balance/cashflow flattened to TTM values |
+| Tradier health check | DEGRADED (wrong env key) | OK when TRADIER_API_TOKEN set |
+| `core/market_regime.py` docstring | "Alpaca SIP" | "cache/prices/*.parquet via AlpacaClient stub" |
+
+### Confirmed
+
+```
+Alpaca safe to cancel: YES
+- dashboard starts without Alpaca env vars ✓
+- heartbeat works without Alpaca ✓
+- scanner works without Alpaca ✓
+- research cards work without Alpaca ✓
+- price refresh uses FMP (non-Alpaca provider) ✓
+- options research is Tradier-only or cleanly disabled ✓
+- paper/holdout archived; no Alpaca required ✓
+- 1376 tests pass ✓
+```
+
+See also:
+- `docs/research/PRICE_BAR_PROVIDER_MIGRATION.md`
+- `docs/research/OPTIONS_RESEARCH_PROVIDER_MIGRATION.md`
 
 ---
 

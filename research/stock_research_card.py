@@ -65,8 +65,7 @@ from core.research_mode import SYSTEM_MODE, RESEARCH_ONLY_BANNER, TRADIER_RESEAR
 VERSION = "STOCK_RESEARCH_CARD_V1"
 PRICE_DIR = cfg.CACHE_DIR / "prices"
 RESEARCH_DIR = cfg.CACHE_DIR / "research"
-CARD_DIR = RESEARCH_DIR / "cards"
-DOC_PATH = ROOT / "docs" / "research" / "STOCK_RESEARCH_CARD_ENGINE.md"
+DOC_PATH = ROOT / "docs" / "research" / "STOCK_RESEARCH_CARD.md"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -84,7 +83,7 @@ def _is_offline_fmp() -> bool:
 
 
 def _is_offline_tradier() -> bool:
-    tok = os.getenv("TRADIER_ACCESS_TOKEN", "").strip()
+    tok = os.getenv("TRADIER_API_TOKEN", "").strip()
     return not tok or tok.lower() in {"", "offline", "stub"}
 
 
@@ -205,6 +204,50 @@ def _up_down_vol(df: Optional[pd.DataFrame], window: int = 20) -> Optional[Dict[
     return {"up_vol_pct": round(up_vol / total * 100, 1), "dn_vol_pct": round(dn_vol / total * 100, 1)}
 
 
+# ── FMP fundamentals flattener ────────────────────────────────────────────────
+
+
+def _flatten_fmp_fundamentals(raw: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Flatten get_fundamentals() {income, balance, cashflow} lists to one dict.
+
+    Flow fields (revenue, netIncome, grossProfit, operatingIncome, freeCashFlow,
+    operatingCashFlow) are summed across up to 4 quarters for TTM.  Ratios and
+    balance-sheet fields use the most-recent quarter only.  Returns None when
+    raw is None or all three statement lists are empty.
+    """
+    if not raw:
+        return None
+    income_rows = raw.get("income") or []
+    balance_rows = raw.get("balance") or []
+    cashflow_rows = raw.get("cashflow") or []
+    if not income_rows and not balance_rows and not cashflow_rows:
+        return None
+    flat: Dict[str, Any] = {}
+    # TTM income flows: sum last ≤4 quarters
+    for field in ("revenue", "netIncome", "grossProfit", "operatingIncome"):
+        vals = [float(r[field]) for r in income_rows[:4] if r.get(field) is not None]
+        if vals:
+            flat[field] = sum(vals)
+    # Most-recent-quarter ratios (not summed)
+    if income_rows:
+        row0 = income_rows[0]
+        for field in (
+            "grossProfitRatio", "operatingIncomeRatio", "netIncomeRatio",
+            "eps", "epsdiluted", "weightedAverageShsOut", "weightedAverageShsOutDil",
+        ):
+            if row0.get(field) is not None:
+                flat[field] = row0[field]
+    # Balance sheet: most recent quarter
+    if balance_rows:
+        flat.update(balance_rows[0])
+    # TTM cashflow flows
+    for field in ("operatingCashFlow", "freeCashFlow"):
+        vals = [float(r[field]) for r in cashflow_rows[:4] if r.get(field) is not None]
+        if vals:
+            flat[field] = sum(vals)
+    return flat or None
+
+
 # ── FMP data pulls ────────────────────────────────────────────────────────────
 
 
@@ -285,7 +328,7 @@ def _tradier_options_snapshot(ticker: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         import requests
-        token = os.getenv("TRADIER_ACCESS_TOKEN", "")
+        token = os.getenv("TRADIER_API_TOKEN", "")
         base = os.getenv("TRADIER_BASE_URL", "https://api.tradier.com/v1")
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         # Nearest expiry chain
@@ -470,12 +513,13 @@ def build_card(ticker: str, offline: bool = False) -> Dict[str, Any]:
     company_name = (profile or {}).get("companyName") or (profile or {}).get("name") or sym
     sector = (profile or {}).get("sector") or "Unknown"
     industry = (profile or {}).get("industry") or "Unknown"
-    market_cap = (profile or {}).get("mktCap") or (profile or {}).get("market_cap")
+    market_cap = (profile or {}).get("mktCap") or (profile or {}).get("marketCap") or (profile or {}).get("market_cap")
     description = (profile or {}).get("description") or ""
     exchange = (profile or {}).get("exchange") or (profile or {}).get("exchangeShortName") or ""
 
-    # FMP fundamentals
-    fundamentals: Optional[Dict[str, Any]] = None if offline else _fmp_fundamentals(sym)
+    # FMP fundamentals — flatten nested income/balance/cashflow into one dict
+    fundamentals_raw: Optional[Dict[str, Any]] = None if offline else _fmp_fundamentals(sym)
+    fundamentals: Optional[Dict[str, Any]] = _flatten_fmp_fundamentals(fundamentals_raw)
 
     def _f(key: str, *alt_keys: str) -> Any:
         for k in (key, *alt_keys):
@@ -485,21 +529,36 @@ def build_card(ticker: str, offline: bool = False) -> Dict[str, Any]:
         return None
 
     revenue = _f("revenue", "totalRevenue")
-    prev_revenue = _f("revenue_prior", "revenuePrior")
-    revenue_growth = None
-    if revenue and prev_revenue and float(prev_revenue) > 0:
-        revenue_growth = round((float(revenue) / float(prev_revenue) - 1.0) * 100.0, 1)
-
     net_income = _f("netIncome", "net_income")
     gross_margin = _f("grossProfitRatio", "gross_margin", "grossMarginTTM")
     operating_margin = _f("operatingIncomeRatio", "operating_margin", "operatingMarginTTM")
+    net_margin = _f("netIncomeRatio", "net_margin", "netProfitMargin")
     total_debt = _f("totalDebt", "total_debt")
-    cash = _f("cashAndCashEquivalents", "cash", "cashAndShortTermInvestments")
-    pe_ratio = _f("peRatio", "pe_ratio", "priceEarningsRatio")
-    ps_ratio = _f("priceToSalesRatioTTM", "ps_ratio")
-    eps_ttm = _f("eps", "epsTTM", "epsBasic")
+    cash = _f("cashAndCashEquivalents", "cashAndShortTermInvestments", "cash")
+    eps_ttm = _f("eps", "epsdiluted", "epsTTM", "epsBasic")
     fcf = _f("freeCashFlow", "free_cash_flow")
     roe = _f("returnOnEquity", "roe")
+
+    # Revenue growth: requires prior-year TTM; not available from 4-quarter fetch
+    revenue_growth = None
+
+    # P/E: not in income/balance statements; derive from market_cap / net_income_ttm
+    pe_ratio = None
+    if market_cap and net_income and float(net_income) > 0:
+        try:
+            pe_ratio = round(float(market_cap) / float(net_income), 1)
+        except Exception:
+            pass
+
+    # P/S: not available without share price × shares outstanding calc; skip
+    ps_ratio = None
+
+    def _pct_field(v: Any) -> Optional[float]:
+        """Convert a ratio (0–1) to a percentage, or pass through if already ≥ 5."""
+        if v is None:
+            return None
+        fv = float(v)
+        return round(fv * 100.0, 1) if abs(fv) < 5 else round(fv, 1)
 
     fundamental_section = {
         "company_name": company_name,
@@ -510,17 +569,18 @@ def build_card(ticker: str, offline: bool = False) -> Dict[str, Any]:
         "description_snippet": description[:200] if description else None,
         "revenue_ttm": revenue,
         "revenue_growth_pct": revenue_growth,
-        "gross_margin_pct": round(float(gross_margin) * 100, 1) if gross_margin is not None and float(gross_margin) < 5 else (round(float(gross_margin), 1) if gross_margin is not None else None),
-        "operating_margin_pct": round(float(operating_margin) * 100, 1) if operating_margin is not None and float(operating_margin) < 5 else (round(float(operating_margin), 1) if operating_margin is not None else None),
+        "gross_margin_pct": _pct_field(gross_margin),
+        "operating_margin_pct": _pct_field(operating_margin),
+        "net_margin_pct": _pct_field(net_margin),
         "net_income": net_income,
         "free_cash_flow": fcf,
         "total_debt": total_debt,
         "cash": cash,
         "debt_to_cash": round(float(total_debt) / float(cash), 2) if (total_debt and cash and float(cash) > 0) else None,
-        "pe_ratio": round(float(pe_ratio), 1) if pe_ratio is not None else None,
-        "ps_ratio": round(float(ps_ratio), 1) if ps_ratio is not None else None,
-        "eps_ttm": eps_ttm,
-        "roe_pct": round(float(roe) * 100, 1) if roe is not None and float(roe) < 5 else (round(float(roe), 1) if roe is not None else None),
+        "pe_ratio": pe_ratio,
+        "ps_ratio": ps_ratio,
+        "eps_ttm": round(float(eps_ttm), 2) if eps_ttm is not None else None,
+        "roe_pct": _pct_field(roe),
         "data_source": "fmp" if not _is_offline_fmp() else "offline_no_data",
         "data_available": fundamentals is not None,
     }
@@ -821,10 +881,11 @@ def _format_text(card: Dict[str, Any]) -> str:
 
 
 def write_card(card: Dict[str, Any]) -> Path:
-    CARD_DIR.mkdir(parents=True, exist_ok=True)
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
     sym = card["ticker"]
-    out_json = CARD_DIR / f"{sym}_research_card.json"
-    out_txt = CARD_DIR / f"{sym}_research_card.txt"
+    out_json = RESEARCH_DIR / f"stock_research_card_{sym}.json"
+    out_txt = cfg.LOG_DIR / "stock_research_card_latest.txt"
     out_json.write_text(json.dumps(card, indent=2), encoding="utf-8")
     out_txt.write_text(_format_text(card), encoding="utf-8")
     logger.info("wrote %s  %s", out_json.name, out_txt.name)
@@ -836,7 +897,7 @@ def write_doc() -> None:
         return
     DOC_PATH.parent.mkdir(parents=True, exist_ok=True)
     content = """\
-# STOCK RESEARCH CARD ENGINE
+# STOCK RESEARCH CARD
 
 **Module:** `research/stock_research_card.py`
 **Phase:** 4D
@@ -887,8 +948,8 @@ and invalidation conditions into a single human-readable artifact.
 
 ## Outputs
 
-- `cache/research/cards/<TICKER>_research_card.json`
-- `cache/research/cards/<TICKER>_research_card.txt`
+- `cache/research/stock_research_card_<TICKER>.json`
+- `logs/stock_research_card_latest.txt`
 
 ## Usage
 

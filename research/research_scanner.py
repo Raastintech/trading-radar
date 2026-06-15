@@ -375,6 +375,147 @@ def _fmp_news(ticker: str) -> List[Dict[str, Any]]:
         return []
 
 
+# ── Enrichment helpers (scores / company metadata / data freshness) ──────────
+
+
+def _parquet_mtime(sym: str) -> Optional[str]:
+    path = PRICE_DIR / f"{sym.upper()}.parquet"
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+
+
+def _derive_scores(item: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    """Derive 0–100 sub-component research scores from available item fields."""
+    rs_63 = item.get("rs_63d_vs_spy")
+    rs_20 = item.get("rs_20d_vs_spy")
+    vol_tr = item.get("vol_trend_ratio")
+    above_ma50 = item.get("above_ma50")
+    above_ma200 = item.get("above_ma200")
+    dd = item.get("dd_from_high_pct")
+    extension = item.get("extension_vs_ma200_pct")
+    social_score_raw = item.get("social_score")
+    has_catalyst = bool(item.get("earnings_date") or item.get("has_analyst_upgrade"))
+    revenue_growth = item.get("revenue_growth_pct")
+    survivability_ok = item.get("survivability_ok")
+    category = item.get("category", "")
+
+    rs_val: Optional[float] = None
+    if rs_63 is not None or rs_20 is not None:
+        combined = (rs_63 or 0) * 0.6 + (rs_20 or 0) * 0.4
+        rs_val = max(0.0, min(100.0, 50.0 + combined * 2.0))
+
+    trend_val: Optional[float] = None
+    if above_ma50 is not None or above_ma200 is not None:
+        trend_val = 50.0
+        if above_ma200 is True:
+            trend_val += 25
+        elif above_ma200 is False:
+            trend_val -= 25
+        if above_ma50 is True:
+            trend_val += 25
+        elif above_ma50 is False:
+            trend_val -= 15
+        trend_val = max(0.0, min(100.0, trend_val))
+
+    volume_val: Optional[float] = None
+    if vol_tr is not None:
+        volume_val = max(0.0, min(100.0, (vol_tr - 0.5) / 1.0 * 100.0))
+
+    catalyst_val: Optional[float] = None
+    if category == "catalyst_watch" or has_catalyst:
+        catalyst_val = 70.0
+        days_to = item.get("days_to_earnings")
+        if days_to is not None and 0 <= int(days_to) <= 7:
+            catalyst_val += 20
+        elif days_to is not None and int(days_to) <= 14:
+            catalyst_val += 10
+        if item.get("extended_into_earnings"):
+            catalyst_val -= 20
+        catalyst_val = max(0.0, min(100.0, catalyst_val))
+
+    fundamental_val: Optional[float] = None
+    if survivability_ok is not None or revenue_growth is not None:
+        fundamental_val = 50.0
+        if survivability_ok is True:
+            fundamental_val += 20
+        elif survivability_ok is False:
+            fundamental_val -= 25
+        if revenue_growth is not None:
+            if revenue_growth > 30:
+                fundamental_val += 25
+            elif revenue_growth > 15:
+                fundamental_val += 15
+            elif revenue_growth > 5:
+                fundamental_val += 5
+            elif revenue_growth < 0:
+                fundamental_val -= 15
+        fundamental_val = max(0.0, min(100.0, fundamental_val))
+
+    social_val: Optional[float] = None
+    if social_score_raw is not None:
+        social_val = max(0.0, min(100.0, float(social_score_raw) * 100.0))
+    elif category == "social_arb_attention":
+        social_val = 0.0
+
+    extension_risk_val: Optional[float] = None
+    if extension is not None:
+        extension_risk_val = max(0.0, min(100.0, extension * 2.0))
+    elif dd is not None:
+        extension_risk_val = max(0.0, min(100.0, max(0.0, 100.0 + dd)))
+
+    liquidity_val: Optional[float] = None
+    if vol_tr is not None:
+        liquidity_val = max(0.0, min(100.0, vol_tr * 60.0))
+
+    return {
+        "rs": round(rs_val, 1) if rs_val is not None else None,
+        "trend": round(trend_val, 1) if trend_val is not None else None,
+        "volume": round(volume_val, 1) if volume_val is not None else None,
+        "catalyst": round(catalyst_val, 1) if catalyst_val is not None else None,
+        "fundamental": round(fundamental_val, 1) if fundamental_val is not None else None,
+        "social": round(social_val, 1) if social_val is not None else None,
+        "extension_risk": round(extension_risk_val, 1) if extension_risk_val is not None else None,
+        "liquidity": round(liquidity_val, 1) if liquidity_val is not None else None,
+    }
+
+
+def _enrich_item(item: Dict[str, Any], profile: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Add company_name, sector, industry, scores, data_freshness to a scanner item."""
+    sym = item.get("ticker", "")
+    if profile:
+        item["company_name"] = profile.get("companyName") or profile.get("name") or sym
+        item["sector"] = profile.get("sector") or None
+        item["industry"] = profile.get("industry") or None
+    else:
+        item.setdefault("company_name", None)
+        item.setdefault("sector", None)
+        item.setdefault("industry", None)
+    item["scores"] = _derive_scores(item)
+    item["data_freshness"] = {
+        "price_parquet_as_of": _parquet_mtime(sym),
+        "spy_parquet_as_of": _parquet_mtime("SPY"),
+        "fmp_profile_available": profile is not None,
+        "report_generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return item
+
+
+def _batch_fmp_profiles(tickers: List[str]) -> Dict[str, Optional[Dict[str, Any]]]:
+    """Fetch FMP company profiles for a batch of tickers (offline-safe)."""
+    if _is_offline_fmp():
+        return {t: None for t in tickers}
+    profiles: Dict[str, Optional[Dict[str, Any]]] = {}
+    for t in tickers:
+        try:
+            from core.fmp_client import get_fmp
+            p = get_fmp().get_company_profile(t)
+            profiles[t] = p if isinstance(p, dict) else None
+        except Exception:
+            profiles[t] = None
+    return profiles
+
+
 # ── Watchlist score ──────────────────────────────────────────────────────────
 
 
@@ -1074,6 +1215,10 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
         if t not in seen or item["research_score"] > seen[t]["research_score"]:
             seen[t] = item
     watchlist = sorted(seen.values(), key=lambda x: x["research_score"], reverse=True)
+
+    # Enrich each watchlist item with company metadata, sub-component scores, data freshness
+    profile_cache = _batch_fmp_profiles([item["ticker"] for item in watchlist[:25]])
+    watchlist = [_enrich_item(item, profile_cache.get(item["ticker"])) for item in watchlist]
 
     # Label summary
     label_counts: Dict[str, int] = {}

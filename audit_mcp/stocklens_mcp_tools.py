@@ -1156,7 +1156,7 @@ def get_research_card(ticker: str) -> Dict[str, Any]:
     t, err = _validate_ticker(ticker)
     if err:
         return err
-    rel = f"cache/research/cards/{t}_research_card.json"
+    rel = f"cache/research/stock_research_card_{t}.json"
     payload, missing = _read_json(rel)
     if missing:
         return {

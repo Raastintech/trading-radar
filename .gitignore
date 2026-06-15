@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Secrets / env
+.env
+*.env
+/home/gem/secure/
+secure/
+*.key
+*.pem
+*.token
+credentials*
+secrets*
+trading.env
+
+# Logs
+logs/
+*.log
+
+# Runtime cache / large data
+cache/
+data/
+cache/research/
+data/research/
+data/options_snapshots/
+cache/prices/
+*.parquet
+*.feather
+*.sqlite
+*.db
+
+# Backups / archives
+*.bak
+*.backup
+*.tmp
+archive/execution_disabled/*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
