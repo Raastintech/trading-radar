@@ -83,8 +83,8 @@ def test_edge_banner_renders_unproven_when_recall_below_threshold():
         }
     )
     out = _render(PB.selection_edge_banner(data))
-    assert "SELECTION EDGE: UNPROVEN" in out
-    assert "trade selection remains research-only" in out
+    assert "WATCHLIST QUALITY: UNPROVEN" in out
+    assert "research-only" in out
 
 
 def test_system_ok_does_not_imply_edge_exists():

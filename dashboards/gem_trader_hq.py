@@ -84,7 +84,7 @@ except Exception:
 
 # ── modes ─────────────────────────────────────────────────────────────────────
 M_MONITOR = 1; M_RESEARCH = 2; M_RISK = 3; M_SCANNER = 4
-MODE_NAMES = {M_MONITOR: "MONITOR", M_RESEARCH: "RESEARCH", M_RISK: "RISK", M_SCANNER: "SCANNER"}
+MODE_NAMES = {M_MONITOR: "MARKET", M_RESEARCH: "WATCHLIST", M_RISK: "INTEL", M_SCANNER: "RESEARCH"}
 
 # ── fallback ticker universe for standalone scans (daemon not running) ────────
 # Emergency fallback only — kept for cases when the dynamic universe builder
@@ -743,7 +743,7 @@ def selection_edge_status(
         "recall_pct": r,
         "baseline_pct": b,
         "style": style,
-        "line": f"SELECTION EDGE: UNPROVEN · {detail} · trade selection remains research-only",
+        "line": f"WATCHLIST QUALITY: UNPROVEN · {detail} · research-only",
     }
 
 
@@ -2366,14 +2366,6 @@ class PB:  # PanelBuilder — all static
             if sv:
                 t.append(f"  ·  recall shadow {sv}", style="dim")
 
-        # Phase 1G.17 — participation state. Only shouts when STARVED (the
-        # one state where 'SYSTEM OK' is most misleading); other states stay
-        # off this banner to keep it one row.
-        part = participation_status(data.get("participation_audit"))
-        if part["state"] == "STARVED":
-            t.append("  ·  ", style="dim")
-            t.append(f"PARTICIPATION STARVED ({part['reason']})",
-                     style=part["style"])
         return t
 
     # ── header bar ────────────────────────────────────────────────────────────
@@ -2407,7 +2399,7 @@ class PB:  # PanelBuilder — all static
             srch = f"  [bold cyan]SEARCH:[/] {state.search_buf}▌"
 
         t = Text(justify="left")
-        t.append("GEM TRADER HQ", style="bold cyan")
+        t.append("GEM RESEARCH TERMINAL", style="bold cyan")
         t.append(f"  {_now_et().strftime('%H:%M:%S')} ET", style="white")
         # Session state badge — primary execution indicator
         t.append(f"  [{sess_style}][{sess_lbl}][/]", style="")
@@ -7128,44 +7120,39 @@ class PB:  # PanelBuilder — all static
             except Exception:
                 sb20_v = None
             if not f or f.get("_missing"):
-                t.append("monitor risk · forecast artifact missing", style="white")
+                t.append("review intel · forecast artifact missing — run nightly research cycle", style="white")
             elif "construct" in bias5 or "bull" in bias5:
                 if sb20_v is not None and sb20_v < 0.5:
                     t.append(
-                        "monitor risk · forecast constructive but breadth weak",
+                        "review intel · forecast constructive but breadth weak",
                         style="white",
                     )
                 else:
-                    t.append("monitor risk · forecast constructive", style="white")
+                    t.append("review intel · forecast constructive", style="white")
             elif "bear" in bias5 or "defens" in bias5:
-                t.append("monitor risk · forecast defensive — size down", style="white")
+                t.append("review intel · forecast defensive — check MCP audit + earnings wall", style="white")
             else:
-                t.append("monitor risk · forecast mixed", style="white")
+                t.append("review intel · forecast mixed", style="white")
 
         elif mode == M_SCANNER:
-            sr = data.get("scan_results") or {}
-            opps = [o for o in (sr.get("opportunities") or [])
-                    if _active_strategy_row(o)]
-            snap = data.get("universe_snap") or {}
-            struct = [
-                c for c in (snap.get("strategy_candidates") or [])
-                if c.get("readiness") in ("READY_NOW", "WATCH")
-                and _active_strategy_row(c)
-            ]
-            if opps:
+            sc = data.get("research_scanner") or {}
+            wl_size = int(sc.get("watchlist_size") or 0)
+            alpha = data.get("alpha_discovery") or {}
+            alpha_count = len(alpha.get("items") or [])
+            if wl_size > 0:
                 t.append(
-                    f"{len(opps)} scanner-approved setup(s) · review evidence before action",
+                    f"{wl_size} research watchlist names · run stock-research-card for deep dive",
                     style="white",
                 )
-            elif struct:
+            elif alpha_count > 0:
                 t.append(
-                    f"no scanner-approved setups · {len(struct)} structural candidate(s) only",
+                    f"no scanner results · {alpha_count} alpha candidates visible",
                     style="white",
                 )
             else:
                 t.append(
-                    "no scanner-approved setups; review structural candidates only",
-                    style="white",
+                    "run research-scanner to populate watchlist",
+                    style="dim",
                 )
 
         return Panel(t, box=box.SIMPLE, padding=(0, 1))
@@ -7178,12 +7165,11 @@ class PB:  # PanelBuilder — all static
 def _layout_root(header, readiness, body, status_bar, next_action=None,
                  edge_banner=None) -> Layout:
     root = Layout()
-    # F5: persistent SELECTION EDGE banner directly under the header, on every
-    # mode, so SYSTEM-health green can never be misread as a proven edge.
     rows = [Layout(header, name="header", size=3)]
     if edge_banner is not None:
         rows.append(Layout(edge_banner, name="edge_banner", size=1))
-    rows.append(Layout(readiness, name="readiness", size=3))
+    if readiness is not None:
+        rows.append(Layout(readiness, name="readiness", size=3))
     rows.append(Layout(body, name="body"))
     if next_action is not None:
         rows.append(Layout(next_action, name="next_action", size=3))
@@ -7193,7 +7179,7 @@ def _layout_root(header, readiness, body, status_bar, next_action=None,
 
 def _status_bar(state: Optional["State"] = None) -> Panel:
     t = Text(justify="center")
-    base = ("[dim]1[/] Monitor  [dim]2[/] Research  [dim]3[/] Risk  [dim]4[/] Scanner"
+    base = ("[dim]1[/] Market  [dim]2[/] Watchlist  [dim]3[/] Intel  [dim]4[/] Research"
             "  [dim]s[/] Scan  [dim]/[/] Search  [dim]r[/] Refresh  [dim]q[/] Quit")
     if state is not None and state.mode == M_RESEARCH and not state.search_active:
         focus = state.research_focus or "auto"
@@ -7238,18 +7224,12 @@ def build_monitor(state,data,claude):
         Layout(name="changed",   size=3),
         Layout(name="strip",     size=3),
         Layout(name="bot"),
-        Layout(name="social",    size=8),
     )
     body["top"].split_row(
         Layout(PB.regime(data),     name="regime",    ratio=3),
         Layout(PB.internals(data),  name="internals", ratio=4),
         Layout(PB.vix_gates(data),  name="vix",       ratio=3),
     )
-    # Mid row: positions + account.  Macro countdown lives in Mode 3 (Risk);
-    # social arb gets its own full-width row at the bottom so the cross-
-    # confirm labels render legibly instead of being crushed into a narrow
-    # third column.
-    # Phase 5: research-only mid row — Heartbeat + Watchlist replace positions/account
     body["mid"].split_row(
         Layout(PB.market_heartbeat(data),    name="heartbeat", ratio=5),
         Layout(PB.research_watchlist(data),  name="watchlist", ratio=8),
@@ -7258,7 +7238,6 @@ def build_monitor(state,data,claude):
     body["forecast"].update(PB.market_forecast_strip(data))
     body["changed"].update(PB.what_changed_strip(data))
     body["strip"].update(PB.top3_strip(data))
-    # Phase 5: bot row — paper panels hidden; social arb at full width
     body["bot"].update(PB.social_arb_radar(
         data,
         alpha_symbols=alpha_symbols,
@@ -7266,9 +7245,8 @@ def build_monitor(state,data,claude):
         compact=True,
         max_lines=5,
     ))
-    body["social"].update(PB.paper_evidence(data))
     return _layout_root(PB.header(state,data,claude),
-                        PB.trade_readiness(data),
+                        None,
                         body,
                         _status_bar(),
                         next_action=PB.next_action(state, data),
@@ -7478,7 +7456,7 @@ def build_research(state, data, claude):
         ),
     )
     return _layout_root(PB.header(state, data, claude),
-                        PB.trade_readiness(data),
+                        None,
                         body,
                         _status_bar(state),
                         next_action=PB.next_action(state, data),
@@ -7487,42 +7465,26 @@ def build_research(state, data, claude):
 def build_risk(state,data,claude):
     body = Layout()
     body.split_column(
-        # Phase 1E: risk_tel ribbon now carries 5 sub-rows. Phase 1B
-        # rows are 2 lines each (slippage/concentration/shadow), each
-        # of which can wrap to 3 in the narrow column; Phase 1D/1E
-        # rows (clean-epoch, broker-snap) are 1 line each. Allocate
-        # 13 rows total so the new rows are not clipped by the
-        # Phase 1B wrap.
-        Layout(name="top",     size=13),
+        Layout(name="top",     size=10),
         Layout(name="forecast"),
         Layout(name="forward", size=7),
         Layout(name="weekly",  size=3),
-        # Phase 2B.1 — compact MCP audit session summary panel. Cache-only
-        # read of cache/research/mcp_analysis_latest.json; degrades to a
-        # one-line "no sidecar yet" hint when the orchestrator hasn't run.
-        # Size bumped to 9 to fit the Phase 2B.1 follow-up Action row.
         Layout(PB.mcp_audit_summary(data), name="mcp_audit", size=9),
-        Layout(PB.positions(data, detailed=True),name="pos"),
         Layout(name="earn_row", size=9),
     )
     body["top"].split_row(
-        Layout(PB.portfolio_risk(data),          name="risk",     ratio=5),
-        Layout(PB.evidence_freshness(data),      name="fresh",    ratio=4),
-        Layout(PB.risk_telemetry(data),          name="risk_tel", ratio=5),
+        Layout(PB.evidence_freshness(data), name="fresh",    ratio=5),
+        Layout(PB.risk_telemetry(data),     name="risk_tel", ratio=5),
     )
     body["forecast"].update(PB.market_forecast_detailed(data))
     body["forward"].update(PB.forecast_forward_status(data))
     body["weekly"].update(PB.weekly_review_strip(data))
-    # Earnings + macro share the bottom row so HIGH-impact events sit next
-    # to held-position earnings risk — both feed the same "event-driven
-    # risk" mental model, so co-locating them matches how the user reads
-    # the screen.
     body["earn_row"].split_row(
         Layout(PB.earnings(data), name="earn",  ratio=6),
         Layout(PB.macro(data),    name="macro", ratio=4),
     )
     return _layout_root(PB.header(state,data,claude),
-                        PB.trade_readiness(data),
+                        None,
                         body,
                         _status_bar(),
                         next_action=PB.next_action(state, data),
@@ -7530,65 +7492,36 @@ def build_risk(state,data,claude):
 
 def build_scanner(state,data,claude):
     """
-    Scanner mode — two-column layout:
+    Mode 4 (Research) — research pipeline view.
 
-    Left (scanner+veto pipeline):                Right (universe structural layer):
-      SCANNER SIGNALS     ← scanner-confirmed      UNIVERSE READINESS   ← per-strategy counts
-      DEVELOPING/GATED    ← vetoed + near-thresh   STRUCTURAL CANDIDATES ← daily-bar candidates
-      RECENT DECISIONS    ← decision log
-
-    Layer hierarchy (most → least confirmed):
-      EXEC-CONFIRMED (READY_NOW) > SCAN-APPROVED > EXEC-FAILED > COUNCIL GATED > STRUCTURAL CANDIDATE > DEVELOPING
+    Left: daily research watchlist + developing universe candidates.
+    Right: alpha discovery board + universe readiness summary.
     """
-    # Empty-state collapse: when a scanner-pipeline panel has nothing to
-    # render, shrink it to a compact strip so the recovered rows go to the
-    # neighboring panels (developing/gated diagnostics, structural candidates)
-    # which usually still carry content even when the scanner is quiet.
-    sr_obj = data.get("scan_results") or {}
-    has_opps = bool([
-        opp for opp in (sr_obj.get("opportunities") or [])
-        if _active_strategy_row(opp)
-    ])
-    has_dec = bool(data.get("db_decisions") or [])
-
     body = Layout()
     body.split_row(
         Layout(name="left",  ratio=11),
         Layout(name="right", ratio=9),
     )
-    # Left column: scanner + veto pipeline results.
-    # Sizing matrix:
-    #   has_opps   has_dec   opps   devs        dec
-    #   ───────────────────────────────────────────────
-    #   yes        yes       13     14          remainder
-    #   yes        no        13     remainder   3   (compact)
-    #   no         yes       3      14          remainder
-    #   no         no        3      remainder   3
-    opps_size = 13 if has_opps else 3
-    if has_opps and has_dec:
-        devs_layout = Layout(PB.developing_soon(data), name="devs", size=14)
-        dec_layout  = Layout(PB.decisions(data),       name="dec")
-    elif has_opps and not has_dec:
-        devs_layout = Layout(PB.developing_soon(data), name="devs")
-        dec_layout  = Layout(PB.decisions(data),       name="dec",  size=3)
-    elif not has_opps and has_dec:
-        devs_layout = Layout(PB.developing_soon(data), name="devs", size=14)
-        dec_layout  = Layout(PB.decisions(data),       name="dec")
-    else:
-        devs_layout = Layout(PB.developing_soon(data), name="devs")
-        dec_layout  = Layout(PB.decisions(data),       name="dec",  size=3)
     body["left"].split_column(
-        Layout(PB.top_opportunities(data), name="opps", size=opps_size),
-        devs_layout,
-        dec_layout,
+        Layout(PB.research_watchlist(data), name="watchlist"),
+        Layout(PB.developing_soon(data),    name="devs",      size=12),
     )
-    # Right column: universe structural layer
     body["right"].split_column(
-        Layout(PB.universe_readiness_summary(data), name="uni_sum", size=12),
-        Layout(PB.universe_candidates(data),         name="uni_cand"),
+        Layout(
+            PB.alpha_discovery(
+                data,
+                state=state,
+                expanded=False,
+                bte_focus_symbols=set(),
+                show_more_level=state.alpha_show_more,
+                compact_detail=True,
+            ),
+            name="alpha",
+        ),
+        Layout(PB.universe_readiness_summary(data), name="uni_sum", size=10),
     )
     return _layout_root(PB.header(state,data,claude),
-                        PB.trade_readiness(data),
+                        None,
                         body,
                         _status_bar(),
                         next_action=PB.next_action(state, data),
