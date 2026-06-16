@@ -22,7 +22,7 @@ Scanner categories:
 
 Watchlist labels (4C):
   WATCH, RESEARCH, EARLY_ACCUMULATION, BEATEN_DOWN, SECTOR_LEADER,
-  CATALYST, SOCIAL_ARB, SPECULATIVE_10X, EXTENDED, RISKY, AVOID,
+  CATALYST, SOCIAL_ARB, ASYMMETRIC_RECOVERY_WATCH, TRUE_10X_RESEARCH, EXTENDED, RISKY, AVOID,
   CROWDED, NO_SOCIAL_DATA
 
 Forbidden outputs:
@@ -107,7 +107,8 @@ WATCHLIST_LABELS = frozenset({
     "SECTOR_LEADER",
     "CATALYST",
     "SOCIAL_ARB",
-    "SPECULATIVE_10X",
+    "ASYMMETRIC_RECOVERY_WATCH",
+    "TRUE_10X_RESEARCH",
     "EXTENDED",
     "RISKY",
     "AVOID",
@@ -605,7 +606,8 @@ def _watchlist_score(
 
     # Map to label
     if is_speculative:
-        label = "SPECULATIVE_10X"
+        # market_cap not available here; default to ASYMMETRIC_RECOVERY_WATCH
+        label = "ASYMMETRIC_RECOVERY_WATCH"
     elif not has_social:
         if score >= 70:
             label = "RESEARCH"
@@ -1152,7 +1154,13 @@ def scan_asymmetric(
         if dd is not None and dd < -50:
             score -= 5
 
-        label = "SPECULATIVE_10X"
+        small_cap = market_cap is not None and market_cap < 5_000_000_000
+        large_dd = dd is not None and dd < -40
+        rs_recovering = rs_63 is not None and rs_63 > 0 and rs_63 < 40
+        if has_theme and small_cap and large_dd and rs_recovering:
+            label = "TRUE_10X_RESEARCH"
+        else:
+            label = "ASYMMETRIC_RECOVERY_WATCH"
         if score < 45:
             label = "RISKY"
 
@@ -1497,7 +1505,8 @@ deserves deeper research, and all subsequent steps are manual.
 | `SECTOR_LEADER` | Outperforming sector ETF and SPY |
 | `CATALYST` | Upcoming earnings or analyst upgrade |
 | `SOCIAL_ARB` | Social attention anomaly; early-stage |
-| `SPECULATIVE_10X` | Long-term asymmetric thesis; high risk |
+| `ASYMMETRIC_RECOVERY_WATCH` | Price/volume recovery signals; theme or fundamental thesis unconfirmed |
+| `TRUE_10X_RESEARCH` | Theme + small-cap base + price recovery confirmed; highest speculative research priority |
 | `EXTENDED` | Outperforming but stretched vs MA |
 | `RISKY` | Signal present but risk flags elevated |
 | `AVOID` | No positive signals; multiple flags |

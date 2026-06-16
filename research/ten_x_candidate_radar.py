@@ -14,9 +14,9 @@ Criteria (any two or more required to appear):
   - Market cap < $5B (small-cap upside leverage)
 
 Outputs labels (research framing only):
-  SPECULATIVE_10X   — meets 3+ criteria; highest research priority
-  ASYMMETRIC_WATCH  — meets 2 criteria; worth monitoring
-  THEME_ONLY        — theme exposure but no price confirmation
+  TRUE_10X_RESEARCH         — theme + small-cap base + price recovery confirmed; highest research priority
+  ASYMMETRIC_RECOVERY_WATCH — price/volume recovery signals; theme/fundamental thesis unconfirmed
+  THEME_ONLY                — theme exposure but no price confirmation
 
 Outputs:
   cache/research/ten_x_candidates_latest.json

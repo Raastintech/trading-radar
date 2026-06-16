@@ -748,7 +748,7 @@ def _derive_conclusion(
         return "crowded/viral — late-mover risk; watch candidate only after consolidation"
     if scanner_label in {"EXTENDED"}:
         return "extended; wait for reset — worth watching for better entry context"
-    if scanner_label in {"SPECULATIVE_10X"}:
+    if scanner_label in {"TRUE_10X_RESEARCH", "ASYMMETRIC_RECOVERY_WATCH"}:
         return "potential asymmetric candidate — speculative long-term watch; high risk"
     if has_earnings and dd is not None and dd > -5:
         return "catalyst candidate — upcoming earnings; requires manual review"
