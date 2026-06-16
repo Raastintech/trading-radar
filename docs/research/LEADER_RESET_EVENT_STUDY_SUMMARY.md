@@ -1,6 +1,6 @@
 # LEADER_RESET — Event Study Summary (research-only)
 
-**Generated:** 2026-06-16T05:17:13  
+**Generated:** 2026-06-16T05:50:04  
 **Source:** `data/state/stock_lens_forward_log.jsonl` (1547 historical lens snapshots)  
 **Friction:** 0.3% round-trip  
 **Status:** Research only. No paper sleeve, no signals, no registry change.

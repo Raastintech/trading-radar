@@ -1,6 +1,6 @@
 # Strategy Tournament — Results (research-only)
 
-**Generated:** 2026-06-16T05:17:14  
+**Generated:** 2026-06-16T05:50:04  
 **Phase:** 1G.4 · research-only (no signals, no execution, no live capital)  
 **Event spine:** `data/state/stock_lens_forward_log.jsonl` (1547 snapshots)  
 **Clean epoch:** ≥ 2026-05-08 · **friction** 0.3% round-trip  

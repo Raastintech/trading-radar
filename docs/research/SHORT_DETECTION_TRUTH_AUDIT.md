@@ -1,6 +1,6 @@
 # Short Detection Truth Audit — QQQ Breakdown / Tactical Short Regime Review
 
-_Phase 1G.16 · research-only · generated 2026-06-16T05:17:12Z · as-of bar 2026-06-15_
+_Phase 1G.16 · research-only · generated 2026-06-16T05:50:03Z · as-of bar 2026-06-15_
 
 > **Scope guard.** This audits the *short-detection layer* only. `SHORT_A` stays **FROZEN** (it failed structurally). No paper signals, no trade proposals, no execution/governance/live-capital/gate/Veto-Council changes, no new active short strategy. Proposed states are research labels.
 

@@ -1,6 +1,6 @@
 # RS/Theme → Lens/Gatekeeper Triage — Phase 1G.9
 
-*Generated 2026-06-16T05:18:49.099720+00:00 · research-only · cache-only. Routing labels only — not buy/sell signals, not paper signals, not trade proposals. Does NOT modify the production universe, strategy gates, execution, or governance.*
+*Generated 2026-06-16T05:51:37.856812+00:00 · research-only · cache-only. Routing labels only — not buy/sell signals, not paper signals, not trade proposals. Does NOT modify the production universe, strategy gates, execution, or governance.*
 
 **Verdict:** `NEED_MORE_DATA`
 
@@ -16,9 +16,9 @@ Phase 1G.8 found 333/356 proposed-dynamic early leaders are killed by the Voyage
 | needs Gatekeeper | 1 |
 | Lens-ready (both artifacts fresh) | 0 |
 | too extended | 12 |
-| blocked | 2 |
+| blocked | 3 |
 | research-watch | 0 |
-| low-quality noise | 5 |
+| low-quality noise | 4 |
 | not enough data | 0 |
 | with options confirmation | 8 |
 | in leading themes | 12 |
@@ -41,7 +41,7 @@ Phase 1G.8 found 333/356 proposed-dynamic early leaders are killed by the Voyage
 | ticker | source | stage | ELS | theme | ext | lens | gk | options | alpha-board | gate root | triage |
 |---|---|---|--:|---|---|---|---|---|---|---|---|
 | OPTX | overlap | BREAKOUT_CONFIRMED | 62.9 | hardware | constructive | Neutral | BLOCK | — | alpha_board_cap | real_quality | **BLOCKED** |
-| ASTS | overlap | BREAKOUT_CONFIRMED | 56.3 | space_aerospace | constructive | Neutral | WATCH | ok | alpha_board_cap | real_quality | **LOW_QUALITY_NOISE** |
+| ASTS | overlap | BREAKOUT_CONFIRMED | 56.3 | space_aerospace | constructive | Neutral | BLOCK | ok | alpha_board_cap | real_quality | **BLOCKED** |
 | FLY | overlap | BREAKOUT_CONFIRMED | 52.2 | space_aerospace | extended | Neutral | BLOCK | unusable | alpha_board_cap | gate_design_mismatch | **BLOCKED** |
 | SATL | overlap | BREAKOUT_CONFIRMED | 47.1 | hardware | constructive | Bearish but oversold | BLOCK | unusable | alpha_board_cap | real_quality | **LOW_QUALITY_NOISE** |
 | VOYG | overlap | BREAKOUT_CONFIRMED | 45.4 | space_aerospace | extended | Neutral | BLOCK | poor | alpha_board_cap | gate_design_mismatch | **TOO_EXTENDED** |
@@ -79,9 +79,9 @@ DESIGN ONLY. No refresh is executed by this report. Run the commands below only 
   ```
   ./scripts/run_research_cycle.sh lens OUST VPG ALAB VSH ENPH AMBQ VELO ATOM WOLF NVTS XPO APLS BIO INFQ PSN MT DECK LUNR AMPX VIK LPTH RKLB ILMN
   ```
-- **refresh Executive Gatekeeper (cache-first; FMP earnings calendar only)** — ~6 gatekeeper rebuilds (cache-first, no per-ticker provider fan-out)
+- **refresh Executive Gatekeeper (cache-first; FMP earnings calendar only)** — ~5 gatekeeper rebuilds (cache-first, no per-ticker provider fan-out)
   ```
-  ./scripts/run_research_cycle.sh gatekeeper-refresh --watch ASTS SATL VOYG RKLB DIA SPOT
+  ./scripts/run_research_cycle.sh gatekeeper-refresh --watch SATL VOYG RKLB DIA SPOT
   ```
 
 ## Forward maturation
