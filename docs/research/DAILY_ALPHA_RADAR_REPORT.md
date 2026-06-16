@@ -19,7 +19,7 @@
 ## Data Coverage
 
 **Tickers:** 5618 total | Actionable (HIGH+MEDIUM): 94.9%
-  HIGH=40 | MEDIUM=5293 | LOW=226 | INVALID=59
+  HIGH=42 | MEDIUM=5290 | LOW=227 | INVALID=59
 
 **Options Coverage:** 0% | Overlay: DISABLED
   > ⚠ OPTIONS_DATA_UNAVAILABLE: coverage below 50% threshold. No candidate will be promoted based on options data.
@@ -94,7 +94,13 @@
 
 ## Conflicted Signals
 
-*(none)*
+- **ASTS** | priority=CONFLICTED_SIGNAL | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=0 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
+  - *Catalyst sanity:* NEEDS_MANUAL_SOURCE_CHECK (tape_extended)
+  - **CONFLICTS:** catalyst_not_validated
+  - *Downgraded:* catalyst_not_validated
+  - *Why appeared:* Social attention signal (source: social_attention_radar)
+  - *Confirms if:* Early attention + price not yet extended + fundamental support
+  - *Invalidates if:* Already widely discussed (CROWDED), price fully extended
 
 ## Data Quarantine
 
@@ -137,8 +143,10 @@
   - *Why appeared:* Social attention signal (source: social_attention_radar)
   - *Confirms if:* Early attention + price not yet extended + fundamental support
   - *Invalidates if:* Already widely discussed (CROWDED), price fully extended
-- **ASTS** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=5 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
-  - *Downgraded:* too_extended
+- **ASTS** | priority=CONFLICTED_SIGNAL | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=0 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
+  - *Catalyst sanity:* NEEDS_MANUAL_SOURCE_CHECK (tape_extended)
+  - **CONFLICTS:** catalyst_not_validated
+  - *Downgraded:* catalyst_not_validated
   - *Why appeared:* Social attention signal (source: social_attention_radar)
   - *Confirms if:* Early attention + price not yet extended + fundamental support
   - *Invalidates if:* Already widely discussed (CROWDED), price fully extended
@@ -176,7 +184,7 @@
 - **AMBQ** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
 - **FLY** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Industrials
 - **VSH** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=38 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
-*... and 5 more (see JSON sidecar)*
+*... and 4 more (see JSON sidecar)*
 
 ## Forward Tracker Status
 
@@ -206,4 +214,4 @@
 - All research candidates require independent human validation before any action
 
 ---
-*Generated: 2026-06-16T05:51:49.782177+00:00 | DAILY_ALPHA_RADAR_V1*
+*Generated: 2026-06-16T16:27:01.606102+00:00 | DAILY_ALPHA_RADAR_V1*

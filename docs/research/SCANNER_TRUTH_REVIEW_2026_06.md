@@ -1,6 +1,6 @@
 # Scanner Truth Review — 2026-05 (Phase 1G.5)
 
-*Generated 2026-06-16T05:50:45.957222+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
+*Generated 2026-06-16T16:25:56.808146+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
 
 ## 1. Executive summary
 
@@ -102,9 +102,9 @@ As-of 2026-03-19, 60td forward, 279 forward winners in 2278 liquid names.
 | liquidity_price | price∈[$5,$1000] | 455 | 1120 | 51.4% | BY-DESIGN exclusion |
 | liquidity_dvol | avg$vol≥$5M & vol≥300k | 549 | 2408 | 62.0% | BY-DESIGN exclusion |
 | voyager_max_extension_ma50 | >12% above MA50 → reject | 74 | 375 | 8.4% | KEEP |
-| voyager_ma200_floor | price < MA200×0.92 → reject | 48 | 75 | 5.4% | KEEP |
+| voyager_ma200_floor | price < MA200×0.92 → reject | 48 | 76 | 5.4% | KEEP |
 | voyager_bars_needed_260 | <260 bars → reject | 752 | 4532 | 85.0% | INDETERMINATE |
-| sniper_bars_needed_75 | <75 bars → reject | 723 | 4323 | 81.7% | INDETERMINATE |
+| sniper_bars_needed_75 | <75 bars → reject | 723 | 4321 | 81.7% | INDETERMINATE |
 | alpha_market_cap_band | mcap∉[$300M,$80B] | 62 | 180 | 7.0% | KEEP |
 
 _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental_score; voyager_dvol_trend_ratio; sniper_vol_spike_1.4x / atr_contraction_0.85; earnings_safe_days; options_liquidity / 13F_sponsorship; top_25_board_cap.
