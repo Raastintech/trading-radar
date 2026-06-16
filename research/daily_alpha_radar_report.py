@@ -442,16 +442,42 @@ def _fmt_forward_tracker(forward: Optional[Dict[str, Any]]) -> List[str]:
         )
         lines.append("")
 
+    # Benchmark readiness
+    br = forward.get("benchmark_readiness", {})
+    if br:
+        total = br.get("total_entries", 0)
+        n_spy = br.get("entries_with_spy_10d", 0)
+        n_etf = br.get("entries_with_sector_etf", 0)
+        lines.append(
+            f"**Benchmarks:** SPY/QQQ ready for {n_spy}/{total} entries"
+            f" | sector ETF assigned for {n_etf}/{total}"
+        )
+        lines.append("")
+
     by_label = forward.get("verdicts_by_label", [])
     if by_label:
-        lines.append("| Bucket | n_total | n_matured | sample_status | verdict |")
-        lines.append("|--------|---------|-----------|---------------|---------|")
-        for v in by_label:
-            ss = v.get("sample_status", SAMPLE_TOO_EARLY)
-            lines.append(
-                f"| {v['bucket']:<22} | {v['total_entries']:7d} | {v['matured_entries']:9d} "
-                f"| {ss:<13} | {v['verdict']} |"
-            )
+        # Show vs-SPY column only when at least one bucket has baseline data
+        any_spy = any(v.get("avg_ret_vs_spy") is not None for v in by_label)
+        if any_spy:
+            lines.append("| Bucket | n_total | n_matured | sample_status | verdict | avg_vs_SPY |")
+            lines.append("|--------|---------|-----------|---------------|---------|------------|")
+            for v in by_label:
+                ss = v.get("sample_status", SAMPLE_TOO_EARLY)
+                vs_spy = v.get("avg_ret_vs_spy")
+                spy_str = f"{vs_spy:+.2f}%" if vs_spy is not None else "n/a"
+                lines.append(
+                    f"| {v['bucket']:<22} | {v['total_entries']:7d} | {v['matured_entries']:9d} "
+                    f"| {ss:<13} | {v['verdict']:<22} | {spy_str:>10} |"
+                )
+        else:
+            lines.append("| Bucket | n_total | n_matured | sample_status | verdict |")
+            lines.append("|--------|---------|-----------|---------------|---------|")
+            for v in by_label:
+                ss = v.get("sample_status", SAMPLE_TOO_EARLY)
+                lines.append(
+                    f"| {v['bucket']:<22} | {v['total_entries']:7d} | {v['matured_entries']:9d} "
+                    f"| {ss:<13} | {v['verdict']} |"
+                )
     return lines
 
 

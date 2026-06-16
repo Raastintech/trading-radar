@@ -31,10 +31,8 @@ The scanner's 200-ticker universe fills positions 35–200 alphabetically from p
 
 *Mitigation:* The alpha board scans ~820 tickers with a quality/liquidity filter and feeds priority 1. For now, operators should treat scanner results as conditional on the alpha board's coverage, not as a universal screen.
 
-**2. No baseline comparison in forward tracker**
-The forward tracker records absolute % returns (ret_10d). No SPY/QQQ/sector baseline is stored alongside. When buckets eventually reach PROVISIONAL status, wins will be measured as "positive" without knowing whether the market was up the same amount.
-
-*Required before trusting any PROVISIONAL or MEANINGFUL verdict:* Add `ret_10d_vs_spy` to every history entry. This is a pre-maturity fix — it must be done before the first 10 entries mature.
+**2. No baseline comparison in forward tracker** — ✅ FIXED (Phase 4A.6, 2026-06-16)
+SPY, QQQ, and sector ETF benchmark returns are now stored at 5d/10d/20d/60d alongside every ticker observation. Fields: `spy_ret_{h}d`, `qqq_ret_{h}d`, `sector_ret_{h}d`, `ret_{h}d_vs_spy`, `ret_{h}d_vs_qqq`, `ret_{h}d_vs_sector`. The `_compute_verdicts()` function now reports win-rate-vs-SPY/QQQ/sector and avg/median relative returns when PROVISIONAL+. Fixed before the first entries matured (0 matured as of fix date). Sector ETF assigned for 80/118 existing entries; 38 without sector info carry `benchmark_missing_reasons: ["no_sector_etf"]`.
 
 **3. Stale constant + stale docstring in forward tracker**
 `MIN_MATURED_FOR_VERDICT = 5` is defined but never used. The module header says "NEED_MORE_DATA — fewer than 5 matured entries" but the code threshold is 10. A future reader would be misled.
@@ -141,10 +139,10 @@ All 20+ sub-commands completed without error. Bull Continuation regime. Alpha bo
 
 ### Must-fix before first PROVISIONAL verdict:
 
-| Fix | File | Effort |
+| Fix | File | Status |
 |-----|------|--------|
-| Add `ret_10d_vs_spy` (and 5d/20d) to forward tracker history | `research/research_watchlist_forward_tracker.py` | Medium — need to load SPY closes alongside ticker closes |
-| Remove dead `MIN_MATURED_FOR_VERDICT = 5` constant; fix module header docstring | `research/research_watchlist_forward_tracker.py` | Trivial |
+| Add `ret_10d_vs_spy` (and 5d/20d/60d) to forward tracker history | `research/research_watchlist_forward_tracker.py` | ✅ Done (Phase 4A.6) |
+| Remove dead `MIN_MATURED_FOR_VERDICT = 5` constant; fix module header docstring | `research/research_watchlist_forward_tracker.py` | ✅ Done (Phase 4A.5) |
 
 ### Nice-to-have (yellow flags, not blockers):
 

@@ -35,6 +35,8 @@ completion state and the next operating mode are tracked.
 | **4A** | **Alpha Radar Research Engine** | ✅ **complete 2026-06-15** |
 | **4A.2** | **Alpha Radar Quality Gates** | ✅ **complete 2026-06-16** |
 | **4A.3** | **Scanner Field Coverage and Candidate Enrichment** | ✅ **complete 2026-06-16** |
+| **4A.5** | **Foundation Audit (adversarial)** | ✅ **complete 2026-06-16** |
+| **4A.6** | **Benchmark-Relative Returns in Forward Tracker** | ✅ **complete 2026-06-16** |
 | **4B** | **Forward Evidence and Bucket Performance** | ⏳ FUTURE (gated: ≥10 matured/bucket) |
 | — | Capital promotion / paper execution | 🚫 **permanently closed** |
 

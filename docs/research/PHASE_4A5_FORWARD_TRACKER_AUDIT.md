@@ -52,7 +52,7 @@ return (exit_close / entry_close - 1.0) * 100.0
 | Uses future prices only (after appearance_date) | ✅ Entry found at or after date; no look-back |
 | 5d/10d/20d horizons use trading-day bars (not calendar days) | ✅ Parquet bars are trading days; `horizon` = number of bars |
 | Guard when insufficient future bars | ✅ Returns None; stays unresolved |
-| No SPY/QQQ/sector comparison yet | ⚠ WARN — absolute return only; no alpha vs baseline |
+| SPY/QQQ/sector comparison | ✅ FIXED in Phase 4A.6 — benchmark returns added to all horizons |
 
 **Weekend / holiday handling:** If `appearance_date` is a non-trading day (e.g., observation date is a Sunday), the entry is set to the next trading day's close via `d >= appearance_date`. This is correct behavior — first available trading price after observation. ✅
 
@@ -89,9 +89,7 @@ The forward tracker tracks absolute % return (ret_10d, ret_5d, ret_20d) and win 
 - Sector ETF return over the same horizon
 - Simple RS-top universe baseline
 
-⚠ **YELLOW FLAG — No baseline comparison.** Without a baseline, a "PROMISING" verdict (70% win rate, mean +2%) tells you nothing if SPY also returned +2% over the same period. The tracker will produce EARLY_SIGNAL / PROMISING labels that are not yet alpha-adjusted.
-
-**Recommendation before trusting bucket verdicts:** Add SPY and QQQ returns at the same horizons to every observation row. Compute `ret_10d_vs_spy` and `ret_10d_vs_qqq` as the primary alpha measure. Gate bucket PROMISING on `mean_10d_vs_spy > 0` in addition to current thresholds.
+✅ **RESOLVED in Phase 4A.6 (2026-06-16).** SPY, QQQ, and sector ETF benchmark returns are now stored alongside every ticker observation at 5d/10d/20d/60d horizons. Fields: `spy_ret_{h}d`, `qqq_ret_{h}d`, `sector_ret_{h}d`, `ret_{h}d_vs_spy`, `ret_{h}d_vs_qqq`, `ret_{h}d_vs_sector`. Benchmarks are loaded from the cached parquet files — no provider calls. The `_compute_verdicts()` function now outputs `win_rate_vs_spy`, `avg_ret_vs_spy`, `win_rate_vs_qqq`, `avg_ret_vs_qqq`, `win_rate_vs_sector`, `avg_ret_vs_sector` when sample is PROVISIONAL+. Primary verdict gate is still based on absolute returns (backward compatible); benchmark stats are additive reporting fields. The daily alpha radar report shows benchmark coverage and vs-SPY column when any bucket has baseline data.
 
 ---
 
@@ -102,7 +100,7 @@ The forward tracker tracks absolute % return (ret_10d, ret_5d, ret_20d) and win 
 | Observation logging integrity | ✅ PASS — idempotent, frozen labels, no label backdating |
 | Return calculation (no look-ahead) | ✅ PASS — future prices only after maturity; guarded correctly |
 | Sample discipline (NEED_MORE_DATA gate) | ✅ PASS (code is strict at 10 matured) ⚠ WARN (docstring says 5, constant 5 unused) |
-| Baseline comparison | ⚠ WARN — absolute returns only; no SPY/QQQ/sector alpha baseline |
+| Baseline comparison | ✅ FIXED (Phase 4A.6) — SPY/QQQ/sector returns added at 5d/10d/20d/60d |
 | JSONL scalability | ⚠ WARN — full rewrite; acceptable now, needs attention past 5k entries |
 
-**Forward tracker structural integrity: PASS.** Evidence cannot be polluted by future leakage or rewritten labels. The missing baseline is the most important gap to address before the first bucket reaches PROVISIONAL status.
+**Forward tracker structural integrity: PASS.** Evidence cannot be polluted by future leakage or rewritten labels. The missing baseline was the most important gap; it was addressed in Phase 4A.6 before any bucket reached PROVISIONAL status.
