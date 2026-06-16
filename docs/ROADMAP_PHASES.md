@@ -4,9 +4,9 @@ The phase map for Stock Lens / `trading-production`. Read alongside
 `PROJECT_INDEX.md`. This document is the single place where phase
 completion state and the next operating mode are tracked.
 
-> **Snapshot date:** 2026-06-14
-> **Current operating mode:** Research-Only — permanent (Phase 3B complete 2026-06-14)
-> **Next build phase:** none planned — system is in steady-state research mode
+> **Snapshot date:** 2026-06-16
+> **Current operating mode:** Research-Only — permanent (Phase 4A.2 complete 2026-06-16)
+> **Next build phase:** Phase 4A.3 — scanner field coverage (above_ma200 for all watchlist paths)
 >
 > **Auto-trading, paper-trading, and all execution paths are permanently decommissioned.**
 > The system runs daily research cycles (heartbeat, scanner, research cards, lens, forecast)
@@ -32,6 +32,8 @@ completion state and the next operating mode are tracked.
 | 2B | MCP Audit Workflows | ✅ complete |
 | **3A** | **Auto-Trading Decommission (execution → research-only)** | ✅ **complete 2026-06-13** |
 | **3B** | **Alpaca Dependency Removal + Phase 4/5 Research Engine** | ✅ **complete 2026-06-14** |
+| **4A** | **Alpha Radar Research Engine** | ✅ **complete 2026-06-15** |
+| **4A.2** | **Alpha Radar Quality Gates** | ✅ **complete 2026-06-16** |
 | — | Capital promotion / paper execution | 🚫 **permanently closed** |
 
 Legend: ✅ done · 🚫 closed/not applicable in research-only mode.
@@ -328,6 +330,49 @@ submission-gate edits, no new active strategy registered, no LEADER_RESET paper 
 no new SHORT_A emissions, no threshold tuning, no DB mutation beyond the existing
 designed forward resolvers, no auto-clear of the circuit breaker, no provider calls from
 the dashboard. Phase 2C remains not started.
+
+## Phase 4A — Alpha Radar Research Engine
+**Status:** ✅ **complete 2026-06-15.**
+
+Upgraded the research scanner into a proper Alpha Radar. New components:
+
+- `research/research_scoring.py` — `earliness_label()` + `consensus_label()` (lifecycle + signal-breadth scoring)
+- `research/research_coverage_audit.py` — per-ticker data confidence (HIGH/MEDIUM/LOW/INVALID)
+- `research/research_change_detector.py` — daily watchlist delta (new/dropped/score/label)
+- `research/research_watchlist_forward_tracker.py` — forward outcome tracking by label bucket
+- `research/ten_x_candidate_radar.py` — speculative 10x candidate radar
+- `scripts/run_research_cycle.sh` — five new subcommands (`research-coverage`, `research-scanner`, `research-changes`, `research-forward-tracker`, `ten-x-candidates`)
+
+Scanner now emits `earliness_label`, `consensus_label`, and `all_categories` on every watchlist item. Commit: `94f225d`. Doctrine: `docs/research/PHASE_4A_ALPHA_RADAR_OVERVIEW.md`.
+
+**No trade recommendations, no signals, no execution.**
+
+---
+
+## Phase 4A.2 — Alpha Radar Quality Gates
+**Status:** ✅ **complete 2026-06-16.**
+
+Hardened the Alpha Radar against false high-priority labels, legacy strategy noise, and missing data propagation. Built on Phase 4A.1.
+
+**What shipped:**
+
+- `research/research_scoring.py` — `priority_label()` (9-label cascade: TOP_RESEARCH, HIGH_PRIORITY_RESEARCH, WATCHLIST_RESEARCH, RESET_WATCH, RECLAIM_WATCH, CONFLICTED_SIGNAL, EXTENDED_CROWDED, DATA_QUARANTINE, INVALID_PRIORITY), `earliness_detail()` (missing-field tracking + extension_state), `quality_adjusted_consensus()` (score penalties for UNKNOWN earliness, LOW confidence, social-only, extension, conflicts)
+- `research/ten_x_candidate_radar.py` — V2: `TRUE_10X_RESEARCH` vs `ASYMMETRIC_RECOVERY_WATCH` vs `THEME_ONLY`; stricter structural criteria; AI/ALOY correctly land in ASYMMETRIC
+- `research/catalyst_sanity.py` — new: freshness/syndication/sector-spillover/malformation validator, 7 output labels, `can_upgrade` gate
+- `research/daily_alpha_radar_report.py` — new aggregator: 14-section markdown report with per-candidate priority/earliness/conflict/downgrade/why/confirms/invalidates; options coverage guard (disabled below 50%); writes `docs/research/DAILY_ALPHA_RADAR_REPORT.md` + JSON sidecar
+- `research/research_watchlist_forward_tracker.py` — sample-status gates (TOO_EARLY/PROVISIONAL/MEANINGFUL/ROBUST with 10/30/100 thresholds)
+- `scripts/run_research_cycle.sh` — `cmd_daily_alpha_radar()` + `daily-alpha-radar` dispatch; full Phase 4A chain (scanner/coverage/changes/forward-tracker/ten-x/daily-radar) wired into `cmd_nightly`
+- `tests/unit/test_phase4a2_quality_gates.py` — 72 new tests; 1514 total passing
+- `core/research_mode.py` — fixed pre-existing `RESEARCH_ONLY_BANNER` adjacent-literal bug (body was silently repeated ×70)
+- `docs/research/ARCHIVED_STRATEGY_DIAGNOSTICS.md` — reference for legacy tools excluded from radar
+
+**Forbidden grep check (post-nightly):** zero legacy strategy terms, zero trade-action terms in `DAILY_ALPHA_RADAR_REPORT.md`. Commit: `35e0683`.
+
+**Known remaining gap (Phase 4A.3):** `above_ma200` is only populated by the scanner for ~21% of watchlist categories, causing 79% of candidates to land in DATA_QUARANTINE. The gating logic is correct; the scanner field coverage needs extending.
+
+**No trade recommendations, no signals, no execution.**
+
+---
 
 ## Phase 2A — Stock Lens MCP Audit Server V1
 **Status:** 🟦 **next build phase (planned).**
