@@ -374,6 +374,40 @@ Hardened the Alpha Radar against false high-priority labels, legacy strategy noi
 
 ---
 
+## Phase 4A.3 — Scanner Field Coverage and Candidate Enrichment
+**Status:** NEXT
+
+**Goal:** Reduce DATA_QUARANTINE caused by missing scanner fields and make every watchlist candidate fully scorable.
+
+**Main problem:** 41/52 candidates were quarantined in Phase 4A.2 because the scanner did not populate required technical fields (especially `above_ma200`) across all watchlist paths. The quality gates are correct; the enrichment is incomplete.
+
+**Scope:**
+
+1. Populate required technical fields for all scanner candidates: `above_ma20`/`above_ema20`, `above_ma50`, `above_ma200`, `dd_from_high_pct`, `vol_trend_ratio`, `rs_20d_vs_spy`, `rs_63d_vs_spy`, `extension_vs_ma20`/`extension_vs_ema20`, `extension_state`, liquidity/avg dollar volume, sector/industry, `ticker_valid`
+2. Reduce UNKNOWN earliness — UNKNOWN must only appear when data is truly unavailable, not when the scanner simply skipped the field
+3. Wire catalyst sanity per item (`headline`, `source`, `published_at`, `seen_in_sources`, `catalyst_sanity_label`, `catalyst_can_upgrade`) — `validate_catalyst()` is already imported in `daily_alpha_radar_report.py` but not yet called per-item
+4. Improve Data Quarantine handling: distinguish `DATA_INCOMPLETE` (enrichable) from `INVALID` (unscorable)
+5. Update Daily Alpha Radar to surface fewer quarantined names as enrichment improves
+
+**Acceptance criteria:** DATA_QUARANTINE count drops materially due to enrichment (not weaker gates); `above_ma200` exists for all candidates with enough price bars; earliness UNKNOWN rate drops materially; no HIGH_PRIORITY candidate has missing required fields; catalyst sanity labels appear whenever catalyst data exists; tests pass; zero trade language; system remains research-only.
+
+**No trade recommendations, no signals, no execution.**
+
+---
+
+## Phase 4B — Forward Evidence and Bucket Performance
+**Status:** FUTURE
+
+**Goal:** Use matured forward tracker observations to identify which research buckets actually produce useful forward outcomes.
+
+**Do not start Phase 4B until:** ≥10 matured observations per bucket for a provisional read; ≥30 for meaningful; ≥100 for robust. Current state as of 2026-06-16: n=0 matured (TOO_EARLY).
+
+**Metrics to evaluate:** 5d/10d/20d/60d forward return; return vs SPY; return vs sector ETF; MFE/MAE; false-positive rate; early vs late classification; best/worst bucket combinations.
+
+**No trade recommendations, no signals, no execution.**
+
+---
+
 ## Phase 2A — Stock Lens MCP Audit Server V1
 **Status:** 🟦 **next build phase (planned).**
 
