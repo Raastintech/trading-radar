@@ -67,7 +67,7 @@ import pandas as pd
 import core.config as cfg
 from core.research_mode import SYSTEM_MODE, RESEARCH_ONLY_BANNER
 
-VERSION = "TEN_X_RADAR_V1"
+VERSION = "TEN_X_RADAR_V2"
 PRICE_DIR = cfg.CACHE_DIR / "prices"
 RESEARCH_DIR = cfg.CACHE_DIR / "research"
 OUT_JSON = RESEARCH_DIR / "ten_x_candidates_latest.json"
@@ -75,6 +75,15 @@ OUT_TXT = cfg.LOG_DIR / "ten_x_candidates_latest.txt"
 
 DEFAULT_UNIVERSE_CAP = 300
 MIN_BARS = 60
+
+# TRUE_10X_RESEARCH requires theme + fundamental/survivability support.
+# ASYMMETRIC_RECOVERY_WATCH is price/volume recovery without confirmed thesis.
+# THEME_ONLY is theme exposure but no price confirmation.
+TRUE_10X_RESEARCH = "TRUE_10X_RESEARCH"
+ASYMMETRIC_RECOVERY_WATCH = "ASYMMETRIC_RECOVERY_WATCH"
+THEME_ONLY = "THEME_ONLY"
+
+TEN_X_LABELS = (TRUE_10X_RESEARCH, ASYMMETRIC_RECOVERY_WATCH, THEME_ONLY)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("ten_x_candidate_radar")
@@ -278,20 +287,28 @@ def scan_ten_x(
         if criteria_met < 2:
             continue
 
-        # Assign label
-        if criteria_met >= 3:
-            label = "SPECULATIVE_10X"
-        elif in_theme and not rs_recovering:
-            label = "THEME_ONLY"
+        # TRUE_10X_RESEARCH requires: confirmed speculative/structural theme +
+        # fundamental signal (small-cap base) + price recovery evidence.
+        # ASYMMETRIC_RECOVERY_WATCH is price/volume recovery without confirmed thesis.
+        theme_and_fundamental = in_theme and small_cap
+        price_recovery = large_dd and rs_recovering
+
+        if theme_and_fundamental and price_recovery:
+            label = TRUE_10X_RESEARCH
+        elif in_theme and not rs_recovering and not large_dd:
+            label = THEME_ONLY
         else:
-            label = "ASYMMETRIC_WATCH"
+            # Price/volume recovery signals present but missing theme+fundamental combo
+            label = ASYMMETRIC_RECOVERY_WATCH
 
         # Research score (not a trading signal)
         score = 40.0 + criteria_met * 12.0
         if large_dd and rs_recovering:
-            score += 5  # core asymmetric setup
+            score += 5
         if vol_surge:
             score += 5
+        if theme_and_fundamental:
+            score += 8  # confirmed thesis bonus
         score = min(100.0, score)
 
         candidates.append({
@@ -314,11 +331,20 @@ def scan_ten_x(
             "market_cap": market_cap,
             "data_source": "price_cache_and_fmp_cache",
             "refresh_cadence": "weekly",
-            "research_note": "Speculative — multi-year thesis required. Manual research only.",
+            "research_note": (
+                "TRUE 10X: theme + small-cap base + price recovery confirmed. "
+                "Manual deep research required."
+                if label == TRUE_10X_RESEARCH else
+                "ASYMMETRIC RECOVERY: price/volume signals only. Theme/fundamental confirmation absent. "
+                "Requires deep manual research."
+                if label == ASYMMETRIC_RECOVERY_WATCH else
+                "THEME ONLY: speculative theme detected; no price recovery signal yet."
+            ),
             "no_trade_recommendation": True,
             "speculative_disclaimer": (
-                "These are clearly speculative candidates requiring extensive manual research. "
-                "High risk of permanent capital loss. No position sizing, entry, or stop implied."
+                "Speculative research candidates requiring extensive manual research. "
+                "High risk of permanent capital loss. No position sizing, entry, or stop implied. "
+                "Requires deep due diligence."
             ),
         })
 
@@ -367,18 +393,33 @@ def _format_text(result: Dict[str, Any]) -> str:
     for lbl, cnt in sorted(result.get("label_counts", {}).items(), key=lambda x: -x[1]):
         lines.append(f"  {lbl:<22}  {cnt:3d}")
 
-    lines += ["", "=== TOP CANDIDATES ==="]
-    for c in result.get("candidates", [])[:20]:
-        themes = ",".join(c.get("themes", [])[:3]) or "—"
+    lines += ["", "=== TRUE 10X RESEARCH CANDIDATES ==="]
+    true_10x = [c for c in result.get("candidates", []) if c["label"] == TRUE_10X_RESEARCH]
+    if true_10x:
+        for c in true_10x[:10]:
+            themes = ",".join(c.get("themes", [])[:3]) or "—"
+            lines.append(
+                f"  [{c['label']:<25}]  {c['ticker']:<6}  "
+                f"score={c['research_score']:5.1f}  dd={c.get('dd_from_high_pct') or '?':>7}%  "
+                f"themes=[{themes}]"
+            )
+    else:
+        lines.append("  (none — stricter criteria require theme + small-cap + price recovery)")
+
+    lines += ["", "=== ASYMMETRIC RECOVERY WATCH ==="]
+    recovery = [c for c in result.get("candidates", []) if c["label"] == ASYMMETRIC_RECOVERY_WATCH]
+    for c in recovery[:10]:
         lines.append(
-            f"  [{c['label']:<18}]  {c['ticker']:<6}  "
+            f"  [{c['label']:<25}]  {c['ticker']:<6}  "
             f"score={c['research_score']:5.1f}  dd={c.get('dd_from_high_pct') or '?':>7}%  "
             f"rs63={c.get('rs_63d_vs_spy') or '?':>6}  "
-            f"themes=[{themes}]"
+            f"[price/volume recovery only — no confirmed theme/fundamental]"
         )
 
     lines += [
         "",
+        "NOTE: TRUE_10X_RESEARCH = theme + small-cap base + price recovery confirmed.",
+        "      ASYMMETRIC_RECOVERY_WATCH = drawdown/RS/volume signals only; thesis unconfirmed.",
         "⚠  Research only. No trade recommendations. Extensive due diligence required.",
         "--- RESEARCH ONLY — SPECULATIVE WATCH LIST ---",
     ]

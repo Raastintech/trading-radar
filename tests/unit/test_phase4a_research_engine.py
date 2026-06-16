@@ -355,7 +355,8 @@ class TestTenXCandidateRadar:
 
         for c in result.get("candidates", []):
             assert "label" in c
-            assert c["label"] in ("SPECULATIVE_10X", "ASYMMETRIC_WATCH", "THEME_ONLY")
+            from research.ten_x_candidate_radar import TEN_X_LABELS
+            assert c["label"] in TEN_X_LABELS, f"Unexpected label: {c['label']!r}"
             assert "no_trade_recommendation" in c
             assert c["no_trade_recommendation"] is True
 

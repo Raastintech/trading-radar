@@ -30,12 +30,13 @@ TRADIER_EXECUTION_ENABLED = False   # Tradier is kept for research data only
 FMP_RESEARCH_ENABLED = True
 
 # ── Console banner ───────────────────────────────────────────────────────────
+_BANNER_RULE = "=" * 70
 RESEARCH_ONLY_BANNER = (
-    "=" * 70 + "\n"
+    _BANNER_RULE + "\n"
     "  RESEARCH_ONLY_MODE — NO AUTO TRADING — HUMAN REVIEW ONLY\n"
     "  Broker execution, paper-trade routing, and Alpaca are disabled.\n"
     "  FMP + Tradier (research) remain active.\n"
-    "=" * 70
+    + _BANNER_RULE
 )
 
 

@@ -1113,6 +1113,17 @@ cmd_ten_x_candidates() {
     run_or_warn "ten-x candidates" "$PY" research/ten_x_candidate_radar.py "$@"
 }
 
+cmd_daily_alpha_radar() {
+    # Phase 4A.2 — Daily Alpha Radar report.  Aggregates scanner + coverage +
+    # changes + forward-tracker + 10x sidecars into the quality-gated report
+    # at docs/research/DAILY_ALPHA_RADAR_REPORT.md (priority labels, earliness
+    # detail, quality-adjusted consensus, options coverage guard, catalyst
+    # sanity).  No trade recommendations, no legacy strategy references.
+    # Cache-only.
+    log "[CACHE] Phase 4A.2 daily alpha radar report (cache-only)"
+    run_or_warn "daily alpha radar" "$PY" research/daily_alpha_radar_report.py "$@"
+}
+
 _disabled_execution_cmd() {
     echo "RESEARCH_ONLY_MODE: command disabled."
 }
@@ -1232,6 +1243,18 @@ cmd_nightly() {
     # --refresh-gatekeeper is intentionally omitted.
     cmd_rs_theme_triage
     cmd_mcp_audit_session close
+    # Phase 4A/4A.2 — refresh the research-scanner watchlist + its dependent
+    # sidecars (coverage confidence, change detector, forward-outcome tracker,
+    # 10x candidate radar) and rebuild the quality-gated Daily Alpha Radar
+    # report last, so it reads everything else this nightly cycle refreshed.
+    # Cache-first; FMP calls are optional/degrade gracefully. Research-only —
+    # no trade recommendations, no signals, no execution.
+    cmd_research_scanner
+    cmd_research_coverage
+    cmd_research_changes
+    cmd_research_forward_tracker
+    cmd_ten_x_candidates
+    cmd_daily_alpha_radar
     log "nightly cycle complete"
 }
 
@@ -1348,6 +1371,7 @@ case "$SUB" in
     research-changes)          cmd_research_changes          "${POS[@]}" ;;
     research-forward-tracker)  cmd_research_forward_tracker  "${POS[@]}" ;;
     ten-x-candidates)          cmd_ten_x_candidates          "${POS[@]}" ;;
+    daily-alpha-radar)         cmd_daily_alpha_radar         "${POS[@]}" ;;
     live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
         _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;

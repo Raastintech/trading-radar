@@ -76,6 +76,26 @@ OUT_TXT = cfg.LOG_DIR / "research_forward_latest.txt"
 MIN_MATURED_FOR_VERDICT = 5
 HORIZONS = [5, 10, 20]
 
+# Sample status thresholds (Task 8)
+SAMPLE_TOO_EARLY = "TOO_EARLY"        # < 10 matured observations
+SAMPLE_PROVISIONAL = "PROVISIONAL"    # 10–29 matured observations
+SAMPLE_MEANINGFUL = "MEANINGFUL"      # 30–99 matured observations
+SAMPLE_ROBUST = "ROBUST"              # ≥ 100 matured observations
+
+SAMPLE_THRESHOLD_PROVISIONAL = 10
+SAMPLE_THRESHOLD_MEANINGFUL = 30
+SAMPLE_THRESHOLD_ROBUST = 100
+
+
+def _sample_status(n_matured: int) -> str:
+    if n_matured < SAMPLE_THRESHOLD_PROVISIONAL:
+        return SAMPLE_TOO_EARLY
+    if n_matured < SAMPLE_THRESHOLD_MEANINGFUL:
+        return SAMPLE_PROVISIONAL
+    if n_matured < SAMPLE_THRESHOLD_ROBUST:
+        return SAMPLE_MEANINGFUL
+    return SAMPLE_ROBUST
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("research_watchlist_forward_tracker")
 
@@ -136,7 +156,10 @@ def _load_history() -> Dict[str, Dict[str, Any]]:
 def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[str, Any]:
     matured = [e for e in entries if e.get("ret_10d") is not None]
     n = len(matured)
-    if n < MIN_MATURED_FOR_VERDICT:
+    status = _sample_status(n)
+
+    # No bucket verdict until at least PROVISIONAL sample threshold (≥10 matured)
+    if n < SAMPLE_THRESHOLD_PROVISIONAL:
         verdict = "NEED_MORE_DATA"
         pos_rate = None
         mean_10d = None
@@ -157,9 +180,15 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
         "bucket": bucket_name,
         "total_entries": len(entries),
         "matured_entries": n,
+        "sample_status": status,
         "verdict": verdict,
         "win_rate_10d": pos_rate,
         "mean_ret_10d": mean_10d,
+        "note": (
+            f"Need ≥{SAMPLE_THRESHOLD_PROVISIONAL} matured for provisional read, "
+            f"≥{SAMPLE_THRESHOLD_MEANINGFUL} for meaningful, "
+            f"≥{SAMPLE_THRESHOLD_ROBUST} for robust."
+        ) if status == SAMPLE_TOO_EARLY else None,
     }
 
 
