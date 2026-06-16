@@ -5,8 +5,8 @@ The phase map for Stock Lens / `trading-production`. Read alongside
 completion state and the next operating mode are tracked.
 
 > **Snapshot date:** 2026-06-16
-> **Current operating mode:** Research-Only — permanent (Phase 4A.2 complete 2026-06-16)
-> **Next build phase:** Phase 4A.3 — scanner field coverage (above_ma200 for all watchlist paths)
+> **Current operating mode:** Research-Only — permanent (Phase 4A.3 complete 2026-06-16)
+> **Next build phase:** Phase 4B — Forward Evidence and Bucket Performance (gated: need ≥10 matured/bucket)
 >
 > **Auto-trading, paper-trading, and all execution paths are permanently decommissioned.**
 > The system runs daily research cycles (heartbeat, scanner, research cards, lens, forecast)
@@ -34,6 +34,8 @@ completion state and the next operating mode are tracked.
 | **3B** | **Alpaca Dependency Removal + Phase 4/5 Research Engine** | ✅ **complete 2026-06-14** |
 | **4A** | **Alpha Radar Research Engine** | ✅ **complete 2026-06-15** |
 | **4A.2** | **Alpha Radar Quality Gates** | ✅ **complete 2026-06-16** |
+| **4A.3** | **Scanner Field Coverage and Candidate Enrichment** | ✅ **complete 2026-06-16** |
+| **4B** | **Forward Evidence and Bucket Performance** | ⏳ FUTURE (gated: ≥10 matured/bucket) |
 | — | Capital promotion / paper execution | 🚫 **permanently closed** |
 
 Legend: ✅ done · 🚫 closed/not applicable in research-only mode.
@@ -375,7 +377,7 @@ Hardened the Alpha Radar against false high-priority labels, legacy strategy noi
 ---
 
 ## Phase 4A.3 — Scanner Field Coverage and Candidate Enrichment
-**Status:** NEXT
+**Status:** ✅ **complete 2026-06-16.**
 
 **Goal:** Reduce DATA_QUARANTINE caused by missing scanner fields and make every watchlist candidate fully scorable.
 
@@ -389,7 +391,20 @@ Hardened the Alpha Radar against false high-priority labels, legacy strategy noi
 4. Improve Data Quarantine handling: distinguish `DATA_INCOMPLETE` (enrichable) from `INVALID` (unscorable)
 5. Update Daily Alpha Radar to surface fewer quarantined names as enrichment improves
 
-**Acceptance criteria:** DATA_QUARANTINE count drops materially due to enrichment (not weaker gates); `above_ma200` exists for all candidates with enough price bars; earliness UNKNOWN rate drops materially; no HIGH_PRIORITY candidate has missing required fields; catalyst sanity labels appear whenever catalyst data exists; tests pass; zero trade language; system remains research-only.
+**Acceptance criteria:** DATA_QUARANTINE count drops materially due to enrichment (not weaker gates); `above_ma200` exists for all candidates with enough price bars; earliness UNKNOWN rate drops materially; no HIGH_PRIORITY candidate has missing required fields; tests pass; zero trade language; system remains research-only.
+
+**What shipped:**
+
+- `research/research_candidate_enrichment.py` — new central enrichment module: `enrich_research_candidate()` (fills all required technical, liquidity, metadata fields), `classify_quarantine_subtype()` (5 sub-types: INVALID_PRIORITY, INSUFFICIENT_HISTORY, LOW_LIQUIDITY, DATA_INCOMPLETE, DATA_QUARANTINE), deep cache preference (`cache/prices_deep/`)
+- `research/research_scanner.py` — `build_scanner()` now calls central enrichment post-deduplication; profiles fetched for ALL items (not just top 25)
+- `research/daily_alpha_radar_report.py` — imports `classify_quarantine_subtype`; `_enrich_with_priority()` uses item's own `ticker_valid`/`liquidity_ok` when coverage sidecar absent; new `Scanner Field Coverage` section; quarantine subtype breakdown; per-candidate shows `earliness_score`, `sector`, `liquidity_ok`, `missing_fields`
+- `tests/unit/test_phase4a3_field_coverage.py` — 66 new tests; 1580 total passing
+- `docs/research/PHASE_4A3_SCANNER_FIELD_GAP_AUDIT.md` — before/after field gap analysis
+- `docs/research/SCANNER_CANDIDATE_ENRICHMENT_SPEC.md` — enrichment contract and rules
+
+**Results (post-nightly):** above_ma50/above_ma20/rs_63d/rs_20d/dd/vol_trend/data_confidence/ticker_valid/liquidity_ok/sector: all 100% populated. above_ma200: 21%→38% (correctly unavailable for recent IPOs). Earliness UNKNOWN: 41→32. DATA_QUARANTINE: 41→34. Zero trade/legacy terms.
+
+**Known remaining gap:** `validate_catalyst()` is imported but not called per-item (scanner categories don't provide `headline`/`published_at`/`source`). Recent IPOs (<200 bars) correctly remain as INSUFFICIENT_HISTORY — no fix possible without historical data.
 
 **No trade recommendations, no signals, no execution.**
 

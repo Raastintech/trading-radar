@@ -84,6 +84,14 @@ from research.catalyst_sanity import validate_catalyst, validate_social_signal, 
 from research.research_watchlist_forward_tracker import (
     SAMPLE_TOO_EARLY, SAMPLE_PROVISIONAL, SAMPLE_MEANINGFUL, SAMPLE_ROBUST,
 )
+from research.research_candidate_enrichment import (
+    classify_quarantine_subtype,
+    QUARANTINE_INVALID,
+    QUARANTINE_INSUFFICIENT_HISTORY,
+    QUARANTINE_LOW_LIQUIDITY,
+    QUARANTINE_DATA_INCOMPLETE,
+    QUARANTINE_DATA_QUARANTINE,
+)
 
 VERSION = "DAILY_ALPHA_RADAR_V1"
 RESEARCH_DIR = cfg.CACHE_DIR / "research"
@@ -180,8 +188,13 @@ def _enrich_with_priority(
     cov = coverage_map.get(ticker, {})
 
     data_confidence = cov.get("confidence") or item.get("data_confidence")
-    ticker_valid = cov.get("price_bars", 0) >= 20 if cov else None
-    liquidity_ok = cov.get("price_bars", 0) >= 60 if cov else None
+    # Use coverage-sidecar bars for validity; fall back to item's own enriched fields
+    if cov:
+        ticker_valid = cov.get("price_bars", 0) >= 20
+        liquidity_ok = cov.get("price_bars", 0) >= 60
+    else:
+        ticker_valid = item.get("ticker_valid")   # Phase 4A.3 enrichment field
+        liquidity_ok = item.get("liquidity_ok")   # Phase 4A.3 enrichment field
 
     # Earliness detail
     ed = earliness_detail(
@@ -258,6 +271,11 @@ def _enrich_with_priority(
         "ticker_valid": ticker_valid,
         "liquidity_ok": liquidity_ok,
     })
+
+    # Phase 4A.3: classify quarantine sub-type for breakdown display
+    if pri in (DATA_QUARANTINE, INVALID_PRIORITY):
+        enriched["quarantine_subtype"] = classify_quarantine_subtype(enriched)
+
     return enriched
 
 
@@ -308,34 +326,50 @@ def _bucket_items(items: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]
 
 def _fmt_item(item: Dict[str, Any], include_details: bool = True) -> str:
     ticker = item.get("ticker", "?")
-    company = item.get("company", "")
     pri = item.get("priority_label", "?")
     earliness = item.get("earliness_label", "?")
+    e_score = item.get("earliness_score")
     consensus = item.get("consensus_label", "?")
     qscore = item.get("quality_adjusted_consensus_score", 0)
     confidence = item.get("data_confidence", "?")
     ext_state = item.get("extension_state", "?")
+    sector = item.get("sector") or ""
+    liq_ok = item.get("liquidity_ok")
+    ticker_valid = item.get("ticker_valid")
     conflicts = item.get("conflict_flags", [])
     reasons = item.get("downgrade_reasons", [])
+    missing = item.get("missing_fields") or item.get("missing_earliness_fields") or []
     why = item.get("why_appeared", "")
     confirms = item.get("confirms_if", "")
     invalidates = item.get("invalidates_if", "")
+    q_sub = item.get("quarantine_subtype", "")
 
     parts = [f"**{ticker}**"]
-    if company:
-        parts.append(f"({company})")
-    parts.append(f"| priority={pri} | earliness={earliness} | consensus={consensus} | qscore={qscore:.0f}")
-    parts.append(f"| confidence={confidence} | ext={ext_state}")
+    parts.append(f"| priority={pri} | earliness={earliness} | consensus={consensus}")
+    parts.append(f"| qscore={qscore:.0f} | confidence={confidence} | ext={ext_state}")
+    if e_score is not None:
+        parts.append(f"| escore={e_score:.0f}")
+    if sector:
+        parts.append(f"| sector={sector}")
+    if liq_ok is False:
+        parts.append("| liq=LOW")
+    if ticker_valid is False:
+        parts.append("| INVALID_TICKER")
 
     line = " ".join(parts)
     if not include_details:
-        return f"- {line}"
+        sub_note = f" [{q_sub}]" if q_sub else ""
+        return f"- {line}{sub_note}"
 
     lines = [f"- {line}"]
+    if q_sub:
+        lines.append(f"  - *Quarantine reason:* {q_sub}")
     if conflicts:
         lines.append(f"  - **CONFLICTS:** {', '.join(conflicts)}")
     if reasons:
-        lines.append(f"  - *Downgraded:* {', '.join(reasons)}")
+        lines.append(f"  - *Downgraded:* {', '.join(reasons[:3])}")
+    if missing:
+        lines.append(f"  - *Missing fields:* {', '.join(missing[:5])}")
     if why:
         lines.append(f"  - *Why appeared:* {why[:100]}")
     if confirms:
@@ -440,6 +474,36 @@ def _fmt_data_coverage(coverage: Optional[Dict[str, Any]], options_state: Dict[s
     return lines
 
 
+def _fmt_scanner_field_coverage(field_coverage: Dict[str, Any], quarantine_breakdown: Dict[str, int]) -> List[str]:
+    """Phase 4A.3: Scanner enrichment coverage stats and quarantine breakdown."""
+    lines = ["\n## Scanner Field Coverage", ""]
+    n = field_coverage.get("total", 0)
+    if n == 0:
+        lines.append("*No candidates to measure.*")
+        return lines
+
+    def pct(k: str) -> str:
+        v = field_coverage.get(k, 0)
+        return f"{v}/{n} ({100*v//n}%)" if n else "—"
+
+    lines.append(f"| Field | Coverage |")
+    lines.append(f"|-------|----------|")
+    lines.append(f"| `above_ma200` populated | {pct('above_ma200_populated')} |")
+    lines.append(f"| `above_ma50` populated | {pct('above_ma50_populated')} |")
+    lines.append(f"| `rs_63d_vs_spy` populated | {pct('rs_63d_populated')} |")
+    lines.append(f"| `sector` populated | {pct('sector_populated')} |")
+    lines.append(f"| `liquidity_ok` populated | {pct('liquidity_ok_populated')} |")
+    lines.append(f"| Earliness non-UNKNOWN | {pct('earliness_non_unknown')} |")
+    lines.append("")
+
+    if quarantine_breakdown:
+        lines.append("**Quarantine breakdown:**")
+        for sub, cnt in sorted(quarantine_breakdown.items(), key=lambda x: -x[1]):
+            lines.append(f"  - {sub}: {cnt}")
+
+    return lines
+
+
 def _fmt_changes(changes: Optional[Dict[str, Any]]) -> List[str]:
     lines = ["\n## What Changed Today", ""]
     if not changes:
@@ -510,18 +574,41 @@ def build_daily_radar(sidecars: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str
     ]
 
     # Priority counts
-    priority_counts = {}
+    priority_counts: Dict[str, int] = {}
     for item in enriched:
         p = item.get("priority_label", WATCHLIST_RESEARCH)
         priority_counts[p] = priority_counts.get(p, 0) + 1
+
+    # Phase 4A.3: Quarantine subtype breakdown
+    quarantine_breakdown: Dict[str, int] = {}
+    for item in enriched:
+        sub = item.get("quarantine_subtype", "")
+        if sub:
+            quarantine_breakdown[sub] = quarantine_breakdown.get(sub, 0) + 1
+
+    # Phase 4A.3: Enrichment field coverage stats
+    n_total = len(enriched)
+    field_coverage = {
+        "above_ma200_populated": sum(1 for i in enriched if i.get("above_ma200") is not None),
+        "above_ma50_populated": sum(1 for i in enriched if i.get("above_ma50") is not None),
+        "rs_63d_populated": sum(1 for i in enriched if i.get("rs_63d_vs_spy") is not None),
+        "sector_populated": sum(1 for i in enriched if i.get("sector")),
+        "liquidity_ok_populated": sum(1 for i in enriched if i.get("liquidity_ok") is not None),
+        "earliness_non_unknown": sum(
+            1 for i in enriched if i.get("earliness_label") not in (UNKNOWN_EARLINESS, None)
+        ),
+        "total": n_total,
+    }
 
     result = {
         "version": VERSION,
         "generated_at": now,
         "system_mode": SYSTEM_MODE,
         "research_only": True,
-        "total_candidates": len(enriched),
+        "total_candidates": n_total,
         "priority_counts": priority_counts,
+        "quarantine_breakdown": quarantine_breakdown,
+        "field_coverage": field_coverage,
         "options_coverage": options_state,
         "buckets": {k: len(v) for k, v in buckets.items()},
         "ten_x_counts": {
@@ -578,6 +665,9 @@ def generate_report(
 
     # 2. Data Coverage
     lines.extend(_fmt_data_coverage(sidecars.get("coverage"), options_state))
+
+    # 2b. Scanner Field Coverage (Phase 4A.3)
+    lines.extend(_fmt_scanner_field_coverage(result.get("field_coverage", {}), result.get("quarantine_breakdown", {})))
 
     # 3. What Changed Today
     lines.extend(_fmt_changes(sidecars.get("changes")))

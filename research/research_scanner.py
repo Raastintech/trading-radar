@@ -78,9 +78,11 @@ import pandas as pd
 import core.config as cfg
 from core.research_mode import SYSTEM_MODE, RESEARCH_ONLY_BANNER
 from research.research_scoring import earliness_label as _earliness_label, consensus_label as _consensus_label
+from research.research_candidate_enrichment import enrich_research_candidate
 
 VERSION = "RESEARCH_SCANNER_V1"
 PRICE_DIR = cfg.CACHE_DIR / "prices"
+DEEP_PRICE_DIR = cfg.CACHE_DIR / "prices_deep"
 RESEARCH_DIR = cfg.CACHE_DIR / "research"
 SCANNER_JSON = RESEARCH_DIR / "research_scanner_latest.json"
 SCANNER_TXT = cfg.LOG_DIR / "research_scanner_latest.txt"
@@ -1219,12 +1221,26 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
             seen[t] = item
     watchlist = sorted(seen.values(), key=lambda x: x["research_score"], reverse=True)
 
-    # Enrich each watchlist item with company metadata, sub-component scores, data freshness
-    profile_cache = _batch_fmp_profiles([item["ticker"] for item in watchlist[:25]])
-    watchlist = [_enrich_item(item, profile_cache.get(item["ticker"])) for item in watchlist]
+    # Phase 4A.3: Fetch profiles for all watchlist items (not just top 25)
+    profile_cache = _batch_fmp_profiles([item["ticker"] for item in watchlist])
 
-    # Add earliness and consensus scores (Phase 4A)
-    for item in watchlist:
+    # Phase 4A.3: Central enrichment pass — fills all required technical,
+    # liquidity, and metadata fields across all scanner category paths.
+    deep_dir = DEEP_PRICE_DIR if DEEP_PRICE_DIR.exists() else None
+    for i, item in enumerate(watchlist):
+        ticker = item["ticker"]
+        item["all_categories"] = sorted(set(
+            all_categories_by_ticker.get(ticker, [item.get("category", "")])
+        ))
+        watchlist[i] = enrich_research_candidate(
+            ticker, item, PRICE_DIR, spy_closes,
+            profile=profile_cache.get(ticker),
+            deep_price_dir=deep_dir,
+        )
+
+    # Add sub-component scores and data freshness (legacy helper, now runs after enrichment)
+    for i, item in enumerate(watchlist):
+        item = _enrich_item(item, profile_cache.get(item["ticker"]))
         item["earliness_label"] = _earliness_label(
             rs_63=item.get("rs_63d_vs_spy"),
             rs_20=item.get("rs_20d_vs_spy"),
@@ -1234,11 +1250,11 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
             vol_trend_ratio=item.get("vol_trend_ratio"),
             extension_vs_ma200_pct=item.get("extension_vs_ma200_pct"),
         )
-        item["all_categories"] = sorted(set(all_categories_by_ticker.get(item["ticker"], [item.get("category", "")])))
         item["consensus_label"] = _consensus_label(
             item["all_categories"],
             research_score=item.get("research_score"),
         )
+        watchlist[i] = item
 
     # Label summary
     label_counts: Dict[str, int] = {}

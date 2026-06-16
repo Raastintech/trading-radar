@@ -8,7 +8,7 @@
 
 **Version:** DAILY_ALPHA_RADAR_V1 | **Mode:** RESEARCH_ONLY | **Research-Only**
 
-*Candidates: 52 scanned | TOP_RESEARCH: 0 | HIGH_PRIORITY: 3 | DATA_QUARANTINE: 41*
+*Candidates: 52 scanned | TOP_RESEARCH: 0 | HIGH_PRIORITY: 4 | DATA_QUARANTINE: 34*
 
 ---
 
@@ -24,64 +24,55 @@
 **Options Coverage:** 0% | Overlay: DISABLED
   > ⚠ OPTIONS_DATA_UNAVAILABLE: coverage below 50% threshold. No candidate will be promoted based on options data.
 
+## Scanner Field Coverage
+
+| Field | Coverage |
+|-------|----------|
+| `above_ma200` populated | 20/52 (38%) |
+| `above_ma50` populated | 52/52 (100%) |
+| `rs_63d_vs_spy` populated | 52/52 (100%) |
+| `sector` populated | 52/52 (100%) |
+| `liquidity_ok` populated | 52/52 (100%) |
+| Earliness non-UNKNOWN | 20/52 (38%) |
+
+**Quarantine breakdown:**
+  - INSUFFICIENT_HISTORY: 23
+  - DATA_INCOMPLETE: 9
+  - DATA_QUARANTINE: 2
+
 ## What Changed Today
 
-**Summary:** 14 new, 14 dropped, 2 score↑, 1 relabeled
-
-  - NEW_ENTRY: **ADGM** 
-  - NEW_ENTRY: **AI** 
-  - NEW_ENTRY: **AMBQ** 
-  - NEW_ENTRY: **BHVN** 
-  - NEW_ENTRY: **DXYZ** 
-  - NEW_ENTRY: **INFQ** 
-  - NEW_ENTRY: **LSTR** 
-  - NEW_ENTRY: **LUNR** 
-  - NEW_ENTRY: **MGNI** 
-  - NEW_ENTRY: **SHAZ** 
-  - NEW_ENTRY: **SIDU** 
-  - NEW_ENTRY: **SPIR** 
-  - NEW_ENTRY: **XPO** 
-  - NEW_ENTRY: **ZSL** 
-  - DROPPED: **BFLY** 
-  - DROPPED: **BW** 
-  - DROPPED: **CPA** 
-  - DROPPED: **CROX** 
-  - DROPPED: **GTLB** 
-  - DROPPED: **LPTH** 
+**Summary:** no significant changes
 
 ## Top Research Candidates — Quality Adjusted
 
-- **HPQ** | priority=HIGH_PRIORITY_RESEARCH | earliness=DEVELOPING | consensus=HIGH_PRIORITY_RESEARCH | qscore=100 | confidence=MEDIUM | ext=NORMAL
+- **HPQ** | priority=HIGH_PRIORITY_RESEARCH | earliness=DEVELOPING | consensus=HIGH_PRIORITY_RESEARCH | qscore=100 | confidence=MEDIUM | ext=NORMAL | escore=75 | sector=Technology
   - *Why appeared:* Outperforming SPY by +15.7pp over 20d; above 50d MA
   - *Confirms if:* RS sustains, sector ETF stays in leadership, volume confirms
   - *Invalidates if:* RS reverses, sector rotates out, undercuts 50d MA
-- **AI** | priority=HIGH_PRIORITY_RESEARCH | earliness=EARLY | consensus=DOUBLE_CONFIRMATION | qscore=80 | confidence=MEDIUM | ext=NORMAL
+- **AI** | priority=HIGH_PRIORITY_RESEARCH | earliness=EARLY | consensus=DOUBLE_CONFIRMATION | qscore=80 | confidence=MEDIUM | ext=NORMAL | escore=95 | sector=Technology
   - *Why appeared:* Large drawdown (27%/3m) with stabilization pattern
   - *Confirms if:* Price reclaims 50d MA on volume, RS turns positive, catalytic news
   - *Invalidates if:* New lows, accelerating selling, fundamental deterioration
+- **BHVN** | priority=HIGH_PRIORITY_RESEARCH | earliness=EARLY | consensus=DOUBLE_CONFIRMATION | qscore=80 | confidence=MEDIUM | ext=NORMAL | escore=90 | sector=Healthcare
+  - *Why appeared:* Speculative growth theme + price momentum; requires manual research
+  - *Confirms if:* Revenue growth accelerates, expanding gross margin, theme tailwind
+  - *Invalidates if:* Revenue decelerates, balance sheet stress, theme fades
 
 ## Early Accumulation — Clean Only
 
-- **AAL** | priority=HIGH_PRIORITY_RESEARCH | earliness=DEVELOPING | consensus=DOUBLE_CONFIRMATION | qscore=83 | confidence=HIGH | ext=NORMAL
+- **AAL** | priority=HIGH_PRIORITY_RESEARCH | earliness=DEVELOPING | consensus=DOUBLE_CONFIRMATION | qscore=83 | confidence=HIGH | ext=STRETCHED | escore=75 | sector=Industrials
   - *Why appeared:* Rising volume + improving RS or higher lows; not extended
   - *Confirms if:* RS continues rising, volume expands on up-days, reclaims 50d MA
   - *Invalidates if:* Volume dries up, RS reverses, undercuts recent lows
 
 ## Reclaim / Reset Watch
 
-- **XPO** | priority=RESET_WATCH | earliness=EXTENDED | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=PARABOLIC
+- **XPO** | priority=RESET_WATCH | earliness=EXTENDED | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=PARABOLIC | escore=30 | sector=Industrials
   - *Downgraded:* extension_high_consensus
   - *Why appeared:* Outperforming SPY by +9.0pp over 20d; above 50d MA
   - *Confirms if:* RS sustains, sector ETF stays in leadership, volume confirms
   - *Invalidates if:* RS reverses, sector rotates out, undercuts 50d MA
-- **ZSL** | priority=RECLAIM_WATCH | earliness=RECLAIM_WATCH | consensus=SINGLE_SIGNAL | qscore=60 | confidence=MEDIUM | ext=NORMAL
-  - *Why appeared:* Large drawdown (20%/3m) with stabilization pattern
-  - *Confirms if:* Price reclaims 50d MA on volume, RS turns positive, catalytic news
-  - *Invalidates if:* New lows, accelerating selling, fundamental deterioration
-- **ABT** | priority=RECLAIM_WATCH | earliness=RECLAIM_WATCH | consensus=SINGLE_SIGNAL | qscore=60 | confidence=MEDIUM | ext=NORMAL
-  - *Why appeared:* Large drawdown (-18%/3m) with stabilization pattern
-  - *Confirms if:* Price reclaims 50d MA on volume, RS turns positive, catalytic news
-  - *Invalidates if:* New lows, accelerating selling, fundamental deterioration
 
 ## Conflicted Signals
 
@@ -89,42 +80,47 @@
 
 ## Data Quarantine
 
-- **MX** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=NORMAL
-- **RKLB** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=NORMAL
-- **OUST** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=NORMAL
-- **BB** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=NORMAL
-- **AERT** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=58 | confidence=MEDIUM | ext=NORMAL
-- **CRSR** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=54 | confidence=MEDIUM | ext=NORMAL
-- **SHAZ** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=54 | confidence=MEDIUM | ext=NORMAL
-- **INFQ** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-- **ENPH** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-- **SIDU** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-- **RGTI** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-- **NVTS** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-- **ACVA** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-- **SPIR** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-- **VELO** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-*... and 26 more (see JSON sidecar)*
+- **MX** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Technology [INSUFFICIENT_HISTORY]
+- **BB** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=HIGH_PRIORITY_RESEARCH | qscore=70 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Technology [DATA_INCOMPLETE]
+- **AERT** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=58 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Industrials [INSUFFICIENT_HISTORY]
+- **RKLB** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=DOUBLE_CONFIRMATION | qscore=55 | confidence=MEDIUM | ext=PARABOLIC | escore=0 | sector=Industrials [DATA_INCOMPLETE]
+- **OUST** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=DOUBLE_CONFIRMATION | qscore=55 | confidence=MEDIUM | ext=PARABOLIC | escore=0 | sector=Technology [DATA_INCOMPLETE]
+- **SPOT** | priority=DATA_QUARANTINE | earliness=INVALIDATED | consensus=DOUBLE_CONFIRMATION | qscore=55 | confidence=HIGH | ext=NORMAL | escore=5 | sector=Communication Services [DATA_QUARANTINE]
+- **CRSR** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=54 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Technology [INSUFFICIENT_HISTORY]
+- **SHAZ** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=54 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Technology [INSUFFICIENT_HISTORY]
+- **INFQ** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Technology [INSUFFICIENT_HISTORY]
+- **RGTI** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=STRETCHED | escore=0 | sector=Technology [DATA_INCOMPLETE]
+- **ACVA** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Consumer Cyclical [INSUFFICIENT_HISTORY]
+- **SPIR** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Industrials [DATA_INCOMPLETE]
+- **VELO** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Technology [INSUFFICIENT_HISTORY]
+- **MGNI** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Communication Services [INSUFFICIENT_HISTORY]
+- **BTU** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Energy [INSUFFICIENT_HISTORY]
+*... and 19 more (see JSON sidecar)*
 
 ## Social / Catalyst Anomalies
 
-- **BTU** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL
-  - *Downgraded:* earliness_UNKNOWN, missing_fields:above_ma200,above_ma50,dd_from_high_pct
+- **BTU** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Energy
+  - *Quarantine reason:* INSUFFICIENT_HISTORY
+  - *Downgraded:* earliness_UNKNOWN, missing_fields:above_ma200,extension_vs_ma200_pct,ma20_extension
+  - *Missing fields:* above_ma200
   - *Why appeared:* Social attention signal (source: social_attention_radar)
   - *Confirms if:* Early attention + price not yet extended + fundamental support
   - *Invalidates if:* Already widely discussed (CROWDED), price fully extended
-- **SPOT** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=50 | confidence=HIGH | ext=NORMAL
-  - *Downgraded:* earliness_UNKNOWN, missing_fields:above_ma200,above_ma50,dd_from_high_pct
+- **SPOT** | priority=DATA_QUARANTINE | earliness=INVALIDATED | consensus=DOUBLE_CONFIRMATION | qscore=55 | confidence=HIGH | ext=NORMAL | escore=5 | sector=Communication Services
+  - *Quarantine reason:* DATA_QUARANTINE
+  - *Downgraded:* ticker_INVALIDATED
   - *Why appeared:* Social attention signal (source: social_attention_radar)
   - *Confirms if:* Early attention + price not yet extended + fundamental support
   - *Invalidates if:* Already widely discussed (CROWDED), price fully extended
-- **FJET** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=15 | confidence=MEDIUM | ext=NORMAL
-  - *Downgraded:* earliness_UNKNOWN, missing_fields:above_ma200,above_ma50,dd_from_high_pct
+- **FJET** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=15 | confidence=MEDIUM | ext=NORMAL | escore=0 | sector=Industrials
+  - *Quarantine reason:* INSUFFICIENT_HISTORY
+  - *Downgraded:* earliness_UNKNOWN, missing_fields:above_ma200,extension_vs_ma200_pct,ma20_extension
+  - *Missing fields:* above_ma200
   - *Why appeared:* Social attention signal (source: social_attention_radar)
   - *Confirms if:* Early attention + price not yet extended + fundamental support
   - *Invalidates if:* Already widely discussed (CROWDED), price fully extended
-- **ASTS** | priority=DATA_QUARANTINE | earliness=UNKNOWN | consensus=SINGLE_SIGNAL | qscore=15 | confidence=MEDIUM | ext=NORMAL
-  - *Downgraded:* earliness_UNKNOWN, missing_fields:above_ma200,above_ma50,dd_from_high_pct
+- **ASTS** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=5 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
+  - *Downgraded:* too_extended
   - *Why appeared:* Social attention signal (source: social_attention_radar)
   - *Confirms if:* Early attention + price not yet extended + fundamental support
   - *Invalidates if:* Already widely discussed (CROWDED), price fully extended
@@ -152,7 +148,16 @@
 
 ## Extended / Crowded / Avoid
 
-- **LSTR** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=35 | confidence=MEDIUM | ext=PARABOLIC
+- **PL** | priority=EXTENDED_CROWDED | earliness=EXTENDED | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=PARABOLIC | escore=30 | sector=Industrials
+- **AAOI** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=49 | confidence=HIGH | ext=PARABOLIC | escore=15 | sector=Technology
+- **VOYG** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Industrials
+- **AMBQ** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
+- **FLY** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Industrials
+- **LSTR** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=35 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Industrials
+- **DXYZ** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=25 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Financial Services
+- **LUNR** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=25 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Industrials
+- **APLS** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=23 | confidence=LOW | ext=PARABOLIC | escore=15 | sector=Healthcare
+- **ASTS** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=5 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
 
 ## Forward Tracker Status
 
@@ -182,4 +187,4 @@
 - All research candidates require independent human validation before any action
 
 ---
-*Generated: 2026-06-16T04:14:48.889490+00:00 | DAILY_ALPHA_RADAR_V1*
+*Generated: 2026-06-16T05:04:02.358426+00:00 | DAILY_ALPHA_RADAR_V1*
