@@ -325,8 +325,9 @@ def _build_universe(cap: int = DEFAULT_UNIVERSE_CAP) -> List[str]:
     for t in _social_arb_tickers():
         add(t)
 
-    # Priority 3: price cache (by parquet file existence)
-    # Load all parquets up to cap; prefer names with fresh data
+    # Priority 3: price cache — alphabetical fill up to cap
+    # Note: order is alphabetical by ticker symbol, NOT by freshness or quality.
+    # Important names outside P1/P2 that fall in the M-Z range may be excluded.
     if len(universe) < cap:
         needed = cap - len(universe)
         price_files = sorted(PRICE_DIR.glob("*.parquet"))

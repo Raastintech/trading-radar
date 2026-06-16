@@ -8,7 +8,7 @@ of first appearance, score, label, and category.  On subsequent runs, computes
 forward price returns at 5d, 10d, and 20d using the cached price parquets.
 
 Verdict ladder (per bucket):
-  NEED_MORE_DATA   — fewer than 5 matured entries
+  NEED_MORE_DATA   — fewer than 10 matured entries
   EARLY_SIGNAL     — matured entries show ≥ 60% positive return at 10d
   MIXED            — matured entries show 40–60% positive at 10d
   NO_FORWARD_EDGE  — < 40% positive at 10d
@@ -73,7 +73,6 @@ HISTORY_JSONL = DATA_DIR / "research_watchlist_history.jsonl"
 OUT_JSON = RESEARCH_DIR / "research_forward_latest.json"
 OUT_TXT = cfg.LOG_DIR / "research_forward_latest.txt"
 
-MIN_MATURED_FOR_VERDICT = 5
 HORIZONS = [5, 10, 20]
 
 # Sample status thresholds (Task 8)
