@@ -307,6 +307,29 @@ class TestEnrichmentIdempotent(unittest.TestCase):
         result = enrich_research_candidate("AAPL", base, self.tmp, self.spy)
         self.assertAlmostEqual(result["rs_63d_vs_spy"], 99.9)
 
+    def test_scanner_set_none_above_ma200_overwritten_by_deep_cache(self):
+        """Scanner emitted above_ma200=None (regular cache had <200 bars);
+        deep cache has 250 bars → enrichment must overwrite the None slot."""
+        reg = Path(tempfile.mkdtemp())
+        deep = Path(tempfile.mkdtemp())
+        _make_parquet(reg, "AAPL", 100, price=100.0)    # too few for MA200
+        _make_parquet(deep, "AAPL", 250, price=100.0)   # enough for MA200
+        base = _base_item()
+        base["above_ma200"] = None   # scanner set explicitly to None
+        result = enrich_research_candidate("AAPL", base, reg, self.spy, deep_price_dir=deep)
+        self.assertIsNotNone(result["above_ma200"], "above_ma200 should be filled from deep cache")
+        self.assertIsInstance(result["above_ma200"], bool)
+
+    def test_scanner_set_none_above_ma50_overwritten_when_bars_available(self):
+        """Scanner emitted above_ma50=None; regular cache has 100 bars →
+        enrichment must overwrite the None with the computed bool."""
+        _make_parquet(self.tmp, "AAPL", 100, price=100.0)
+        base = _base_item()
+        base["above_ma50"] = None   # scanner set explicitly to None
+        result = enrich_research_candidate("AAPL", base, self.tmp, self.spy)
+        self.assertIsNotNone(result["above_ma50"])
+        self.assertIsInstance(result["above_ma50"], bool)
+
 
 # ── Quarantine subtype tests ──────────────────────────────────────────────────
 

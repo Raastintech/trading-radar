@@ -107,6 +107,19 @@ def _ret(s: List[float], lb: int) -> Optional[float]:
     return round((s[-1] / s[-(lb + 1)] - 1.0) * 100.0, 2)
 
 
+def _fill_if_none(d: Dict[str, Any], key: str, value: Any) -> None:
+    """Set d[key]=value only when the key is absent or its current value is None.
+
+    Differs from setdefault: setdefault only fires when the key is missing entirely.
+    Scanners may emit key=None meaning "couldn't compute with available bars"; this
+    helper allows the central enrichment to overwrite those None slots when the deep
+    price cache provides enough bars, while still preserving any real computed value
+    (True/False/float) that a scanner already set.
+    """
+    if d.get(key) is None:
+        d[key] = value
+
+
 def _rs_vs_spy(closes: List[float], spy: List[float], lb: int) -> Optional[float]:
     if len(closes) < lb + 1 or len(spy) < lb + 1:
         return None
@@ -225,23 +238,25 @@ def enrich_research_candidate(
 
     # ── MA20 / above_ma20 / extension_vs_ma20 ────────────────────────────────
     ma20 = _ma(closes, MIN_BARS_MA20)
-    item.setdefault("ma20", round(ma20, 4) if ma20 else None)
-    item.setdefault("above_ma20", bool(last > ma20) if ma20 else None)
+    _fill_if_none(item, "ma20", round(ma20, 4) if ma20 else None)
+    _fill_if_none(item, "above_ma20", bool(last > ma20) if ma20 else None)
     ext_ma20 = round((last / ma20 - 1.0) * 100.0, 2) if (ma20 and ma20 > 0) else None
-    item.setdefault("extension_vs_ma20_pct", ext_ma20)
+    _fill_if_none(item, "extension_vs_ma20_pct", ext_ma20)
 
     # ── MA50 / above_ma50 ─────────────────────────────────────────────────────
     ma50 = _ma(closes, MIN_BARS_MA50)
-    item.setdefault("ma50", round(ma50, 4) if ma50 else None)
-    item.setdefault("above_ma50", bool(last > ma50) if ma50 else None)
+    _fill_if_none(item, "ma50", round(ma50, 4) if ma50 else None)
+    _fill_if_none(item, "above_ma50", bool(last > ma50) if ma50 else None)
 
     # ── MA200 / above_ma200 / extension_vs_ma200 ─────────────────────────────
+    # Use _fill_if_none (not setdefault) so scanner-set None values are overridden
+    # when the deep price cache has enough bars to compute a real value.
     if n_bars >= MIN_BARS_MA200:
         ma200 = _ma(closes, MIN_BARS_MA200)
-        item.setdefault("ma200", round(ma200, 4) if ma200 else None)
-        item.setdefault("above_ma200", bool(last > ma200) if ma200 else None)
+        _fill_if_none(item, "ma200", round(ma200, 4) if ma200 else None)
+        _fill_if_none(item, "above_ma200", bool(last > ma200) if ma200 else None)
         ext_ma200 = round((last / ma200 - 1.0) * 100.0, 2) if (ma200 and ma200 > 0) else None
-        item.setdefault("extension_vs_ma200_pct", ext_ma200)
+        _fill_if_none(item, "extension_vs_ma200_pct", ext_ma200)
         item["insufficient_history_for_ma200"] = False
     else:
         item.setdefault("ma200", None)
@@ -254,8 +269,8 @@ def enrich_research_candidate(
     item["extension_state"] = _extension_state(ext_pct)
 
     # ── Returns ───────────────────────────────────────────────────────────────
-    item.setdefault("return_5d", _ret(closes, 5))
-    item.setdefault("return_20d", _ret(closes, 20))
+    _fill_if_none(item, "return_5d", _ret(closes, 5))
+    _fill_if_none(item, "return_20d", _ret(closes, 20))
 
     # ── 60d high distance ─────────────────────────────────────────────────────
     if n_bars >= MIN_BARS_60D_HIGH:
@@ -264,10 +279,10 @@ def enrich_research_candidate(
         item.setdefault("distance_from_60d_high_pct", dist)
 
     # ── Drawdown from high ────────────────────────────────────────────────────
-    item.setdefault("dd_from_high_pct", _drawdown_from_high(closes))
+    _fill_if_none(item, "dd_from_high_pct", _drawdown_from_high(closes))
 
     # ── Volume metrics ────────────────────────────────────────────────────────
-    item.setdefault("vol_trend_ratio", _vol_trend(vols))
+    _fill_if_none(item, "vol_trend_ratio", _vol_trend(vols))
     if len(vols) >= MIN_BARS_MA20:
         avg_vol_20d = sum(vols[-MIN_BARS_MA20:]) / MIN_BARS_MA20
         item.setdefault("volume_avg_20d", round(avg_vol_20d, 0))
@@ -278,8 +293,8 @@ def enrich_research_candidate(
         item.setdefault("liquidity_ok", None)
 
     # ── RS vs SPY ─────────────────────────────────────────────────────────────
-    item.setdefault("rs_20d_vs_spy", _rs_vs_spy(closes, spy_closes, 20))
-    item.setdefault("rs_63d_vs_spy", _rs_vs_spy(closes, spy_closes, 63))
+    _fill_if_none(item, "rs_20d_vs_spy", _rs_vs_spy(closes, spy_closes, 20))
+    _fill_if_none(item, "rs_63d_vs_spy", _rs_vs_spy(closes, spy_closes, 63))
 
     # ── Profile metadata ──────────────────────────────────────────────────────
     if profile:
