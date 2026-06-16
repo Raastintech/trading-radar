@@ -1,34 +1,34 @@
 # Strategy Tournament — Results (research-only)
 
-**Generated:** 2026-06-15T01:02:55  
+**Generated:** 2026-06-16T05:17:14  
 **Phase:** 1G.4 · research-only (no signals, no execution, no live capital)  
-**Event spine:** `data/state/stock_lens_forward_log.jsonl` (1522 snapshots)  
+**Event spine:** `data/state/stock_lens_forward_log.jsonl` (1547 snapshots)  
 **Clean epoch:** ≥ 2026-05-08 · **friction** 0.3% round-trip  
-**Headline regime:** Chop / Range · **next maturity due** 2026-06-15
+**Headline regime:** Bull Continuation · **next maturity due** 2026-06-16
 
 ## 1. Executive summary
 
-> **No strategy ready for paper. Best candidate earns a deeper point-in-time backtest only. Stay research-only.**
+> **No strategy ready. Stay research-only.**
 
-- **Best candidate:** `SIMPLE_MOMENTUM_BASELINE` → **READY_FOR_DEEPER_BACKTEST**
+- **Best candidate:** `None` → **NEED_MORE_DATA**
 - **Short side:** OFF (radar: SHORTS_OFF)
 - **Options expression:** RESEARCH_ONLY
-- **Recommended next phase:** Run a point-in-time backtest for SIMPLE_MOMENTUM_BASELINE across regimes before any paper spec. Stay research-only; do not activate.
+- **Recommended next phase:** No family qualifies. Stay research-only: accumulate matured forward outcomes (esp. a non-bull regime) and re-run the tournament.
 
 ## 2. Strategy ranking (clean epoch)
 
 | rank | family | verdict | n(5d) | net 5d | net 10d | rel-SPY 5d | caution |
 |---|---|---|---|---|---|---|---|
-| 1 | SIMPLE_MOMENTUM_BASELINE | READY_FOR_DEEPER_BACKTEST | 699 | 0.4934 | 1.8536 | 0.6376 | 213 immature events excluded |
-| 2 | LEADER_RESET | REJECT | 180 | -1.0904 | -1.2838 | -0.8364 | 42 immature events excluded |
-| 3 | 13F_EMERGING | WATCHLIST_RESEARCH | 63 | -1.7106 | 0.0189 | -1.4476 | 16 immature events excluded |
-| 4 | FAILED_LEADER_SHORT | NEED_MORE_DATA | 16 | 0.2494 | 3.4761 | 0.6561 | sample below minimum; 12 immature events excluded; edge collapses without the single best event (outlier-dependent) |
-| 5 | OPTIONS_FLOW_CONFIRMATION | NEED_MORE_DATA | 26 | -1.2804 | -1.4431 | -1.3589 | sample below minimum; 13 immature events excluded |
-| 6 | OPTIONS_EXPRESSION_ON_VALID_SETUP | NEED_MORE_DATA | 22 | -1.474 | -1.457 | -1.5656 | sample below minimum; 9 immature events excluded |
+| 1 | SIMPLE_MOMENTUM_BASELINE | WATCHLIST_RESEARCH | 708 | 0.518 | 1.8501 | 0.6374 | 224 immature events excluded |
+| 2 | LEADER_RESET | REJECT | 184 | -0.9981 | -1.2838 | -0.7891 | 42 immature events excluded |
+| 3 | 13F_EMERGING | WATCHLIST_RESEARCH | 63 | -1.7106 | 0.0189 | -1.4476 | 18 immature events excluded |
+| 4 | FAILED_LEADER_SHORT | NEED_MORE_DATA | 16 | 0.2494 | 3.4761 | 0.6561 | sample below minimum; 13 immature events excluded; edge collapses without the single best event (outlier-dependent) |
+| 5 | OPTIONS_FLOW_CONFIRMATION | NEED_MORE_DATA | 29 | -0.7755 | -1.4431 | -1.0333 | sample below minimum; 10 immature events excluded |
+| 6 | OPTIONS_EXPRESSION_ON_VALID_SETUP | NEED_MORE_DATA | 25 | -0.8651 | -1.457 | -1.1631 | sample below minimum; 6 immature events excluded |
 | 7 | POST_EARNINGS_DRIFT | NEED_MORE_DATA | 0 | None | None | None | sample below minimum |
 | 8 | RISK_OFF_RELATIVE_WEAKNESS_SHORT | NEED_MORE_DATA | 0 | None | None | None | sample below minimum |
 | — | CASH_NO_TRADE (baseline) | — | 0 | 0.0 | 0.0 | — | flat |
-| — | RANDOM_LIQUID_CONTROL (baseline) | — | 128 | -1.1594 | -0.1538 | -0.9488 | control |
+| — | RANDOM_LIQUID_CONTROL (baseline) | — | 129 | 1.2055 | 1.9786 | 1.3978 | control |
 
 ## 3. Pass/fail verdicts
 
@@ -36,42 +36,42 @@
 
 Negative net expectancy at both horizons on an adequate sample.
 
-- sample (resolved 5d): **180** · caution: 42 immature events excluded
+- sample (resolved 5d): **184** · caution: 42 immature events excluded
 - biggest weakness: Negative net expectancy at both horizons on an adequate sample.
 - falsifier: reset cohorts fail to beat late/extended momentum across regimes
 
 | gate | need | got | pass |
 |---|---|---|---|
-| min_mature_sample | >= 30 resolved 5d | `180` | ✅ |
-| net_5d_expectancy_positive | > 0 | `-1.0904` | ❌ |
+| min_mature_sample | >= 30 resolved 5d | `184` | ✅ |
+| net_5d_expectancy_positive | > 0 | `-0.9981` | ❌ |
 | net_10d_expectancy_positive | > 0 | `-1.2838` | ❌ |
-| beats_spy | mean rel-SPY 5d > 0 | `-0.8364` | ❌ |
-| beats_random_control | net 5d > random control | `[-1.0904, -1.1594]` | ✅ |
-| beats_cash | net 5d > 0 | `-1.0904` | ❌ |
-| mae_acceptable | mean 5d MAE > -8.0 | `-5.168` | ✅ |
-| stop_hit_rate_acceptable | < 0.5 | `0.3556` | ✅ |
-| not_one_outlier | net 5d > 0 after dropping best event | `-1.268` | ❌ |
+| beats_spy | mean rel-SPY 5d > 0 | `-0.7891` | ❌ |
+| beats_random_control | net 5d > random control | `[-0.9981, 1.2055]` | ❌ |
+| beats_cash | net 5d > 0 | `-0.9981` | ❌ |
+| mae_acceptable | mean 5d MAE > -8.0 | `-5.1355` | ✅ |
+| stop_hit_rate_acceptable | < 0.5 | `0.3478` | ✅ |
+| not_one_outlier | net 5d > 0 after dropping best event | `-1.1714` | ❌ |
 | risk_definable | stop defined & heat-cap fit | `True` | ✅ |
 
 ### OPTIONS_EXPRESSION_ON_VALID_SETUP — **NEED_MORE_DATA**
 
-Only 22 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
+Only 25 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
 
-- sample (resolved 5d): **22** · caution: sample below minimum; 9 immature events excluded
-- biggest weakness: Only 22 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
+- sample (resolved 5d): **25** · caution: sample below minimum; 6 immature events excluded
+- biggest weakness: Only 25 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
 - falsifier: options structures add no edge over the underlying long after fees
 
 | gate | need | got | pass |
 |---|---|---|---|
-| min_mature_sample | >= 30 resolved 5d | `22` | ❌ |
-| net_5d_expectancy_positive | > 0 | `-1.474` | ❌ |
+| min_mature_sample | >= 30 resolved 5d | `25` | ❌ |
+| net_5d_expectancy_positive | > 0 | `-0.8651` | ❌ |
 | net_10d_expectancy_positive | > 0 | `-1.457` | ❌ |
-| beats_spy | mean rel-SPY 5d > 0 | `-1.5656` | ❌ |
-| beats_random_control | net 5d > random control | `[-1.474, -1.1594]` | ❌ |
-| beats_cash | net 5d > 0 | `-1.474` | ❌ |
-| mae_acceptable | mean 5d MAE > -8.0 | `-4.6821` | ✅ |
-| stop_hit_rate_acceptable | < 0.5 | `0.4091` | ✅ |
-| not_one_outlier | net 5d > 0 after dropping best event | `-2.0072` | ❌ |
+| beats_spy | mean rel-SPY 5d > 0 | `-1.1631` | ❌ |
+| beats_random_control | net 5d > random control | `[-0.8651, 1.2055]` | ❌ |
+| beats_cash | net 5d > 0 | `-0.8651` | ❌ |
+| mae_acceptable | mean 5d MAE > -8.0 | `-4.618` | ✅ |
+| stop_hit_rate_acceptable | < 0.5 | `0.36` | ✅ |
+| not_one_outlier | net 5d > 0 after dropping best event | `-1.3062` | ❌ |
 | risk_definable | stop defined & heat-cap fit | `True` | ✅ |
 
 ### POST_EARNINGS_DRIFT — **NEED_MORE_DATA**
@@ -88,7 +88,7 @@ Only 0 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumu
 | net_5d_expectancy_positive | > 0 | `None` | ❌ |
 | net_10d_expectancy_positive | > 0 | `None` | ❌ |
 | beats_spy | mean rel-SPY 5d > 0 | `None` | ❌ |
-| beats_random_control | net 5d > random control | `[None, -1.1594]` | ❌ |
+| beats_random_control | net 5d > random control | `[None, 1.2055]` | ❌ |
 | beats_cash | net 5d > 0 | `None` | ❌ |
 | mae_acceptable | mean 5d MAE > -8.0 | `None` | ❌ |
 | stop_hit_rate_acceptable | < 0.5 | `None` | ❌ |
@@ -97,30 +97,30 @@ Only 0 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumu
 
 ### OPTIONS_FLOW_CONFIRMATION — **NEED_MORE_DATA**
 
-Only 26 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
+Only 29 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
 
-- sample (resolved 5d): **26** · caution: sample below minimum; 13 immature events excluded
-- biggest weakness: Only 26 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
+- sample (resolved 5d): **29** · caution: sample below minimum; 10 immature events excluded
+- biggest weakness: Only 29 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
 - falsifier: confirming-flow cohort underperforms the no-flow long cohort
 
 | gate | need | got | pass |
 |---|---|---|---|
-| min_mature_sample | >= 30 resolved 5d | `26` | ❌ |
-| net_5d_expectancy_positive | > 0 | `-1.2804` | ❌ |
+| min_mature_sample | >= 30 resolved 5d | `29` | ❌ |
+| net_5d_expectancy_positive | > 0 | `-0.7755` | ❌ |
 | net_10d_expectancy_positive | > 0 | `-1.4431` | ❌ |
-| beats_spy | mean rel-SPY 5d > 0 | `-1.3589` | ❌ |
-| beats_random_control | net 5d > random control | `[-1.2804, -1.1594]` | ❌ |
-| beats_cash | net 5d > 0 | `-1.2804` | ❌ |
-| mae_acceptable | mean 5d MAE > -8.0 | `-4.8239` | ✅ |
-| stop_hit_rate_acceptable | < 0.5 | `0.3846` | ✅ |
-| not_one_outlier | net 5d > 0 after dropping best event | `-1.7205` | ❌ |
+| beats_spy | mean rel-SPY 5d > 0 | `-1.0333` | ❌ |
+| beats_random_control | net 5d > random control | `[-0.7755, 1.2055]` | ❌ |
+| beats_cash | net 5d > 0 | `-0.7755` | ❌ |
+| mae_acceptable | mean 5d MAE > -8.0 | `-4.754` | ✅ |
+| stop_hit_rate_acceptable | < 0.5 | `0.3448` | ✅ |
+| not_one_outlier | net 5d > 0 after dropping best event | `-1.1504` | ❌ |
 | risk_definable | stop defined & heat-cap fit | `True` | ✅ |
 
 ### 13F_EMERGING — **WATCHLIST_RESEARCH**
 
 Adequate sample but edge is mixed/marginal vs baselines.
 
-- sample (resolved 5d): **63** · caution: 16 immature events excluded
+- sample (resolved 5d): **63** · caution: 18 immature events excluded
 - biggest weakness: Adequate sample but edge is mixed/marginal vs baselines.
 - falsifier: emerging names underperform crowded leaders / random control
 
@@ -130,39 +130,39 @@ Adequate sample but edge is mixed/marginal vs baselines.
 | net_5d_expectancy_positive | > 0 | `-1.7106` | ❌ |
 | net_10d_expectancy_positive | > 0 | `0.0189` | ✅ |
 | beats_spy | mean rel-SPY 5d > 0 | `-1.4476` | ❌ |
-| beats_random_control | net 5d > random control | `[-1.7106, -1.1594]` | ❌ |
+| beats_random_control | net 5d > random control | `[-1.7106, 1.2055]` | ❌ |
 | beats_cash | net 5d > 0 | `-1.7106` | ❌ |
 | mae_acceptable | mean 5d MAE > -8.0 | `-6.0544` | ✅ |
 | stop_hit_rate_acceptable | < 0.5 | `0.4762` | ✅ |
 | not_one_outlier | net 5d > 0 after dropping best event | `-2.1149` | ❌ |
 | risk_definable | stop defined & heat-cap fit | `True` | ✅ |
 
-### SIMPLE_MOMENTUM_BASELINE — **READY_FOR_DEEPER_BACKTEST**
+### SIMPLE_MOMENTUM_BASELINE — **WATCHLIST_RESEARCH**
 
-Clears edge + control + risk gates, but on a single-regime (bull-tape) sample — earns a point-in-time backtest, not yet paper.
+Adequate sample but edge is mixed/marginal vs baselines.
 
-- sample (resolved 5d): **699** · caution: 213 immature events excluded
-- biggest weakness: Clears edge + control + risk gates, but on a single-regime (bull-tape) sample — earns a point-in-time backtest, not yet paper.
+- sample (resolved 5d): **708** · caution: 224 immature events excluded
+- biggest weakness: Adequate sample but edge is mixed/marginal vs baselines.
 - falsifier: complex families fail to beat this simple baseline
 
 | gate | need | got | pass |
 |---|---|---|---|
-| min_mature_sample | >= 30 resolved 5d | `699` | ✅ |
-| net_5d_expectancy_positive | > 0 | `0.4934` | ✅ |
-| net_10d_expectancy_positive | > 0 | `1.8536` | ✅ |
-| beats_spy | mean rel-SPY 5d > 0 | `0.6376` | ✅ |
-| beats_random_control | net 5d > random control | `[0.4934, -1.1594]` | ✅ |
-| beats_cash | net 5d > 0 | `0.4934` | ✅ |
-| mae_acceptable | mean 5d MAE > -8.0 | `-4.8001` | ✅ |
-| stop_hit_rate_acceptable | < 0.5 | `0.3305` | ✅ |
-| not_one_outlier | net 5d > 0 after dropping best event | `0.4005` | ✅ |
+| min_mature_sample | >= 30 resolved 5d | `708` | ✅ |
+| net_5d_expectancy_positive | > 0 | `0.518` | ✅ |
+| net_10d_expectancy_positive | > 0 | `1.8501` | ✅ |
+| beats_spy | mean rel-SPY 5d > 0 | `0.6374` | ✅ |
+| beats_random_control | net 5d > random control | `[0.518, 1.2055]` | ❌ |
+| beats_cash | net 5d > 0 | `0.518` | ✅ |
+| mae_acceptable | mean 5d MAE > -8.0 | `-4.7842` | ✅ |
+| stop_hit_rate_acceptable | < 0.5 | `0.3263` | ✅ |
+| not_one_outlier | net 5d > 0 after dropping best event | `0.4264` | ✅ |
 | risk_definable | stop defined & heat-cap fit | `True` | ✅ |
 
 ### FAILED_LEADER_SHORT — **NEED_MORE_DATA**
 
 Only 16 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
 
-- sample (resolved 5d): **16** · caution: sample below minimum; 12 immature events excluded; edge collapses without the single best event (outlier-dependent)
+- sample (resolved 5d): **16** · caution: sample below minimum; 13 immature events excluded; edge collapses without the single best event (outlier-dependent)
 - biggest weakness: Only 16 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumulate more matured evidence.
 - falsifier: short cohort is net-negative or worse than cash in any regime
 
@@ -172,7 +172,7 @@ Only 16 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accum
 | net_5d_expectancy_positive | > 0 | `0.2494` | ✅ |
 | net_10d_expectancy_positive | > 0 | `3.4761` | ✅ |
 | beats_spy | mean rel-SPY 5d > 0 | `0.6561` | ✅ |
-| beats_random_control | net 5d > random control | `[0.2494, -1.1594]` | ✅ |
+| beats_random_control | net 5d > random control | `[0.2494, 1.2055]` | ❌ |
 | beats_cash | net 5d > 0 | `0.2494` | ✅ |
 | mae_acceptable | mean 5d MAE > -8.0 | `-5.3377` | ✅ |
 | stop_hit_rate_acceptable | < 0.5 | `0.3125` | ✅ |
@@ -193,7 +193,7 @@ Only 0 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumu
 | net_5d_expectancy_positive | > 0 | `None` | ❌ |
 | net_10d_expectancy_positive | > 0 | `None` | ❌ |
 | beats_spy | mean rel-SPY 5d > 0 | `None` | ❌ |
-| beats_random_control | net 5d > random control | `[None, -1.1594]` | ❌ |
+| beats_random_control | net 5d > random control | `[None, 1.2055]` | ❌ |
 | beats_cash | net 5d > 0 | `None` | ❌ |
 | mae_acceptable | mean 5d MAE > -8.0 | `None` | ❌ |
 | stop_hit_rate_acceptable | < 0.5 | `None` | ❌ |
@@ -210,15 +210,15 @@ Only 0 resolved-5d clean-epoch events (< 30). Cannot accept or reject — accumu
 | REMORA | frozen | FREEZE | Frozen; no tournament cohort supports reactivation. |
 | CONTRARIAN | frozen | FREEZE | Frozen; mean-reversion thesis untested in this dataset. |
 | PATHFINDER | future_research | RESEARCH ONLY | Future-research only; no active cohort. |
-| ALPHA_DISCOVERY | research engine (strongest component) | KEEP / RESEARCH ENGINE | Strongest current component: its tracks drive the LEADER_RESET (emerging->13F net5d=-1.7106, reset net5d=-1.0904) cohorts. Keep as the discovery feed, not a direct executor. |
+| ALPHA_DISCOVERY | research engine (strongest component) | KEEP / RESEARCH ENGINE | Strongest current component: its tracks drive the LEADER_RESET (emerging->13F net5d=-1.7106, reset net5d=-0.9981) cohorts. Keep as the discovery feed, not a direct executor. |
 
 ## 5. Best next paper candidate
 
-Run a point-in-time backtest for SIMPLE_MOMENTUM_BASELINE across regimes before any paper spec. Stay research-only; do not activate.
+No family qualifies. Stay research-only: accumulate matured forward outcomes (esp. a non-bull regime) and re-run the tournament.
 
 ## 6. Best options expression
 
-RESEARCH_ONLY — label counts across valid-setup events: `{'NO_OPTIONS_EDGE': 841, 'CALL_DEBIT_SPREAD': 41}`. Theoretical option P/L is **unavailable** (no historical chain); only structure labels are emitted.
+RESEARCH_ONLY — label counts across valid-setup events: `{'NO_OPTIONS_EDGE': 858, 'CALL_DEBIT_SPREAD': 41}`. Theoretical option P/L is **unavailable** (no historical chain); only structure labels are emitted.
 
 ## 7. Short-side readiness
 
@@ -226,7 +226,7 @@ Short side: **OFF** (radar state `SHORTS_OFF`). No risk-off/stress sample exists
 
 ## 8. No-trade / cash recommendation
 
-No strategy ready for paper. Best candidate earns a deeper point-in-time backtest only. Stay research-only.
+No strategy ready. Stay research-only.
 
 ## 9. Data limitations
 
@@ -239,7 +239,7 @@ No strategy ready for paper. Best candidate earns a deeper point-in-time backtes
 
 ## 10. Recommended next phase
 
-Run a point-in-time backtest for SIMPLE_MOMENTUM_BASELINE across regimes before any paper spec. Stay research-only; do not activate.
+No family qualifies. Stay research-only: accumulate matured forward outcomes (esp. a non-bull regime) and re-run the tournament.
 
 ### Anti-label-fix guarantees
 

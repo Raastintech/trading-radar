@@ -1,6 +1,6 @@
 # Short Detection Truth Audit — QQQ Breakdown / Tactical Short Regime Review
 
-_Phase 1G.16 · research-only · generated 2026-06-15T01:02:53Z · as-of bar 2026-06-12_
+_Phase 1G.16 · research-only · generated 2026-06-16T05:17:12Z · as-of bar 2026-06-15_
 
 > **Scope guard.** This audits the *short-detection layer* only. `SHORT_A` stays **FROZEN** (it failed structurally). No paper signals, no trade proposals, no execution/governance/live-capital/gate/Veto-Council changes, no new active short strategy. Proposed states are research labels.
 
@@ -8,18 +8,18 @@ _Phase 1G.16 · research-only · generated 2026-06-15T01:02:53Z · as-of bar 202
 
 | ETF | 1d | 3d | 5d | 10d |
 |-----|----|----|----|-----|
-| SPY | +0.50% | +0.59% | +0.52% | -1.99% |
-| QQQ | +0.43% | +1.74% | +2.14% | -2.46% |
-| IWM | +0.87% | +2.78% | +4.01% | +0.87% |
-| SMH | +1.72% | +4.90% | +8.82% | +3.51% |
-| XLK | +0.86% | +2.22% | +2.48% | -3.27% |
-| VXX | -4.42% | -3.85% | -4.01% | +0.25% |
+| SPY | +1.76% | +4.05% | +2.11% | -0.49% |
+| QQQ | +3.14% | +7.25% | +3.90% | +0.17% |
+| IWM | +0.58% | +4.46% | +3.71% | +1.96% |
+| SMH | +4.38% | +13.35% | +8.18% | +6.46% |
+| XLK | +3.78% | +8.58% | +4.13% | -2.03% |
+| VXX | -6.78% | -15.19% | -8.89% | -8.96% |
 
 - **Move classification:** `ISOLATED` — indices roughly flat; any weakness is name-specific
-- QQQ−SPY 5d relative: **1.618%**; tech−SPY 5d: **8.299%**; VXX 3d: **-3.853794199443794%**
+- QQQ−SPY 5d relative: **1.789%**; tech−SPY 5d: **6.07%**; VXX 3d: **-15.18796992481204%**
 
 ## 2. What the Short Opportunity Radar said
-- state **SHORTS_OFF**, score 15/100, suppressed_bull_tape=True, candidates=6
+- state **SHORTS_OFF**, score 25/100, suppressed_bull_tape=True, candidates=4
 - suppressed because SPY>50d&200d: **True**; VIX just under 20.0: False; score uses QQQ/sector relative weakness: **False**
 - The radar persists only a single _latest.json snapshot; there is no per-day archive, so 'what it said on each day of the drawdown' cannot be reconstructed historically. Phase 1G.16 begins a forward history spine (data/research/short_detection_history.jsonl) to close this gap.
 
@@ -37,35 +37,29 @@ _Phase 1G.16 · research-only · generated 2026-06-15T01:02:53Z · as-of bar 202
 _1/6 simple baselines fired. These are research signals only — no trades. Compare against radar state._
 
 ## 4. Missed-short autopsy
-- examined **191**, sharp 5d drops **22**, missed by radar **19**; by archetype: `{'RELATIVE_WEAKNESS_BREAKDOWN': 18, 'NO_SHORT_EDGE': 3, 'FAILED_LEADER': 1}`
+- examined **192**, sharp 5d drops **14**, missed by radar **13**; by archetype: `{'RELATIVE_WEAKNESS_BREAKDOWN': 12, 'NO_SHORT_EDGE': 1, 'FAILED_LEADER': 1}`
 
 | ticker | 5d | archetype | theme | radar saw |
 |--------|----|-----------|-------|-----------|
-| SMCI | -28.4% | RELATIVE_WEAKNESS_BREAKDOWN | hardware | False |
-| ADBE | -18.9% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| FJET | -15.5% | RELATIVE_WEAKNESS_BREAKDOWN | space_aerospace | False |
-| OLOX | -15.2% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| ORCL | -13.5% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| CRM | -10.1% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| TE | -10.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| GTLB | -10.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| MX | -9.4% | RELATIVE_WEAKNESS_BREAKDOWN | semiconductors | False |
-| SHAZ | -9.1% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| NOW | -9.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| SEDG | -8.2% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| NMAX | -7.2% | NO_SHORT_EDGE | other | False |
-| MSFT | -6.9% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| QCOM | -6.7% | RELATIVE_WEAKNESS_BREAKDOWN | semiconductors | False |
-| SHLS | -6.5% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
-| PD | -6.4% | NO_SHORT_EDGE | other | False |
-| RCAT | -6.2% | RELATIVE_WEAKNESS_BREAKDOWN | hardware | False |
-| NAVN | -6.0% | FAILED_LEADER | other | False |
-| AAPL | -5.3% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| SMCI | -32.2% | RELATIVE_WEAKNESS_BREAKDOWN | hardware | False |
+| ADBE | -16.7% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| FJET | -13.9% | RELATIVE_WEAKNESS_BREAKDOWN | space_aerospace | False |
+| ORCL | -12.7% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| NOW | -10.4% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| MX | -8.9% | RELATIVE_WEAKNESS_BREAKDOWN | semiconductors | False |
+| CRM | -8.6% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| QBTS | -7.7% | RELATIVE_WEAKNESS_BREAKDOWN | quantum | False |
+| QCOM | -7.4% | RELATIVE_WEAKNESS_BREAKDOWN | semiconductors | False |
+| TE | -7.1% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| NTAP | -7.0% | NO_SHORT_EDGE | hardware | False |
+| NAVN | -6.2% | FAILED_LEADER | other | False |
+| MSFT | -5.7% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
+| PLTR | -5.0% | RELATIVE_WEAKNESS_BREAKDOWN | other | False |
 
 ## 5. Suppression-rule diagnosis
 - **Current rule:** `bull tape: SPY>50d & >200d, VIX<20 → short regime suppressed` → {'suppressed': True, 'state': 'SHORTS_OFF'}
 - **Alternative (QQQ-aware):** QQQ-aware: SPY bull is the broad gate, but QQQ/tech tactical breakdown (rel-SPY, EMA20, velocity, tech breadth) or VXX stress escalates to HEDGE_WATCH / FAILED_LEADER_WATCH / TACTICAL_SHORT_RESEARCH → {'state': 'SHORTS_OFF', 'flags': {'bull_tape': True, 'qqq_breakdown': False, 'tech_breakdown': False, 'vxx_stress': False, 'failed_leaders': False}}
-- **Rule too broad:** False · missed=19 · false-positive risk: n/a (proposed also says SHORTS_OFF)
+- **Rule too broad:** False · missed=13 · false-positive risk: n/a (proposed also says SHORTS_OFF)
 - **Recommended (not implemented):**
   - keep rule — proposed QQQ-aware logic agrees with current state today
 

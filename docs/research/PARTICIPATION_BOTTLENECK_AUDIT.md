@@ -1,6 +1,6 @@
 # Participation Bottleneck Audit (Phase 1G.17)
 
-Generated: 2026-06-12T16:30:12Z · window since 2026-05-01 ·
+Generated: 2026-06-15T16:30:21Z · window since 2026-05-01 ·
 research-only / read-only — no signals, no proposals, no execution change.
 
 ## Verdict
@@ -11,12 +11,12 @@ research-only / read-only — no signals, no proposals, no execution change.
 | Veto council | **STRICT** |
 | Execution | **NEVER_REACHED** |
 
-The daemon is healthy (heartbeat `LOOP`),
+The daemon is healthy (heartbeat `STOPPED`),
 but the scan→council→decision funnel carried:
 
 | Stage | Count in window |
 |---|---|
-| Scan cycles (active sleeves) | 4380 |
+| Scan cycles (active sleeves) | 4464 |
 | Scanner opportunities | 479 |
 | Council veto-log rows | 4131 |
 | Decisions | 47 |
@@ -29,19 +29,19 @@ last VOYAGER paper signal: 2026-06-09.
 
 ## Rejection distribution (window totals)
 
-SNIPER (2190 cycles, 7 opportunities):
-- `no_breakout` = 92741
-- `volume_insufficient` = 7031
+SNIPER (2232 cycles, 7 opportunities):
+- `no_breakout` = 94547
+- `volume_insufficient` = 7157
 - `atr_contraction_fail` = 961
 
-VOYAGER (2190 cycles, 472 opportunities):
-- `too_extended` = 41455
-- `weak_rs_50d` = 29391
-- `below_ma200_floor` = 28116
-- `no_archetype` = 21527
-- `earnings_soon` = 12142
-- `dvol_fading` = 6312
-- `stale_bars` = 4510
+VOYAGER (2232 cycles, 472 opportunities):
+- `too_extended` = 41875
+- `weak_rs_50d` = 30309
+- `below_ma200_floor` = 29040
+- `no_archetype` = 21785
+- `earnings_soon` = 12226
+- `dvol_fading` = 6354
+- `stale_bars` = 4594
 
 ## Interpretation rules
 

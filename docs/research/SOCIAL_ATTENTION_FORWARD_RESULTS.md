@@ -3,7 +3,7 @@
 Auto-refreshed by `research/social_attention_forward_validation.py`.
 Research-only / cache-only. See `SOCIAL_ATTENTION_RADAR_V0.md` and `SOCIAL_ARB_REALITY_CHECK.md`.
 
-- Generated: `2026-06-12T21:30:21.554356+00:00`
+- Generated: `2026-06-15T21:30:22.406025+00:00`
 - History days: `4`
 - Matured social-led (primary): `0`
 - **Verdict: `NEED_MORE_DATA`** — history_days=4 (<10) or matured_social_led_primary=0 (<20); metrics shown are preliminary and must not drive routing.
