@@ -80,7 +80,7 @@ from research.research_scoring import (
     LATE,
 )
 from research.ten_x_candidate_radar import TRUE_10X_RESEARCH, ASYMMETRIC_RECOVERY_WATCH, THEME_ONLY
-from research.catalyst_sanity import validate_catalyst, validate_social_signal, FRESH_COMPANY_SPECIFIC
+from research.catalyst_sanity import FRESH_COMPANY_SPECIFIC
 from research.research_watchlist_forward_tracker import (
     SAMPLE_TOO_EARLY, SAMPLE_PROVISIONAL, SAMPLE_MEANINGFUL, SAMPLE_ROBUST,
 )
@@ -220,13 +220,32 @@ def _enrich_with_priority(
     if watchlist_label == "RISKY" and item.get("has_analyst_upgrade"):
         conflict_flags.append("risky_with_catalyst")
 
-    # Social-only check
+    # Phase 4A.4: catalyst / social sanity gate.
+    # If the scanner validated the signal and it failed (can_upgrade=False), remove
+    # that category from the consensus count so unvalidated signals can't inflate
+    # DOUBLE_CONFIRMATION or MULTI_CONFIRMATION.  Only add a conflict flag when the
+    # item's primary category is the failed one (not when it also has a clean signal
+    # from another category that already explains its presence on the board).
     all_cats = item.get("all_categories", [item.get("category", "")])
-    social_only = set(all_cats) <= {"social_arb_attention"} and len(all_cats) > 0
+    catalyst_can_upgrade = item.get("catalyst_can_upgrade")  # None = not checked (pass through)
+    _social_catalyst_cats = {"social_arb_attention", "catalyst_watch"}
+    if catalyst_can_upgrade is False:
+        effective_cats = [c for c in all_cats if c not in _social_catalyst_cats]
+        if not effective_cats:
+            # Item is purely social/catalyst and signal failed — keep original for
+            # display but add conflict flag to downgrade consensus.
+            effective_cats = all_cats
+            if item.get("category") in _social_catalyst_cats:
+                conflict_flags.append("catalyst_not_validated")
+    else:
+        effective_cats = all_cats
+
+    # Social-only check (uses effective_cats so failed social signals don't count)
+    social_only = set(effective_cats) <= {"social_arb_attention"} and len(effective_cats) > 0
 
     # Quality-adjusted consensus
     qac = quality_adjusted_consensus(
-        categories=all_cats,
+        categories=effective_cats,
         research_score=item.get("research_score"),
         data_confidence=data_confidence,
         earliness=earliness,
@@ -270,6 +289,10 @@ def _enrich_with_priority(
         "options_context": options_note,
         "ticker_valid": ticker_valid,
         "liquidity_ok": liquidity_ok,
+        # Phase 4A.4: catalyst/social validation result (from scanner pass)
+        "catalyst_sanity_label": item.get("catalyst_sanity_label"),
+        "catalyst_can_upgrade": item.get("catalyst_can_upgrade"),
+        "catalyst_sanity_issues": item.get("catalyst_sanity_issues", []),
     })
 
     # Phase 4A.3: classify quarantine sub-type for breakdown display
@@ -364,6 +387,12 @@ def _fmt_item(item: Dict[str, Any], include_details: bool = True) -> str:
     lines = [f"- {line}"]
     if q_sub:
         lines.append(f"  - *Quarantine reason:* {q_sub}")
+    # Phase 4A.4: show catalyst/social sanity verdict when it influenced priority
+    cat_label = item.get("catalyst_sanity_label")
+    cat_issues = item.get("catalyst_sanity_issues") or []
+    if cat_label and cat_label != FRESH_COMPANY_SPECIFIC:
+        issue_str = f" ({', '.join(cat_issues[:2])})" if cat_issues else ""
+        lines.append(f"  - *Catalyst sanity:* {cat_label}{issue_str}")
     if conflicts:
         lines.append(f"  - **CONFLICTS:** {', '.join(conflicts)}")
     if reasons:

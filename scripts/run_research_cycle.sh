@@ -742,44 +742,43 @@ cmd_risk_telemetry() {
     # JSON sidecar but is not wired to any block in this phase.
     run_or_warn "paper state hygiene report" \
         "$PY" research/paper_state_hygiene_report.py "$@"
-    # Phase 1G.2 T5 — read-only legacy decision policy report.  Lists
-    # decisions rows missing fill_price/fill_qty, classifies each as
-    # pre-clean-epoch / broker_closed_by_book, and recommends keep
-    # quarantined unless operator approves archival annotation
-    # separately.  Cache-only; never mutates the decisions table.
+    # Phase 1G.3 forward-resolution health (kept in nightly: monitors maturation
+    # health for all active sleeves, not short-specific).
+    run_or_warn "forward resolution health" \
+        "$PY" research/forward_resolution_health.py --no-resolve
+}
+
+# Phase 4A.4 — archived research diagnostics (not wired into nightly).
+# Each item has a completed verdict (NO / DETECTION_GAP / frozen) and no new
+# data benefits from nightly re-run.  Available on demand via 'legacy-diagnostics'
+# or their individual subcommands (legacy-decision-policy, short-radar, etc.).
+cmd_legacy_diagnostics() {
+    log "[CACHE] archived/legacy research diagnostics — manual only"
+    # Phase 1G.2 T5 — legacy decision policy: rows missing fill data (verdict: quarantine).
     run_or_warn "legacy decision policy report" \
         "$PY" research/legacy_decision_policy_report.py
-    # Phase 1G.3 — cache-only evidence-hygiene diagnostics.  Short Opportunity
-    # Radar keeps short-side awareness alive after the SHORT_A freeze; the
-    # forward-resolution health report distinguishes "too young" from "broken".
-    # Both are cache-only and never emit signals.
+    # Phase 1G.3 — SHORT_A frozen 2026-05-24; radar kept for awareness but not nightly.
     run_or_warn "short opportunity radar" \
         "$PY" research/short_opportunity_radar.py
-    # Phase 1G.16 — short detection truth audit + forward validation run right
-    # after the radar so the QQQ/tech-breakdown audit and its forward history
-    # spine refresh on the same cache-only cadence. Research-only; no signals.
+    # Phase 1G.16 — DETECTION_GAP_CONFIRMED; SHORT_A stays frozen; no nightly value.
     run_or_warn "short detection truth audit" \
         "$PY" research/short_detection_truth_audit.py
     run_or_warn "short detection forward" \
         "$PY" research/short_detection_forward_validation.py
-    run_or_warn "forward resolution health" \
-        "$PY" research/forward_resolution_health.py --no-resolve
-    # LEADER_RESET event study + VOYAGER conversion audit refresh on the same
-    # cache-only cadence so the next-maturity window (first outcomes mature
-    # 2026-05-28) is reflected automatically — no external scheduler needed.
-    # Both are research/read-only and emit no signals.  Called without "$@"
-    # because they do not accept the telemetry flags (--since/--equity).
+    # Phase 1I — LEADER_RESET verdict: NO (failed independent DD + Sharpe gates).
     run_or_warn "leader reset event study" \
         "$PY" research/leader_reset_event_study.py
+    # VOYAGER conversion audit — VOYAGER archived; no active sleeve to monitor.
     run_or_warn "voyager conversion audit" \
         "$PY" research/voyager_conversion_audit.py
-    # Phase 1G.4 — Strategy Tournament / Profitability Discovery Lab.  Cache-only
-    # / research-only: compares candidate strategy families on the shared event
-    # spine with fixed friction + gates and publishes verdicts.  Emits no signals,
-    # touches no governance/execution, mutates no DB rows.  Runs after the forward
-    # logs are refreshed so its cohorts reflect the freshest matured outcomes.
+    # Phase 1G.4 — Strategy Tournament: NO_VARIANT_READY_FOR_PAPER_SHADOW.
     run_or_warn "strategy tournament" \
         "$PY" research/strategy_tournament.py
+}
+
+cmd_legacy_decision_policy() {
+    log "[CACHE] Phase 1G.2 T5 legacy decision policy report (read-only)"
+    run_or_warn "legacy decision policy report" "$PY" research/legacy_decision_policy_report.py
 }
 
 # Phase 1G.3 standalone evidence-hygiene commands (all cache-only / research-only).
@@ -1332,6 +1331,8 @@ case "$SUB" in
     mcp-audit)         cmd_mcp_audit         "${POS[@]}" ;;
     mcp-audit-ticker)  cmd_mcp_audit_ticker  "${POS[@]}" ;;
     mcp-audit-session) cmd_mcp_audit_session "${POS[@]}" ;;
+    legacy-diagnostics)      cmd_legacy_diagnostics      "${POS[@]}" ;;
+    legacy-decision-policy)  cmd_legacy_decision_policy  "${POS[@]}" ;;
     short-radar)        cmd_short_radar        "${POS[@]}" ;;
     short-detection-audit)   cmd_short_detection_audit   "${POS[@]}" ;;
     short-detection-forward) cmd_short_detection_forward "${POS[@]}" ;;

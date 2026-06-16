@@ -79,6 +79,13 @@ import core.config as cfg
 from core.research_mode import SYSTEM_MODE, RESEARCH_ONLY_BANNER
 from research.research_scoring import earliness_label as _earliness_label, consensus_label as _consensus_label
 from research.research_candidate_enrichment import enrich_research_candidate
+from research.catalyst_sanity import (
+    validate_social_signal,
+    FRESH_COMPANY_SPECIFIC,
+    HYPE_CROWDED,
+    NEEDS_MANUAL_SOURCE_CHECK,
+    STALE,
+)
 
 VERSION = "RESEARCH_SCANNER_V1"
 PRICE_DIR = cfg.CACHE_DIR / "prices"
@@ -1176,6 +1183,79 @@ def scan_asymmetric(
     return results[:max_results]
 
 
+# ── Phase 4A.4: per-item catalyst / social sanity ────────────────────────────
+
+
+def _apply_catalyst_sanity(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate catalyst and social signals before they can influence priority.
+
+    Sets three fields on item (never overwrites if already present):
+      catalyst_sanity_label  — one of CATALYST_SANITY_LABELS
+      catalyst_can_upgrade   — bool; False blocks priority elevation
+      catalyst_sanity_issues — list of detected problems
+
+    Called once per item after the central enrichment pass in build_scanner().
+    Research-only; never touches governance, orders, or DB.
+    """
+    category = item.get("category", "")
+    ext_state = item.get("extension_state", "NORMAL")
+    tape_extended = ext_state in ("EXTENDED", "PARABOLIC")
+    confidence = item.get("data_confidence", "UNKNOWN")
+
+    if category == "social_arb_attention":
+        result = validate_social_signal(
+            social_score=item.get("social_score"),
+            crowded=item.get("crowded", False),
+            source=item.get("social_source") or item.get("data_source"),
+            tape_extended=tape_extended,
+            data_confidence=confidence,
+        )
+        item["catalyst_sanity_label"] = result["label"]
+        item["catalyst_can_upgrade"] = result["can_upgrade"]
+        item["catalyst_sanity_issues"] = result.get("issues", [])
+
+    elif category == "catalyst_watch":
+        # The scanner's FMP data path does not expose headline or published_at,
+        # so full freshness validation via validate_catalyst() is not possible.
+        # Apply what we can determine from the calendar and tape state.
+        extended = item.get("extended_into_earnings", False)
+        days = item.get("days_to_earnings")
+        has_analyst = item.get("has_analyst_upgrade", False)
+
+        issues: List[str] = []
+        if tape_extended:
+            issues.append("tape_extended")
+        if confidence in ("LOW", "INVALID"):
+            issues.append(f"confidence_{confidence}")
+
+        if extended:
+            # Run-up into earnings is a disqualifier (RISKY label from scanner)
+            label: str = HYPE_CROWDED
+            can_upgrade = False
+            issues.append("extended_into_earnings")
+        elif days is not None and 0 <= days <= 21:
+            # Imminent earnings event from live FMP calendar — treat as fresh catalyst
+            label = FRESH_COMPANY_SPECIFIC
+            can_upgrade = not tape_extended and confidence not in ("LOW", "INVALID")
+        elif has_analyst and days is None:
+            # Analyst action present but no upcoming earnings date to anchor freshness
+            label = NEEDS_MANUAL_SOURCE_CHECK
+            can_upgrade = False
+            issues.append("no_source_date_for_analyst_action")
+        else:
+            label = NEEDS_MANUAL_SOURCE_CHECK
+            can_upgrade = False
+            issues.append("no_imminent_catalyst_event")
+
+        item["catalyst_sanity_label"] = label
+        item["catalyst_can_upgrade"] = can_upgrade
+        item["catalyst_sanity_issues"] = issues
+
+    # Items from other categories get no catalyst fields (not applicable)
+    return item
+
+
 # ── Main scanner ─────────────────────────────────────────────────────────────
 
 
@@ -1255,6 +1335,10 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
             research_score=item.get("research_score"),
         )
         watchlist[i] = item
+
+    # Phase 4A.4: validate catalyst / social signals before priority assignment
+    for i, item in enumerate(watchlist):
+        watchlist[i] = _apply_catalyst_sanity(item)
 
     # Label summary
     label_counts: Dict[str, int] = {}
