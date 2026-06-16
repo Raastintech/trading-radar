@@ -1,6 +1,6 @@
 # Scanner Truth Review — 2026-05 (Phase 1G.5)
 
-*Generated 2026-06-16T17:49:33.784075+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
+*Generated 2026-06-16T18:31:30.169128+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
 
 ## 1. Executive summary
 

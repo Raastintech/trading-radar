@@ -19,7 +19,7 @@
 ## Data Coverage
 
 **Tickers:** 5618 total | Actionable (HIGH+MEDIUM): 94.9%
-  HIGH=42 | MEDIUM=5290 | LOW=227 | INVALID=59
+  HIGH=27 | MEDIUM=5305 | LOW=227 | INVALID=59
 
 **Options Coverage:** 0% | Overlay: DISABLED
   > ⚠ OPTIONS_DATA_UNAVAILABLE: coverage below 50% threshold. No candidate will be promoted based on options data.
@@ -60,7 +60,7 @@
 
 ## Early Accumulation — Clean Only
 
-- **AAL** | priority=HIGH_PRIORITY_RESEARCH | earliness=DEVELOPING | consensus=DOUBLE_CONFIRMATION | qscore=83 | confidence=HIGH | ext=STRETCHED | escore=75 | sector=Industrials
+- **AAL** | priority=HIGH_PRIORITY_RESEARCH | earliness=DEVELOPING | consensus=DOUBLE_CONFIRMATION | qscore=83 | confidence=MEDIUM | ext=STRETCHED | escore=75 | sector=Industrials
   - *Why appeared:* Rising volume + improving RS or higher lows; not extended
   - *Confirms if:* RS continues rising, volume expands on up-days, reclaims 50d MA
   - *Invalidates if:* Volume dries up, RS reverses, undercuts recent lows
@@ -176,7 +176,7 @@
 
 - **ENPH** | priority=EXTENDED_CROWDED | earliness=EXTENDED | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=PARABOLIC | escore=30 | sector=Energy
 - **PL** | priority=EXTENDED_CROWDED | earliness=EXTENDED | consensus=SINGLE_SIGNAL | qscore=50 | confidence=MEDIUM | ext=PARABOLIC | escore=30 | sector=Industrials
-- **AAOI** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=49 | confidence=HIGH | ext=PARABOLIC | escore=15 | sector=Technology
+- **AAOI** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=49 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
 - **SIDU** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Industrials
 - **NVTS** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Technology
 - **SPIR** | priority=EXTENDED_CROWDED | earliness=LATE | consensus=SINGLE_SIGNAL | qscore=40 | confidence=MEDIUM | ext=PARABOLIC | escore=15 | sector=Industrials
@@ -191,6 +191,8 @@
 **Overall:** n=0 matured | sample_status=TOO_EARLY | verdict=NEED_MORE_DATA
 
 > ⚠ TOO_EARLY: 0 matured observations. Need ≥10 for provisional read, ≥30 for meaningful, ≥100 for robust. No bucket has interpretable evidence yet.
+
+**Benchmarks:** SPY/QQQ ready for 0/118 entries | sector ETF assigned for 80/118
 
 | Bucket | n_total | n_matured | sample_status | verdict |
 |--------|---------|-----------|---------------|---------|
@@ -214,4 +216,4 @@
 - All research candidates require independent human validation before any action
 
 ---
-*Generated: 2026-06-16T17:50:38.611542+00:00 | DAILY_ALPHA_RADAR_V1*
+*Generated: 2026-06-16T18:32:35.214790+00:00 | DAILY_ALPHA_RADAR_V1*

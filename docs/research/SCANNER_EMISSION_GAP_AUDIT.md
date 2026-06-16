@@ -1,6 +1,6 @@
 # Scanner Emission Gap Audit — Phase 1G.6 (Task 1)
 
-*Generated 2026-06-16T18:00:49.671217+00:00 · research-only, cache-only.*
+*Generated 2026-06-16T18:24:27.873717+00:00 · research-only, cache-only.*
 
 ## Question
 Why did **537** liquid winners exist but only ~4 distinct tickers reach the long funnel/council?
