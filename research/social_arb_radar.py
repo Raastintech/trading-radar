@@ -44,8 +44,8 @@ except Exception:  # pragma: no cover - optional runtime convenience
 if load_dotenv is not None and os.getenv("GEM_TRADER_SKIP_DOTENV", "").lower() not in {"1", "true", "yes"}:
     env_path = os.getenv("SNIPER_ENV_PATH", "").strip()
     if env_path:
-        load_dotenv(env_path, override=False)
-    load_dotenv(ROOT / ".env", override=False)
+        load_dotenv(env_path, override=True)
+    load_dotenv(ROOT / ".env", override=True)
 
 # Missing-source fallback: allow compile/smoke runs without credentials. Real
 # provider calls still fail gracefully if these placeholders are the only values.
