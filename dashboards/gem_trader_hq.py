@@ -5663,14 +5663,9 @@ class PB:  # PanelBuilder — all static
         ld_label = "Leaders" if leaders else "Improving"
         wk_show = (weak or defens)[:2]
         sf = f.get("strategy_favorability") or {}
-
-        def _stance(name: str) -> Tuple[str, str]:
-            row = sf.get(name) or {}
-            return row.get("stance", "—"), row.get("reason", "")
-
-        v_st, _ = _stance("VOYAGER")
-        s_st, _ = _stance("SNIPER_V6")
-        sh_st, _ = _stance("SHORT_A")
+        # Research posture from ALPHA_DISCOVERY (neutral language; no strategy abbreviations)
+        ad = sf.get("ALPHA_DISCOVERY") or {}
+        ad_stance = ad.get("stance", "")
 
         age = f.get("_age_short") or "?"
         stale = f.get("_stale")
@@ -5716,12 +5711,10 @@ class PB:  # PanelBuilder — all static
             if wk_show:
                 t.append("  Weak ", style="dim")
                 t.append(",".join(wk_show), style="red")
-        t.append("  | Strat ", style="dim")
-        t.append(f"V:{v_st}", style=PB._stance_style(v_st))
-        t.append(" ", style="dim")
-        t.append(f"S:{s_st}", style=PB._stance_style(s_st))
-        t.append(" ", style="dim")
-        t.append(f"Sh:{sh_st}", style=PB._stance_style(sh_st))
+        # Research posture — neutral language, no strategy abbreviations
+        if ad_stance:
+            t.append("  | Research posture: ", style="dim")
+            t.append(ad_stance, style=PB._stance_style(ad_stance))
         return Panel(t, box=box.SIMPLE, padding=(0,1))
 
     @staticmethod

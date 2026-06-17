@@ -628,11 +628,15 @@ def build_daily_radar(sidecars: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str
         and item.get("watchlist_label") not in ("CROWDED", "NO_SOCIAL_DATA")
     ]
 
-    # Priority counts
+    # Priority counts + per-label ticker lists (used by downstream summaries)
     priority_counts: Dict[str, int] = {}
+    priority_tickers: Dict[str, List[str]] = {}
     for item in enriched:
         p = item.get("priority_label", WATCHLIST_RESEARCH)
         priority_counts[p] = priority_counts.get(p, 0) + 1
+        t = item.get("ticker", "")
+        if t:
+            priority_tickers.setdefault(p, []).append(t)
 
     # Phase 4A.3: Quarantine subtype breakdown
     quarantine_breakdown: Dict[str, int] = {}
@@ -662,6 +666,7 @@ def build_daily_radar(sidecars: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str
         "research_only": True,
         "total_candidates": n_total,
         "priority_counts": priority_counts,
+        "priority_tickers": priority_tickers,
         "quarantine_breakdown": quarantine_breakdown,
         "field_coverage": field_coverage,
         "options_coverage": options_state,

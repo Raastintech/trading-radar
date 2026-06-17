@@ -1123,6 +1123,21 @@ cmd_daily_alpha_radar() {
     run_or_warn "daily alpha radar" "$PY" research/daily_alpha_radar_report.py "$@"
 }
 
+cmd_nightly_operator_summary() {
+    # Nightly Operator Summary — concise 25-50 line human-readable recap.
+    # Reads all research sidecars written by the nightly cycle (forecast,
+    # alpha radar, scanner, forward tracker, scanner-truth, provider audit)
+    # and writes:
+    #   docs/research/NIGHTLY_OPERATOR_SUMMARY.md    (docs artifact)
+    #   cache/research/nightly_operator_summary_latest.json
+    #   logs/nightly_operator_summary_latest.md
+    # Cache-only; no provider calls.  Research-only language — no strategy
+    # abbreviations (VOYAGER/SNIPER/SHORT_A), no trade approvals.
+    log "[CACHE] nightly operator summary (cache-only, research-only language)"
+    run_or_warn "nightly operator summary" \
+        "$PY" research/nightly_operator_summary.py "$@"
+}
+
 _disabled_execution_cmd() {
     echo "RESEARCH_ONLY_MODE: command disabled."
 }
@@ -1254,6 +1269,10 @@ cmd_nightly() {
     cmd_research_forward_tracker
     cmd_ten_x_candidates
     cmd_daily_alpha_radar
+    # Nightly Operator Summary — runs LAST so it reads every sidecar the
+    # nightly cycle just refreshed.  Cache-only; no provider calls.
+    # No strategy abbreviations or trade language in output.
+    cmd_nightly_operator_summary
     log "nightly cycle complete"
 }
 
@@ -1372,7 +1391,8 @@ case "$SUB" in
     research-changes)          cmd_research_changes          "${POS[@]}" ;;
     research-forward-tracker)  cmd_research_forward_tracker  "${POS[@]}" ;;
     ten-x-candidates)          cmd_ten_x_candidates          "${POS[@]}" ;;
-    daily-alpha-radar)         cmd_daily_alpha_radar         "${POS[@]}" ;;
+    daily-alpha-radar)          cmd_daily_alpha_radar          "${POS[@]}" ;;
+    nightly-operator-summary)  cmd_nightly_operator_summary   "${POS[@]}" ;;
     live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
         _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;
