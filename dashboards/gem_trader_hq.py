@@ -72,10 +72,23 @@ except ImportError:
 
 try:
     import anthropic as _ant
-    _CLAUDE = _ant.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
     _CLAUDE_OK = bool(os.environ.get("ANTHROPIC_API_KEY"))
 except Exception:
-    _CLAUDE = None; _CLAUDE_OK = False
+    _ant = None; _CLAUDE_OK = False
+
+def _get_claude_client():
+    """Return a fresh Anthropic client using the current key from the environment.
+
+    Reading the key on each call (rather than caching it at import time) means
+    a key rotation in trading.env takes effect on the next analysis request
+    without requiring a dashboard restart.
+    """
+    if _ant is None:
+        return None
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return None
+    return _ant.Anthropic(api_key=key)
 
 try:
     from zoneinfo import ZoneInfo; _ET = ZoneInfo("America/New_York")
@@ -2126,7 +2139,8 @@ class ClaudeAnalyzer:
         self._reset()
         if self._calls >= self.MAX:
             return self._stub(ticker, f"Daily budget ({self.MAX}) reached")
-        if not _CLAUDE_OK or not _CLAUDE:
+        client = _get_claude_client()
+        if not client:
             return self._stub(ticker, "ANTHROPIC_API_KEY not set")
         if len(bars) < 20:
             return self._stub(ticker, "Insufficient price data (<20 bars)")
@@ -2246,7 +2260,7 @@ to know what level would change the picture. Use concrete numbers from the STRUC
 block (EMA20/EMA50/ATR/52w levels), not generic phrases."""
 
         try:
-            resp = _CLAUDE.messages.create(
+            resp = client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=420,
                 messages=[{"role":"user","content":prompt}]
