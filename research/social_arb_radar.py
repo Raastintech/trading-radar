@@ -340,6 +340,9 @@ class Candidate:
     # create standalone leads, generate trade signals, or override tape/entry
     # quality. Consumers reading the artifact can rely on this invariant.
     trend_is_corrob_only: bool = True
+    # Claude enrichment fields (populated by apply_reviews; UNKNOWN/None if not called)
+    time_sensitivity: str = "UNKNOWN"   # BREAKING | RECENT | DATED | EXPIRED | UNKNOWN
+    confidence_pct: Optional[int] = None  # 0-100: Claude's confidence a human review is worthwhile
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -2467,7 +2470,41 @@ def _manual_check(symbol: str, theme: str, mapping_method: str, options: Dict[st
     return "; ".join(checks[:4])
 
 
-def _anthropic_prompt(candidates: Sequence[Candidate]) -> str:
+def _load_regime_context() -> Dict[str, Any]:
+    """Load current regime from cache so Claude can calibrate its conservatism."""
+    try:
+        path = ROOT / "cache" / "research" / "regime_forecast_latest.json"
+        data = _load_json(path)
+        if not data:
+            return {}
+        head = data.get("headline") or {}
+        sr = data.get("sector_rotation") or {}
+        return {
+            "regime": head.get("current_regime", "Unknown"),
+            "confidence": head.get("confidence", "unknown"),
+            "bias_5d": head.get("bias_5d", "unknown"),
+            "leading_sectors": (sr.get("leading") or [])[:4],
+            "weakening_sectors": (sr.get("weakening") or [])[:4],
+        }
+    except Exception:
+        return {}
+
+
+def _anthropic_prompt(candidates: Sequence[Candidate], regime_ctx: Dict[str, Any]) -> str:
+    regime_block = ""
+    if regime_ctx:
+        leading = ", ".join(regime_ctx.get("leading_sectors") or []) or "none"
+        weakening = ", ".join(regime_ctx.get("weakening_sectors") or []) or "none"
+        regime_block = (
+            f"\nMarket context (use to calibrate DROP threshold):\n"
+            f"  Regime: {regime_ctx.get('regime', 'Unknown')} "
+            f"(confidence: {regime_ctx.get('confidence', '?')}, "
+            f"5d bias: {regime_ctx.get('bias_5d', '?')})\n"
+            f"  Leading sectors: {leading}\n"
+            f"  Weakening sectors: {weakening}\n"
+            f"In weakening regimes or when sector is weakening, raise the bar for KEEP.\n"
+        )
+
     payload = [
         {
             "id": c.id,
@@ -2478,6 +2515,7 @@ def _anthropic_prompt(candidates: Sequence[Candidate]) -> str:
             "theme": c.theme,
             "news_label": c.news_label,
             "mapping_method": c.mapping_method,
+            "freshness_hours": round(c.freshness_hours, 1),
             "evidence_supporting": c.evidence_supporting,
             "evidence_missing": c.evidence_missing,
             "source_titles": c.source_titles[:3],
@@ -2487,13 +2525,35 @@ def _anthropic_prompt(candidates: Sequence[Candidate]) -> str:
         }
         for c in candidates
     ]
+
+    instructions = (
+        "You are a conservative market research analyst filtering social/news arb signals.\n"
+        "Your primary job is aggressive noise removal — most candidates should be dropped.\n\n"
+        "VERDICT DEFINITIONS:\n"
+        "  KEEP  — ticker-specific, verifiable catalyst; tape or options confirm participation;\n"
+        "          not stale (freshness_hours < 36); not generic sector noise; worth human review NOW.\n"
+        "  DROP  — catalyst exists but is too vague, already priced in, or the ticker link is weak.\n"
+        "  NOISE — headline is not specifically about this ticker; pure sector/macro news;\n"
+        "          meme/hype language; or freshness_hours > 48 with no tape confirmation.\n\n"
+        "Default to DROP. Only KEEP if you can write a crisp one-sentence thesis.\n"
+        "Aim for 2–4 KEEPs out of 10 candidates at most.\n\n"
+        "Return strict JSON with top-level key 'reviews'. Each review must have:\n"
+        "  id, verdict (KEEP|DROP|NOISE), ticker, theme,\n"
+        "  why_it_may_matter (KEEP only: one sentence; empty string otherwise),\n"
+        "  evidence_supporting (list, 1-3 specific data-backed facts),\n"
+        "  evidence_missing (list, 1-3 things that would raise conviction),\n"
+        "  noise_risk (Low|Medium|High),\n"
+        "  time_sensitivity (BREAKING if freshness_hours<2 | RECENT if 2-24h | DATED if 24-48h | EXPIRED if >48h),\n"
+        "  confidence_pct (integer 0-100: your confidence a human review of this lead is worthwhile),\n"
+        "  manual_verification_step (one specific action to verify; empty string if NOISE),\n"
+        "  concise_thesis (one sentence for the operator if KEEP; empty string if DROP/NOISE).\n\n"
+        "No trade approvals. No paper signals. No entry/exit prices. Research-only."
+    )
+
     return (
-        "Review these filtered research-only social/news arb candidates. "
-        "You must be willing to say DROP or NOISE. Do not approve trades. "
-        "Return strict JSON with a top-level key reviews, where each review has: "
-        "id, verdict KEEP|DROP|NOISE, ticker, theme, why_it_may_matter, "
-        "evidence_supporting, evidence_missing, noise_risk, manual_verification_step, concise_thesis. "
-        "Keep concise and conservative.\n\n"
+        instructions
+        + regime_block
+        + "\n\nCandidates:\n"
         + json.dumps({"candidates": payload}, indent=2)
     )
 
@@ -2517,23 +2577,23 @@ def anthropic_review(candidates: Sequence[Candidate], args: argparse.Namespace, 
         return {}
 
     top = list(candidates)[:review_count]
+    regime_ctx = _load_regime_context()
     try:
         client = anthropic.Anthropic(api_key=api_key)
-        # claude-3-5-haiku-latest is retired (404); use Haiku 4.5 as default.
-        # Override via SOCIAL_ARB_ANTHROPIC_MODEL.
-        model = os.getenv("SOCIAL_ARB_ANTHROPIC_MODEL", "claude-haiku-4-5")
-        # max_tokens budget: each review ≈ 600–800 tokens; 10 reviews need
-        # ~7–8K.  The previous 2400 cap silently truncated the response,
-        # yielding invalid JSON and 0 parsed reviews.
+        # Full dated model ID to avoid silent fallback to older versions.
+        # Override via SOCIAL_ARB_ANTHROPIC_MODEL env var.
+        model = os.getenv("SOCIAL_ARB_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        # max_tokens budget: each review ≈ 600–800 tokens; 10 reviews need ~7–8K.
         msg = client.messages.create(
             model=model,
             max_tokens=9000,
             temperature=0,
             system=(
                 "You are a conservative market research analyst. This is research-only. "
-                "You never approve trades, paper evidence, sleeves, or automated actions."
+                "You never approve trades, generate entry/exit prices, create paper signals, "
+                "or trigger any automated action. Output must be machine-parseable JSON."
             ),
-            messages=[{"role": "user", "content": _anthropic_prompt(top)}],
+            messages=[{"role": "user", "content": _anthropic_prompt(top, regime_ctx)}],
         )
         stats["api_attempts"]["anthropic_messages"] = stats["api_attempts"].get("anthropic_messages", 0) + 1
         text = ""
@@ -2599,6 +2659,12 @@ def apply_reviews(
             cand.evidence_supporting = [str(x) for x in review["evidence_supporting"][:5]]
         if isinstance(review.get("evidence_missing"), list):
             cand.evidence_missing = [str(x) for x in review["evidence_missing"][:5]]
+        ts = str(review.get("time_sensitivity") or "").upper().strip()
+        if ts in {"BREAKING", "RECENT", "DATED", "EXPIRED"}:
+            cand.time_sensitivity = ts
+        raw_conf = review.get("confidence_pct")
+        if isinstance(raw_conf, (int, float)):
+            cand.confidence_pct = max(0, min(100, int(raw_conf)))
         if verdict in {"DROP", "NOISE"}:
             _drop(drop_stats, f"anthropic_{verdict.lower()}", " | ".join(cand.source_titles), cand.ticker)
             continue
@@ -2622,10 +2688,20 @@ def _render_text(artifact: Dict[str, Any]) -> str:
     else:
         for i, row in enumerate(items, 1):
             markers = " ".join(row.get("cross_refs") or []) or "-"
+            verdict = row.get("anthropic_verdict", "NOT_RUN")
+            cconf = row.get("confidence_pct")
+            tsens = row.get("time_sensitivity", "UNKNOWN")
+            claude_tag = ""
+            if verdict not in ("NOT_RUN", ""):
+                claude_tag = f"  claude={verdict}"
+                if cconf is not None:
+                    claude_tag += f"({cconf}%)"
+                if tsens and tsens != "UNKNOWN":
+                    claude_tag += f"  timing={tsens}"
             lines.append(
                 f"{i}. {row.get('ticker')}  {row.get('bucket')}  "
                 f"conf {row.get('confidence')}({row.get('confidence_score')})  "
-                f"noise {row.get('noise_risk')}  {markers}"
+                f"noise {row.get('noise_risk')}  {markers}{claude_tag}"
             )
             lines.append(f"   label: {row.get('news_label')}")
             lines.append(f"   why: {row.get('why_it_matters')}")
