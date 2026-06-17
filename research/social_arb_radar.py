@@ -93,6 +93,14 @@ COMMON_FALSE_TICKERS = {
     "USA", "VS", "YOY",
 }
 
+# Tickers that are also common legal-entity suffixes (AG=Aktiengesellschaft,
+# SA=Société Anonyme, SE=Societas Europaea, NV=Naamloze Vennootschap,
+# PLC=Public Limited Company).  A bare uppercase token in news text is
+# almost always the suffix, not the stock.  Mapping survives only when there
+# is at least one of: a $-prefixed mention ("$AG"), a validated company-name
+# alias from COMPANY_ALIASES, or an explicit FMP subject tag.
+CORPORATE_SUFFIX_TICKERS = frozenset({"AG", "SA", "SE", "NV", "PLC"})
+
 FALLBACK_SYMBOLS = {
     "AAPL", "MSFT", "NVDA", "GOOGL", "GOOG", "AMZN", "META", "TSLA", "AMD",
     "AVGO", "SMCI", "VRT", "ORCL", "CRM", "NOW", "SNOW", "PLTR", "CRWD",
@@ -183,6 +191,8 @@ COMPANY_ALIASES = {
     "NEM": ["newmont"],
     "FCX": ["freeport"],
     "MP": ["mp materials"],
+    "TTMI": ["ttm technologies"],
+    "AG": ["first majestic", "first majestic silver"],
 }
 
 THEME_RULES: Dict[str, Dict[str, Any]] = {
@@ -1604,6 +1614,19 @@ def build_story_groups(
                 # → MSTR) with no corroborating ticker/subject evidence.
                 _drop(drop_stats, "ambiguous_generic_word_alias", item.title, mapping.ticker)
                 continue
+            # Corporate suffix guard: AG/SA/SE/NV/PLC are legal entity suffixes
+            # that appear in company names ("Swiss Technology Group AG").  A bare
+            # uppercase token match is not sufficient evidence that the news is
+            # about the *stock*.  Require at least one of: explicit $-prefix,
+            # a validated company-name alias, or an FMP subject tag.
+            if mapping.ticker in CORPORATE_SUFFIX_TICKERS:
+                ev = (item.ticker_evidence or {}).get(mapping.ticker) or {}
+                has_dollar = bool(re.search(rf'\${re.escape(mapping.ticker)}\b', item.title))
+                has_alias = bool(ev.get("alias"))       # COMPANY_ALIASES hit
+                has_subject = bool(ev.get("is_subject"))  # FMP-tagged subject
+                if not (has_dollar or has_alias or has_subject):
+                    _drop(drop_stats, "ambiguous_generic_word_alias", item.title, mapping.ticker)
+                    continue
             if mapping.confidence < 0.40:
                 _drop(drop_stats, "weak_ticker_mapping", item.title, mapping.ticker)
                 continue
@@ -2446,15 +2469,45 @@ def score_candidates(
     return capped[: args.limit]
 
 
+def _validated_theme_label(symbol: str, theme: str, title: str) -> str:
+    """Return theme only when it is actually evidenced by the headline text.
+
+    Falls back to 'Company-specific' when the theme was inferred from the
+    article body/description but the title doesn't contain the theme's terms
+    and the ticker is not a primary expected ticker for that theme.  This
+    prevents mislabels like 'Crypto headline' for a JPMorgan equity-issuance
+    article that happened to mention 'digital assets' in its body text.
+
+    Single-word terms use word-boundary matching to prevent false matches
+    like "chip" firing on "Chipotle".  Multi-word phrases use exact substring.
+    """
+    rule = THEME_RULES.get(theme)
+    if not rule:
+        return "Company-specific"
+    title_low = title.lower()
+    for term in rule.get("terms", []):
+        if " " in term:
+            if term in title_low:
+                return theme
+        else:
+            if re.search(rf"\b{re.escape(term)}\b", title_low):
+                return theme
+    if symbol in (rule.get("tickers") or []):
+        return theme
+    return "Company-specific"
+
+
 def _why_it_matters(symbol: str, theme: str, bucket: str, title: str, tape: Dict[str, Any]) -> str:
     if bucket == "News Catalyst":
         return _clip(f"Company-specific catalyst may change investor expectations: {title}", 170)
     if bucket == "Cross-Confirmed Lead":
         return _clip(f"Story is showing both source confirmation and tape participation in {symbol}.", 170)
     if bucket == "Options/Tape Confirmed":
-        return _clip(f"{theme} headline has participation confirmation; check whether move is early or already crowded.", 170)
+        theme_label = _validated_theme_label(symbol, theme, title)
+        return _clip(f"{theme_label} headline has participation confirmation; check whether move is early or already crowded.", 170)
     if bucket == "Emerging Theme":
-        return _clip(f"{theme} theme is appearing in news flow; ticker link is inferential and needs confirmation.", 170)
+        theme_label = _validated_theme_label(symbol, theme, title)
+        return _clip(f"{theme_label} theme is appearing in news flow; ticker link is inferential and needs confirmation.", 170)
     return _clip(f"Interesting {theme} setup, but evidence is incomplete and should stay watch-only.", 170)
 
 
