@@ -1018,6 +1018,16 @@ cmd_market_heartbeat() {
     run_or_warn "market heartbeat" "$PY" research/market_heartbeat.py "$@"
 }
 
+cmd_funnel_historizer() {
+    # Phase 1G.5 — Funnel Historizer.  RESEARCH-ONLY / CACHE-ONLY.  Copies
+    # per-ticker Stock Lens + Gatekeeper artifacts into dated read-only snapshots
+    # so future winner-recall autopsies can compute recall-before-move and
+    # forward precision.  No provider calls, no DB writes, no signals, no
+    # execution.  Idempotent: re-running for the same date is safe.
+    log "[CACHE] Phase 1G.5 funnel historizer (research-only, cache-only)"
+    run_or_warn "funnel historizer" "$PY" research/funnel_historizer.py "$@"
+}
+
 cmd_research_scanner() {
     # Phase 4B/4C — Research Scanner + Watchlist Scorer.  RESEARCH-ONLY / CACHE-
     # FIRST.  Runs six scanner categories (Early Accumulation, Beaten-Down
@@ -1210,6 +1220,9 @@ cmd_nightly() {
     # high-priority short list's Gatekeeper artifacts fresh for the next
     # premarket and the operator dashboard.
     cmd_gatekeeper_refresh
+    # Phase 1G.5 — historize lens/gatekeeper artifacts immediately after they
+    # are refreshed so the dated snapshots capture the freshest state each night.
+    cmd_funnel_historizer
     cmd_resolve
     cmd_holdout
     # Phase 1B/1C/1D risk telemetry runs as a cache-only tail of the nightly
@@ -1263,6 +1276,9 @@ cmd_nightly() {
     # report last, so it reads everything else this nightly cycle refreshed.
     # Cache-first; FMP calls are optional/degrade gracefully. Research-only —
     # no trade recommendations, no signals, no execution.
+    # Market heartbeat runs here so the Daily Alpha Radar and Nightly Summary
+    # read a fresh regime/trend label from the same cycle.
+    cmd_market_heartbeat
     cmd_research_scanner
     cmd_research_coverage
     cmd_research_changes
@@ -1380,6 +1396,7 @@ case "$SUB" in
     core-satellite)        cmd_core_satellite        "${POS[@]}" ;;
     core-satellite-levered) cmd_core_satellite_leveraged "${POS[@]}" ;;
     market-heartbeat)      cmd_market_heartbeat      "${POS[@]}" ;;
+    funnel-historizer)     cmd_funnel_historizer     "${POS[@]}" ;;
     research-scanner)      cmd_research_scanner      "${POS[@]}" ;;
     stock-research-card)   cmd_stock_research_card   "${POS[@]}" ;;
     fmp-provider-health)     cmd_fmp_provider_health     "${POS[@]}" ;;

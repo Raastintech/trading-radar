@@ -137,14 +137,22 @@ def _options_coverage_state(scanner_watchlist: List[Dict[str, Any]]) -> Dict[str
     if total == 0:
         return {"coverage_pct": 0.0, "overlay_enabled": False, "state": "DISABLED_NO_TICKERS"}
 
-    options_dir = cfg.CACHE_DIR / "options_chains"
+    # Snapshots are stored in data/options_snapshots/{date}/{sym}.parquet.
+    # Find the most recent date directory and check per-ticker coverage.
+    snapshot_root = ROOT / "data" / "options_snapshots"
+    covered_syms: set = set()
+    if snapshot_root.exists():
+        date_dirs = sorted(snapshot_root.iterdir(), reverse=True)
+        latest_dir = next((d for d in date_dirs if d.is_dir()), None)
+        if latest_dir:
+            covered_syms = {p.stem for p in latest_dir.glob("*.parquet")}
+
     covered = 0
     for item in scanner_watchlist:
         sym = item.get("ticker", "")
         if not sym:
             continue
-        patterns = [f"{sym}_*.parquet", f"{sym}_*.json", f"{sym}.json"]
-        if options_dir.exists() and any(bool(list(options_dir.glob(p))) for p in patterns):
+        if sym in covered_syms:
             covered += 1
 
     coverage_pct = covered / total if total > 0 else 0.0
@@ -486,8 +494,8 @@ def _fmt_market_context(heartbeat: Optional[Dict[str, Any]]) -> List[str]:
     if not heartbeat:
         lines.append("*Market heartbeat sidecar not available. Run `market-heartbeat` first.*")
         return lines
-    regime = heartbeat.get("regime_label", "UNKNOWN")
-    trend = heartbeat.get("trend_label", "UNKNOWN")
+    regime = heartbeat.get("heartbeat_label") or heartbeat.get("regime_label", "UNKNOWN")
+    trend = (heartbeat.get("etf_trends") or {}).get("SPY", {}).get("trend") or heartbeat.get("trend_label", "UNKNOWN")
     generated = heartbeat.get("generated_at", "unknown")[:10]
     lines.append(f"**Regime:** {regime} | **Trend:** {trend} | *as of {generated}*")
 

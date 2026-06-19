@@ -470,10 +470,9 @@ class TestOptionsCoverageGuard:
 
     def test_options_overlay_disabled_below_threshold(self, tmp_path):
         from research.daily_alpha_radar_report import _options_coverage_state
-        # Empty watchlist of 10 items, no options dir = 0% coverage
+        # Empty watchlist of 10 items, no snapshot dir = 0% coverage
         watchlist = [{"ticker": f"T{i}"} for i in range(10)]
-        with patch("research.daily_alpha_radar_report.cfg") as mock_cfg:
-            mock_cfg.CACHE_DIR = tmp_path
+        with patch("research.daily_alpha_radar_report.ROOT", tmp_path):
             state = _options_coverage_state(watchlist)
         assert state["overlay_enabled"] is False
         assert state["state"] == "DISABLED"
@@ -481,14 +480,13 @@ class TestOptionsCoverageGuard:
 
     def test_options_overlay_enabled_above_threshold(self, tmp_path):
         from research.daily_alpha_radar_report import _options_coverage_state
-        # Create fake options chain files for >80% of tickers
-        opts_dir = tmp_path / "options_chains"
-        opts_dir.mkdir()
+        # Create fake snapshot parquets for >80% of tickers under data/options_snapshots/{date}/
+        snap_dir = tmp_path / "data" / "options_snapshots" / "2026-06-18"
+        snap_dir.mkdir(parents=True)
         watchlist = [{"ticker": f"T{i:02d}"} for i in range(10)]
         for item in watchlist[:9]:  # 90% coverage
-            (opts_dir / f"{item['ticker']}.json").write_text("{}", encoding="utf-8")
-        with patch("research.daily_alpha_radar_report.cfg") as mock_cfg:
-            mock_cfg.CACHE_DIR = tmp_path
+            (snap_dir / f"{item['ticker']}.parquet").write_bytes(b"")
+        with patch("research.daily_alpha_radar_report.ROOT", tmp_path):
             state = _options_coverage_state(watchlist)
         assert state["overlay_enabled"] is True
         assert state["state"] == "NORMAL"
