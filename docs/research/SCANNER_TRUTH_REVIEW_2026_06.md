@@ -1,19 +1,19 @@
 # Scanner Truth Review — 2026-05 (Phase 1G.5)
 
-*Generated 2026-06-19T00:34:09.237590+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
+*Generated 2026-06-19T17:01:24.995493+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
 
 ## 1. Executive summary
 
-- **Were market winners missed? YES.** Of **246** liquid winners ≥+80% (**158** ≥2x), only **5** ever touched any historized funnel stage → **winner recall 2.0%**.
+- **Were market winners missed? YES.** Of **246** liquid winners ≥+80% (**159** ≥2x), only **5** ever touched any historized funnel stage → **winner recall 2.0%**.
 - **They fell out before the council saw them.** The active long funnel (VOYAGER+SNIPER) logged only **4 distinct tickers**; veto_log is ~all SHORT. `UNIVERSE_MISS` dominates.
 - **A dumb baseline beats the funnel on recall:** simple 20d-RS recall **22.6%** vs funnel **1.8%** on the same forward set.
-- **A clean entry existed:** 36.2% of winners had a buyable window (median 26d) before becoming extended — the system simply never surfaced them.
+- **A clean entry existed:** 34.1% of winners had a buyable window (median 26.0d) before becoming extended — the system simply never surfaced them.
 - Consistent with design (Voyager buyable-pullback mandate; Alpha penalises large momentum leaders). The question is whether a **research-only momentum/RS recall lane** + **theme radar** is worth adding — validated forward, never curve-fit.
 
 ## 2. Were market winners missed?
 
-- Liquid winners ≥+50%: **494**, ≥+80%: **246**, ≥2x: **158** (scanned 5548; 800 illiquid excluded).
-- By theme: `other`=218, `unknown`=102, `biotech_healthcare`=60, `semiconductors`=59, `hardware`=31, `space_aerospace`=15, `quantum`=3, `memory_storage`=3, `nuclear_energy`=2, `crypto_blockchain`=1.
+- Liquid winners ≥+50%: **495**, ≥+80%: **246**, ≥2x: **159** (scanned 5548; 800 illiquid excluded).
+- By theme: `other`=218, `unknown`=103, `biotech_healthcare`=60, `semiconductors`=59, `hardware`=31, `space_aerospace`=15, `quantum`=3, `memory_storage`=3, `nuclear_energy`=2, `crypto_blockchain`=1.
 
 ## 3. Top missed winners (liquid, by trailing max return)
 
@@ -49,8 +49,8 @@
 
 | root cause | count |
 |---|--:|
-| FILTER_TOO_STRICT | 106 |
-| UNIVERSE_MISS | 99 |
+| FILTER_TOO_STRICT | 108 |
+| UNIVERSE_MISS | 97 |
 | DATA_MISS | 40 |
 | VALID_NO_TRADE | 1 |
 
@@ -71,8 +71,8 @@ As-of 2026-03-24, 60td forward, 283 forward winners in 2313 liquid names.
 | rs_20d | 400 | 22.6% | 16.0% | 11% |
 | high_50d_breakout | 151 | 5.3% | 9.9% | 6% |
 | vol_strength | 118 | 4.2% | 10.2% | 1% |
-| sector_rs | 388 | 21.9% | 16.0% | 11% |
-| mom_20_60 | 43 | 7.8% | 51.2% | 37% |
+| sector_rs | 388 | 21.9% | 16.0% | 12% |
+| mom_20_60 | 44 | 7.8% | 50.0% | 36% |
 
 **Verdict:** a SIMPLE baseline ('rs_20d', recall 22.6%) caught more forward winners than the live funnel (1.8%). Sophistication did not buy recall here.
 
@@ -81,10 +81,10 @@ As-of 2026-03-24, 60td forward, 283 forward winners in 2313 liquid names.
 | theme | winners | median max | on board | seen | visibility |
 |---|--:|--:|--:|--:|---|
 | other | 218 | 76% | 14 | 1 | visible_on_board |
-| unknown | 102 | 70% | 0 | 0 | absent_from_board |
+| unknown | 103 | 70% | 0 | 0 | absent_from_board |
 | biotech_healthcare | 60 | 81% | 4 | 2 | visible_on_board |
 | semiconductors | 59 | 105% | 2 | 2 | visible_on_board |
-| hardware | 31 | 94% | 0 | 0 | absent_from_board |
+| hardware | 31 | 95% | 0 | 0 | absent_from_board |
 | space_aerospace | 15 | 107% | 0 | 0 | absent_from_board |
 | quantum | 3 | 89% | 0 | 0 | absent_from_board |
 | memory_storage | 3 | 134% | 0 | 0 | absent_from_board |
@@ -102,16 +102,16 @@ As-of 2026-03-24, 60td forward, 283 forward winners in 2313 liquid names.
 | liquidity_price | price∈[$5,$1000] | 464 | 1121 | 51.6% | BY-DESIGN exclusion |
 | liquidity_dvol | avg$vol≥$5M & vol≥300k | 550 | 2374 | 61.2% | BY-DESIGN exclusion |
 | voyager_max_extension_ma50 | >12% above MA50 → reject | 83 | 363 | 9.2% | KEEP |
-| voyager_ma200_floor | price < MA200×0.92 → reject | 53 | 77 | 5.9% | KEEP |
-| voyager_bars_needed_260 | <260 bars → reject | 766 | 4526 | 85.2% | INDETERMINATE |
-| sniper_bars_needed_75 | <75 bars → reject | 730 | 4306 | 81.2% | INDETERMINATE |
-| alpha_market_cap_band | mcap∉[$300M,$80B] | 61 | 183 | 6.8% | KEEP |
+| voyager_ma200_floor | price < MA200×0.92 → reject | 60 | 83 | 6.7% | KEEP |
+| voyager_bars_needed_260 | <260 bars → reject | 753 | 4515 | 83.8% | INDETERMINATE |
+| sniper_bars_needed_75 | <75 bars → reject | 719 | 4293 | 80.0% | INDETERMINATE |
+| alpha_market_cap_band | mcap∉[$300M,$80B] | 61 | 182 | 6.8% | KEEP |
 
 _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental_score; voyager_dvol_trend_ratio; sniper_vol_spike_1.4x / atr_contraction_0.85; earnings_safe_days; options_liquidity / 13F_sponsorship; top_25_board_cap.
 
 ## 9. Entry-state timing audit
 
-- **36.2%** of winners had a clean buyable window before becoming extended (median **26 days**); funnel detected **0**.
+- **34.1%** of winners had a clean buyable window before becoming extended (median **26.0 days**); funnel detected **0**.
 - buyable = near MA50 (−8%..+12%), above MA200 floor where computable. A buyable window existing but no detection ⇒ the system had a clean early entry it did not take (ENTRY_VALIDATOR/UNIVERSE gap).
 
 ## 10. Recommendations (evidence-based)
@@ -129,7 +129,7 @@ _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental
 - **Complexity:** MEDIUM — needs the historizer + a few weeks of universe snapshots. · **Scope:** research-only · **Overfit risk:** none
 
 ### R3_deepen_price_cache — Deepen the price-history cache beyond ~110 bars
-- **Evidence:** 119/246 winners are cache-limited; Voyager's 260-bar gates can't be reconstructed or back-tested faithfully.
+- **Evidence:** 113/246 winners are cache-limited; Voyager's 260-bar gates can't be reconstructed or back-tested faithfully.
 - **Benefit:** Faithful PIT reconstruction and back-tests; better universe coverage.
 - **Risk:** Provider-budget cost for backfill (one-time).
 - **Complexity:** LOW-MEDIUM. · **Scope:** research-only (cache) · **Overfit risk:** none
@@ -173,7 +173,7 @@ _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental
 ---
 *Fidelity disclosures:*
 > - Alpha board+overlay are historized via research_delta since ~2026-05-20 (~6 days); per-ticker Stock Lens + Gatekeeper were NOT — funnel_historizer.py now closes that gap for FUTURE autopsies.
-> - Voyager 260-bar gates are indeterminate for ~110-bar cache names (119/246); not attributed to the scanner. The bars_needed filter audit is likewise marked INDETERMINATE (cache-confounded).
+> - Voyager 260-bar gates are indeterminate for ~110-bar cache names (113/246); not attributed to the scanner. The bars_needed filter audit is likewise marked INDETERMINATE (cache-confounded).
 > - Forward precision is NOT_COMPUTABLE_YET (today's board has no forward window).
 > - Root causes leaning on non-historized stages carry an _INFERRED suffix.
 > - Theme classifier is profile-text-limited; memory/AI-hardware counts are lower bounds.
