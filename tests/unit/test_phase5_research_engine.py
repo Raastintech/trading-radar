@@ -221,7 +221,7 @@ def test_scanner_all_labels_in_allowed_set(tmp_path, monkeypatch):
     """Run build_scanner offline and verify all watchlist labels are allowed."""
     import research.research_scanner as rs
     # Patch to avoid real file I/O and FMP
-    monkeypatch.setattr(rs, "_build_universe", lambda cap=200: ["SPY", "AAPL", "NVDA"])
+    monkeypatch.setattr(rs, "_build_universe", lambda cap=200: (["SPY", "AAPL", "NVDA"], {}))
     monkeypatch.setattr(rs, "_load_cached_frame", lambda sym: None)
     monkeypatch.setattr(rs, "_load_social_data", lambda: {})
     monkeypatch.setattr(rs, "_fmp_earnings_calendar", lambda days_ahead=21: [])
@@ -235,7 +235,7 @@ def test_scanner_all_labels_in_allowed_set(tmp_path, monkeypatch):
 
 def test_scanner_no_trade_instructions_in_output(tmp_path, monkeypatch):
     import research.research_scanner as rs
-    monkeypatch.setattr(rs, "_build_universe", lambda cap=200: ["SPY"])
+    monkeypatch.setattr(rs, "_build_universe", lambda cap=200: (["SPY"], {}))
     monkeypatch.setattr(rs, "_load_cached_frame", lambda sym: None)
     monkeypatch.setattr(rs, "_load_social_data", lambda: {})
     monkeypatch.setattr(rs, "_fmp_earnings_calendar", lambda days_ahead=21: [])
@@ -250,7 +250,7 @@ def test_scanner_no_trade_instructions_in_output(tmp_path, monkeypatch):
 
 def test_scanner_guardrails_present(tmp_path, monkeypatch):
     import research.research_scanner as rs
-    monkeypatch.setattr(rs, "_build_universe", lambda cap=200: [])
+    monkeypatch.setattr(rs, "_build_universe", lambda cap=200: ([], {}))
     monkeypatch.setattr(rs, "_load_cached_frame", lambda sym: None)
     monkeypatch.setattr(rs, "_load_social_data", lambda: {})
     monkeypatch.setattr(rs, "_fmp_earnings_calendar", lambda days_ahead=21: [])

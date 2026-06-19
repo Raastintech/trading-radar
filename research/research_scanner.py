@@ -94,9 +94,22 @@ RESEARCH_DIR = cfg.CACHE_DIR / "research"
 SCANNER_JSON = RESEARCH_DIR / "research_scanner_latest.json"
 SCANNER_TXT = cfg.LOG_DIR / "research_scanner_latest.txt"
 DOC_PATH = ROOT / "docs" / "research" / "RESEARCH_SCANNER_ENGINE.md"
+UNIVERSE_BUILD_JSON = RESEARCH_DIR / "research_universe_build_latest.json"
+UNIVERSE_BUILD_TXT = cfg.LOG_DIR / "research_universe_build_latest.txt"
+UNIVERSE_MISS_JSON = RESEARCH_DIR / "universe_miss_diagnostic_latest.json"
 
 # Scan universe cap: how many tickers to evaluate per category pass
 DEFAULT_UNIVERSE_CAP = 200
+
+# Key tickers tracked in the miss diagnostic (not a hardcoded inclusion list)
+_MISS_DIAGNOSTIC_TICKERS = [
+    "NVDA", "AMD", "AVGO", "MRVL", "KLAC", "LRCX", "SMCI", "CRDO",
+    "TSLA", "MSFT", "META", "PANW", "TSM", "AMAT", "ONTO",
+]
+
+import re as _re
+_INVALID_SUFFIX_RE = _re.compile(r"^[A-Z]{2,6}(?:WS|WW|W|U)$")
+_DOTTED_RE = _re.compile(r"[.\-]")
 
 # Watchlist label set
 WATCHLIST_LABELS = frozenset({
@@ -234,25 +247,81 @@ def _is_offline_fmp() -> bool:
     return os.getenv("FMP_API_KEY", "").strip().lower() in {"", "offline", "stub"}
 
 
+def _is_valid_equity_symbol(sym: str) -> bool:
+    """Reject warrants, units, rights, foreign dots, and obvious junk."""
+    if not sym or len(sym) > 6 or len(sym) < 1:
+        return False
+    if _DOTTED_RE.search(sym):
+        return False
+    if _INVALID_SUFFIX_RE.match(sym):
+        return False
+    return True
+
+
 def _alpha_board_tickers() -> List[str]:
-    """Pull tickers from the latest alpha discovery board sidecar."""
+    """Pull tickers from alpha discovery board sidecar (primary) and fallback files.
+
+    Priority:
+      1. alpha_discovery_board_latest.json  — uses 'items' key (current format)
+      2. alpha_discovery_latest.json        — legacy format, 'candidates'/'board' key
+      3. alpha_discovery_overlay_latest.json — secondary fallback
+    """
+    tickers: List[str] = []
+    seen_set: Set[str] = set()
+
+    def _add_from_list(items: List[Any]) -> None:
+        for item in items:
+            t = (item.get("ticker") or item.get("symbol") or "").upper().strip()
+            if t and len(t) <= 6 and _is_valid_equity_symbol(t) and t not in seen_set:
+                seen_set.add(t)
+                tickers.append(t)
+
+    # Primary: alpha_discovery_board_latest.json uses 'items' key
+    board_file = RESEARCH_DIR / "alpha_discovery_board_latest.json"
+    if board_file.exists():
+        try:
+            data = json.loads(board_file.read_text())
+            _add_from_list(data.get("items", []))
+        except Exception:
+            pass
+
+    # Fallback: older / overlay formats use 'candidates' or 'board' key
     for name in ["alpha_discovery_latest.json", "alpha_discovery_overlay_latest.json"]:
         path = RESEARCH_DIR / name
         if not path.exists():
             continue
         try:
             data = json.loads(path.read_text())
-            tickers = []
-            for item in data.get("candidates", data.get("board", [])):
-                t = item.get("ticker") or item.get("symbol")
-                if t and isinstance(t, str) and len(t) <= 6:
-                    tickers.append(t.upper())
-            if tickers:
-                logger.info("alpha board: %d tickers", len(tickers))
-                return tickers
+            _add_from_list(
+                data.get("candidates", data.get("board", data.get("items", [])))
+            )
         except Exception:
             pass
-    return []
+
+    if tickers:
+        logger.info("alpha board: %d tickers", len(tickers))
+    return tickers
+
+
+def _daily_radar_tickers() -> List[str]:
+    """Pull reset/reclaim/high-priority candidates from daily alpha radar sidecar."""
+    tickers: List[str] = []
+    radar_file = RESEARCH_DIR / "daily_alpha_radar_latest.json"
+    if not radar_file.exists():
+        return tickers
+    try:
+        data = json.loads(radar_file.read_text())
+        for item in data.get("candidates", []):
+            label = (item.get("priority_label") or item.get("label") or "").upper()
+            if label in {"RESET_WATCH", "RECLAIM_WATCH", "HIGH_PRIORITY_RESEARCH", "WATCHLIST_RESEARCH"}:
+                t = (item.get("ticker") or "").upper().strip()
+                if t and len(t) <= 6 and _is_valid_equity_symbol(t) and t not in tickers:
+                    tickers.append(t)
+    except Exception:
+        pass
+    if tickers:
+        logger.info("daily radar seeds: %d tickers", len(tickers))
+    return tickers
 
 
 def _social_arb_tickers() -> List[str]:
@@ -306,42 +375,294 @@ def _load_social_data() -> Dict[str, Any]:
     return social
 
 
-def _build_universe(cap: int = DEFAULT_UNIVERSE_CAP) -> List[str]:
-    """Assemble scan universe from alpha board + social sidecars + price cache."""
+def _ranked_cache_fill(
+    needed: int,
+    seen: Set[str],
+) -> Tuple[List[Tuple[str, str]], Dict[str, Any]]:
+    """
+    Select the best `needed` tickers from the price cache ranked by data quality,
+    liquidity, and RS vs SPY.  Returns ([(ticker, 'ranked_fill'), ...], metadata).
+
+    Scoring (additive, higher = better):
+      +4   bar_count >= 200  (MA200 window available)
+      +2   bar_count >= 100
+      +1   bar_count >= 60
+      +3   avg daily $ vol >= $50M
+      +2   avg daily $ vol >= $10M
+      +1   avg daily $ vol >= $1M
+      +2.5 rs_63d vs SPY > 15pp
+      +1.5 rs_63d vs SPY > 5pp
+      +0.5 rs_63d vs SPY > 0pp
+      -1.0 rs_63d vs SPY < -20pp
+      +0.5 rs_20d vs SPY > 5pp
+      -0.5 rs_20d vs SPY < -10pp
+      +0.5 last_price >= $10
+    Minimum viability: bar_count >= 60, last_price >= $2.
+    """
+    if needed <= 0:
+        return [], {"candidates_considered": 0, "candidates_scored": 0, "selected": 0}
+
+    spy_closes = _closes(_load_cached_frame("SPY"))
+
+    # Collect all valid parquets (no size-based pre-filter — we score everything)
+    candidates = [
+        pf for pf in PRICE_DIR.glob("*.parquet")
+        if _is_valid_equity_symbol(pf.stem.upper()) and pf.stem.upper() not in seen
+    ]
+
+    # Load and score each candidate
+    scored: List[Tuple[float, str]] = []
+    all_scores: Dict[str, float] = {}  # for diagnostics
+    for pf in candidates:
+        sym = pf.stem.upper()
+        try:
+            df = pd.read_parquet(pf)
+            if df is None or df.empty:
+                continue
+            col_c = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else None)
+            col_v = next((c for c in ["volume", "Volume"] if c in df.columns), None)
+            if col_c is None:
+                continue
+            closes = [float(v) for v in df[col_c].dropna().tolist()]
+            volumes = [float(v) for v in df[col_v].dropna().tolist()] if col_v else []
+        except Exception:
+            continue
+
+        n_bars = len(closes)
+        last = closes[-1] if closes else 0.0
+        if n_bars < 60 or last < 2.0:
+            continue
+
+        sc = 0.0
+        if n_bars >= 200:
+            sc += 4.0
+        elif n_bars >= 100:
+            sc += 2.0
+        else:
+            sc += 1.0
+
+        if volumes and len(volumes) >= 20:
+            avg_dvol = (sum(volumes[-20:]) / 20) * last
+            if avg_dvol >= 50_000_000:
+                sc += 3.0
+            elif avg_dvol >= 10_000_000:
+                sc += 2.0
+            elif avg_dvol >= 1_000_000:
+                sc += 1.0
+
+        rs_63 = _rs_vs_spy(closes, spy_closes, 63) if len(closes) >= 64 and spy_closes else None
+        rs_20 = _rs_vs_spy(closes, spy_closes, 20) if len(closes) >= 21 and spy_closes else None
+        if rs_63 is not None:
+            if rs_63 > 15:
+                sc += 2.5
+            elif rs_63 > 5:
+                sc += 1.5
+            elif rs_63 > 0:
+                sc += 0.5
+            elif rs_63 < -20:
+                sc -= 1.0
+        if rs_20 is not None:
+            if rs_20 > 5:
+                sc += 0.5
+            elif rs_20 < -10:
+                sc -= 0.5
+        if last >= 10.0:
+            sc += 0.5
+
+        all_scores[sym] = round(sc, 3)
+        scored.append((sc, sym))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    selected = [(sym, "ranked_fill") for _, sym in scored[:needed]]
+    metadata = {
+        "candidates_considered": len(candidates),
+        "candidates_scored": len(scored),
+        "selected": len(selected),
+        "all_scores": all_scores,
+    }
+    logger.info("ranked fill: considered=%d scored=%d selected=%d",
+                len(candidates), len(scored), len(selected))
+    return selected, metadata
+
+
+def _build_universe(
+    cap: int = DEFAULT_UNIVERSE_CAP,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """
+    Assemble scan universe with source tracking.  Returns (universe_list, build_info).
+
+    Source priority:
+      1. alpha_board        — curated alpha discovery board
+      2. daily_alpha_radar  — reset / reclaim / high-priority radar names
+      3. social_arb         — social attention candidates
+      4. ranked_fill        — full price cache ranked by data quality + RS + liquidity
+      [emergency] alphabetical_fallback — only when no ranked data is available
+    """
     seen: Set[str] = set()
     universe: List[str] = []
+    source_map: Dict[str, str] = {}
+    counts: Dict[str, int] = {
+        "alpha_board": 0,
+        "daily_alpha_radar": 0,
+        "social_arb": 0,
+        "ranked_fill": 0,
+        "alphabetical_fallback": 0,
+    }
 
-    def add(t: str) -> None:
-        u = t.upper().strip()
-        if u and u not in seen and len(u) <= 6:
+    def _add(t: str, source: str) -> bool:
+        u = (t or "").upper().strip()
+        if u and u not in seen and _is_valid_equity_symbol(u):
             seen.add(u)
             universe.append(u)
+            source_map[u] = source
+            counts[source] = counts.get(source, 0) + 1
+            return True
+        return False
 
-    # Priority 1: alpha board
+    # P1: alpha discovery board
     for t in _alpha_board_tickers():
-        add(t)
+        _add(t, "alpha_board")
 
-    # Priority 2: social arb / attention names
+    # P2: daily alpha radar (reset / reclaim / high-priority)
+    for t in _daily_radar_tickers():
+        _add(t, "daily_alpha_radar")
+
+    # P3: social arb / attention names
     for t in _social_arb_tickers():
-        add(t)
+        _add(t, "social_arb")
 
-    # Priority 3: price cache — alphabetical fill up to cap
-    # Note: order is alphabetical by ticker symbol, NOT by freshness or quality.
-    # Important names outside P1/P2 that fall in the M-Z range may be excluded.
+    # P4: ranked fill from full price cache
+    needed = cap - len(universe)
+    ranked_meta: Dict[str, Any] = {}
+    if needed > 0:
+        ranked, ranked_meta = _ranked_cache_fill(needed, seen)
+        for sym, src in ranked:
+            _add(sym, src)
+
+    # Emergency fallback (should not trigger in normal operation)
+    used_alphabetical = False
     if len(universe) < cap:
-        needed = cap - len(universe)
-        price_files = sorted(PRICE_DIR.glob("*.parquet"))
-        # Exclude ETFs (single-char, known sector/market ETFs)
-        import re
-        for pf in price_files:
+        needed_fb = cap - len(universe)
+        for pf in sorted(PRICE_DIR.glob("*.parquet")):
             sym = pf.stem.upper()
-            if re.match(r"^[A-Z]{1,5}$", sym) and sym not in seen:
-                add(sym)
-                needed -= 1
-                if needed <= 0:
+            if _is_valid_equity_symbol(sym) and sym not in seen:
+                _add(sym, "alphabetical_fallback")
+                needed_fb -= 1
+                used_alphabetical = True
+                if needed_fb <= 0:
                     break
+        if used_alphabetical:
+            logger.warning(
+                "universe: alphabetical fallback used (%d tickers) — ranked data may be unavailable",
+                counts["alphabetical_fallback"],
+            )
 
-    return universe[:cap]
+    final = universe[:cap]
+
+    # Build diagnostics for miss diagnostic
+    all_scores = ranked_meta.get("all_scores", {})
+    miss_diag: Dict[str, Any] = {}
+    for sym in _MISS_DIAGNOSTIC_TICKERS:
+        in_cache = (PRICE_DIR / f"{sym}.parquet").exists()
+        selected = sym in source_map
+        score = all_scores.get(sym)
+        reason: Optional[str]
+        if not in_cache:
+            reason = "not_in_price_cache"
+        elif sym in seen and selected:
+            reason = None
+        elif sym in seen:
+            reason = "already_in_universe_from_earlier_source"
+        elif score is not None:
+            reason = f"ranked_fill_not_selected (score={score})"
+        elif in_cache:
+            reason = "ranked_fill_not_scored (below_bar_count_or_price_floor)"
+        else:
+            reason = "unknown"
+        miss_diag[sym] = {
+            "in_price_cache": in_cache,
+            "in_universe": selected,
+            "source": source_map.get(sym),
+            "ranked_score": score,
+            "absent_reason": reason,
+        }
+
+    build_info = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "total_universe_size": len(final),
+        "source_counts": counts,
+        "used_alphabetical_fallback": used_alphabetical,
+        "ranked_fill_candidates_considered": ranked_meta.get("candidates_considered", 0),
+        "ranked_fill_candidates_scored": ranked_meta.get("candidates_scored", 0),
+        "ranked_fill_selected": ranked_meta.get("selected", 0),
+        "top_50": [{"ticker": t, "source": source_map[t]} for t in final[:50]],
+        "all_ticker_sources": source_map,
+        "miss_diagnostic": miss_diag,
+    }
+
+    logger.info(
+        "universe: total=%d board=%d radar=%d social=%d ranked=%d fallback=%d",
+        len(final),
+        counts["alpha_board"], counts["daily_alpha_radar"],
+        counts["social_arb"], counts["ranked_fill"], counts["alphabetical_fallback"],
+    )
+    return final, build_info
+
+
+def _write_universe_build_log(build_info: Dict[str, Any]) -> None:
+    """Write universe build sidecar JSON + human-readable text log."""
+    if not build_info:
+        return
+    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # JSON sidecar
+    UNIVERSE_BUILD_JSON.write_text(json.dumps(build_info, indent=2), encoding="utf-8")
+
+    # Miss diagnostic JSON
+    UNIVERSE_MISS_JSON.write_text(
+        json.dumps({
+            "generated_at": build_info.get("generated_at"),
+            "miss_diagnostic": build_info.get("miss_diagnostic", {}),
+        }, indent=2),
+        encoding="utf-8",
+    )
+
+    # Human-readable text
+    counts = build_info.get("source_counts", {})
+    lines = [
+        "RESEARCH UNIVERSE BUILD LOG",
+        f"Generated: {build_info.get('generated_at', 'unknown')}",
+        f"Total universe size: {build_info.get('total_universe_size', 0)}",
+        "",
+        "SOURCE COUNTS:",
+        f"  alpha_board:          {counts.get('alpha_board', 0):4d}",
+        f"  daily_alpha_radar:    {counts.get('daily_alpha_radar', 0):4d}",
+        f"  social_arb:           {counts.get('social_arb', 0):4d}",
+        f"  ranked_fill:          {counts.get('ranked_fill', 0):4d}",
+        f"  alphabetical_fallback:{counts.get('alphabetical_fallback', 0):4d}",
+        "",
+        f"RANKED FILL: considered={build_info.get('ranked_fill_candidates_considered', 0)} "
+        f"scored={build_info.get('ranked_fill_candidates_scored', 0)} "
+        f"selected={build_info.get('ranked_fill_selected', 0)}",
+        f"ALPHABETICAL FALLBACK USED: {build_info.get('used_alphabetical_fallback', False)}",
+        "",
+        "TOP 50 SELECTED TICKERS (source in brackets):",
+    ]
+    for entry in build_info.get("top_50", []):
+        lines.append(f"  {entry['ticker']:8s}  [{entry['source']}]")
+
+    lines += ["", "MISS DIAGNOSTIC (key names):"]
+    for sym, d in build_info.get("miss_diagnostic", {}).items():
+        status = "IN_UNIVERSE" if d["in_universe"] else "ABSENT"
+        reason = f"  reason={d['absent_reason']}" if d["absent_reason"] else ""
+        score_str = f"  score={d['ranked_score']}" if d.get("ranked_score") is not None else ""
+        source_str = f"  source={d['source']}" if d.get("source") else ""
+        lines.append(f"  {sym:8s}  {status}{source_str}{score_str}{reason}")
+
+    UNIVERSE_BUILD_TXT.write_text("\n".join(lines), encoding="utf-8")
+    logger.info("wrote %s", UNIVERSE_BUILD_JSON)
+    logger.info("wrote %s", UNIVERSE_MISS_JSON)
 
 
 # ── FMP helpers ──────────────────────────────────────────────────────────────
@@ -1272,7 +1593,7 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
     now = datetime.now(timezone.utc).isoformat()
     logger.info("Research Scanner Engine %s starting (offline=%s)", VERSION, offline)
 
-    universe = _build_universe(cap=universe_cap)
+    universe, universe_build_info = _build_universe(cap=universe_cap)
     logger.info("Universe: %d tickers", len(universe))
 
     spy_df = _load_cached_frame("SPY")
@@ -1356,6 +1677,9 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
         label_counts[lbl] = label_counts.get(lbl, 0) + 1
 
     social_available = bool(_load_social_data())
+
+    # Write universe build log before returning
+    _write_universe_build_log(universe_build_info)
 
     out: Dict[str, Any] = {
         "version": VERSION,
