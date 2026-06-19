@@ -1148,6 +1148,46 @@ cmd_nightly_operator_summary() {
         "$PY" research/nightly_operator_summary.py "$@"
 }
 
+cmd_targeted_backfill() {
+    # Phase 4A.7 — targeted price-cache backfill for research data depth.
+    # Identifies high-interest tickers with insufficient price history
+    # (DATA_QUARANTINE / INSUFFICIENT_HISTORY) and backfills ONLY those names
+    # using FMP.  Writes merge-on-write to cache/prices_deep/ so the daemon's
+    # 90-day overwrite cannot clobber the deep history.
+    #
+    # Default (no --execute): DRY-RUN — plan only, zero provider calls.
+    # Use --execute to actually fetch.  Hard cap via --max-provider-calls.
+    #
+    # Writes:
+    #   cache/research/targeted_price_backfill_latest.json
+    #   logs/targeted_price_backfill_latest.txt
+    #
+    # RESEARCH-ONLY: no signals, no paper trading, no execution.
+    #
+    # Examples:
+    #   ./scripts/run_research_cycle.sh targeted-backfill --dry-run --limit 25
+    #   ./scripts/run_research_cycle.sh targeted-backfill --limit 15 --min-bars 300
+    #   ./scripts/run_research_cycle.sh targeted-backfill --execute --limit 15 --max-provider-calls 15
+    #   SNIPER_ENV_PATH=... ./scripts/run_research_cycle.sh targeted-backfill --execute --limit 25
+    if [[ "$DRY_RUN" == "1" ]]; then
+        # Shell-level dry-run: pass --dry-run to Python so the plan is built
+        # and the sidecar is written, but no provider calls are made.
+        log "[CACHE] targeted price-cache backfill dry-run (cache-only plan)"
+        run_or_warn "targeted price backfill (dry-run)" \
+            "$PY" research/targeted_price_backfill.py --dry-run "$@"
+    elif [[ " $* " =~ " --execute " ]]; then
+        require_env
+        log "[PROVIDER] targeted price-cache backfill (FMP, capped) — $*"
+        run_or_warn "targeted price backfill" \
+            "$PY" research/targeted_price_backfill.py "$@"
+    else
+        # No --execute: default to dry-run plan (no provider calls)
+        log "[CACHE] targeted price-cache backfill dry-run (cache-only plan)"
+        run_or_warn "targeted price backfill (dry-run)" \
+            "$PY" research/targeted_price_backfill.py --dry-run "$@"
+    fi
+}
+
 _disabled_execution_cmd() {
     echo "RESEARCH_ONLY_MODE: command disabled."
 }
@@ -1285,6 +1325,12 @@ cmd_nightly() {
     cmd_research_forward_tracker
     cmd_ten_x_candidates
     cmd_daily_alpha_radar
+    # Phase 4A.7 — Targeted backfill dry-run plan: identifies tickers with
+    # insufficient price history and writes the plan sidecar so the nightly
+    # operator summary can report data-depth status.  Dry-run only (no
+    # provider calls); the operator can run the actual backfill manually
+    # after reviewing the plan and provider budget.
+    cmd_targeted_backfill --dry-run --limit 50 --min-bars 300
     # Nightly Operator Summary — runs LAST so it reads every sidecar the
     # nightly cycle just refreshed.  Cache-only; no provider calls.
     # No strategy abbreviations or trade language in output.
@@ -1410,6 +1456,7 @@ case "$SUB" in
     ten-x-candidates)          cmd_ten_x_candidates          "${POS[@]}" ;;
     daily-alpha-radar)          cmd_daily_alpha_radar          "${POS[@]}" ;;
     nightly-operator-summary)  cmd_nightly_operator_summary   "${POS[@]}" ;;
+    targeted-backfill)         cmd_targeted_backfill          "${POS[@]}" ;;
     live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
         _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;

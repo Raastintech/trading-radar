@@ -92,6 +92,9 @@ def _load_sidecars() -> Dict[str, Optional[Dict[str, Any]]]:
         "scanner": _load_json(RESEARCH_DIR / "research_scanner_latest.json"),
         "provider_audit": _load_json(RESEARCH_DIR / "provider_freshness_audit_latest.json"),
         "social": _load_json(RESEARCH_DIR / "social_attention_forward_latest.json"),
+        "targeted_backfill": _load_json(
+            RESEARCH_DIR / "targeted_price_backfill_latest.json"
+        ),
     }
 
 
@@ -462,6 +465,24 @@ def _build_warnings(
         pct = round(qt_count / total_cands * 100)
         warnings.append(f"High data-quarantine rate: {qt_count}/{total_cands} ({pct}%) — deep-cache lag")
 
+    # Targeted backfill status
+    bf = sidecars.get("targeted_backfill") or {}
+    if bf:
+        bf_selected = bf.get("selected_for_backfill", 0)
+        bf_used = bf.get("provider_calls_used", 0)
+        bf_ok = bf.get("successes", 0)
+        bf_fail = bf.get("failures", 0)
+        bf_insuf = bf.get("remaining_insufficient")
+        if bf_used > 0:
+            msg = (f"Backfill: {bf_ok} succeeded, {bf_fail} failed"
+                   + (f", {bf_insuf} still insufficient" if bf_insuf else ""))
+        else:
+            msg = (f"Targeted backfill plan: {bf_selected} tickers need "
+                   f">={bf.get('params', {}).get('min_bars', 300)} bars "
+                   + (f"— run targeted-backfill --execute to fill" if bf_selected > 0
+                      else "— cache depth adequate"))
+        warnings.append(msg)
+
     return warnings[:8]  # cap at 8
 
 
@@ -471,6 +492,7 @@ def _build_next_actions(
     forward: Dict[str, Any],
     warnings: List[str],
     alpha_snap: Dict[str, Any],
+    sidecars: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
     actions: List[str] = []
 
@@ -495,6 +517,16 @@ def _build_next_actions(
         else:
             ts = "see Daily Alpha Radar report"
         actions.append(f"Review {hp} high-priority research name(s) manually: {ts}")
+
+    # Targeted backfill action if plan shows unmet tickers
+    bf = (sidecars or {}).get("targeted_backfill") or {}
+    if bf and bf.get("selected_for_backfill", 0) > 0 and bf.get("provider_calls_used", 0) == 0:
+        n = bf["selected_for_backfill"]
+        min_b = bf.get("params", {}).get("min_bars", 300)
+        actions.append(
+            f"Run targeted-backfill --execute --limit {n} --max-provider-calls 15 "
+            f"to fill {n} research names below {min_b}-bar floor."
+        )
 
     # Default
     actions.append("Run nightly again tomorrow.")
@@ -698,7 +730,8 @@ def generate() -> Dict[str, Any]:
     best_names = _build_best_names(alpha_snap, sidecars.get("scanner"))
     forward = _build_forward_evidence(sidecars.get("forward"))
     warnings = _build_warnings(sidecars, market_ctx, forward, alpha_snap)
-    actions = _build_next_actions(overall, market_ctx, forward, warnings, alpha_snap)
+    actions = _build_next_actions(overall, market_ctx, forward, warnings, alpha_snap,
+                                   sidecars=sidecars)
 
     # Assemble JSON payload
     payload: Dict[str, Any] = {
