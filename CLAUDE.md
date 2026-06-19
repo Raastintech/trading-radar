@@ -2,15 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-For current project truth, read:
-- `docs/PROJECT_INDEX.md` — subsystems, commands, artifacts, current truth.
-- `docs/ROADMAP_PHASES.md` — phase map, completion state, next phase.
-- `docs/ops/CLAUDE_BUILD_PLAYBOOK.md` — session rules, protected areas, refusals.
-- `docs/strategy/CURRENT_READINESS.md` — sleeve-by-sleeve operational truth.
+> **⚠ RESEARCH-ONLY MODE — PERMANENT (as of 2026-06-13)**
+>
+> All auto-trading, paper-trading, and broker execution paths are **permanently decommissioned**.
+> SNIPER, VOYAGER, SHORT, REMORA, CONTRARIAN — all trading sleeves are shut down.
+> No paper signals. No order routing. No capital promotion path.
+>
+> **This system is now a pure research intelligence engine**: daily market heartbeat,
+> six-category research scanner, per-ticker research cards, and read-only FMP + Tradier data.
+>
+> **For any future session or audit:** ignore all references to trading, paper signals,
+> order management, paper governance, or strategy promotion — those paths are dead code.
+> Work only on the research engine, scanner recall, candidate discovery, and forward evidence.
+>
+> Full decommission record: `docs/research/AUTO_TRADING_DECOMMISSION_FINAL_FINDINGS.md`
+
+For current project truth, read **in this order** (stop at the first contradiction):
+1. `docs/ROADMAP_PHASES.md` — **read first**: current operating mode, phase completion state.
+2. `docs/PROJECT_INDEX.md` — subsystems, commands, artifacts, current truth.
+3. `docs/ops/CLAUDE_BUILD_PLAYBOOK.md` — session rules, protected areas, refusals.
+
+> `docs/strategy/CURRENT_READINESS.md` describes the pre-decommission trading phase.
+> It is **historical only** — do not treat it as current operational truth.
 
 ## Repository purpose
 
-`gem-trader` is a paper-validated multi-strategy equities trading engine. It runs as a single persistent daemon under systemd (`gem-trader.service`), executing a session-aware scan→veto→allocate→execute loop against Alpaca (data + execution) and FMP (fundamentals/events/macro). The system is in the **paper-validation phase**: live capital is intentionally gated behind multiple env keys (see "Live-capital gate" below).
+`gem-trader` is a **research-only stock intelligence engine**. It runs a daily research cycle via systemd timers, producing a six-category research watchlist, per-ticker research cards, forward-evidence tracking, and a nightly operator summary. The goal is to surface the best candidate stocks for human review — not to trade them automatically.
+
+**Alpaca is not required and not used for execution.** FMP is the primary data provider (fundamentals, events, macro, price history). Tradier provides options chain data for research. The daemon (`gem-trader.service`) runs the research heartbeat only.
 
 ## Credentials and environment
 
@@ -69,20 +88,20 @@ SNIPER_ENV_PATH=/home/gem/secure/trading.env .venv/bin/python scripts/run_paper_
 
 ## Architecture
 
-### Runtime layout (production)
+### Runtime layout (research-only)
 
-`main.py` is the single entry point. Each loop iteration:
+`main.py` is the entry point for the research heartbeat daemon. It no longer runs any trading
+loop — it boots the research-mode health reporter and writes `logs/trader_heartbeat.json`.
 
-1. Reads `core.session.SessionState` (`PREMARKET` / `REGULAR` / `POSTMARKET` / `CLOSED`) from `core/session.py`. **Only `REGULAR` allows order submission** — `is_execution_allowed()` gates every order in `OrderManager`.
-2. Refreshes macro events (FMP economic calendar → SQLite).
-3. Runs `PositionMonitor` → exits on stop / target / time-stop.
-4. If executing: builds per-strategy universes via `core.universe.UniverseBuilder` (Pipeline 2.0 dynamic snapshot, with a hand-curated fallback list in `main.py:load_universe()`).
-5. Runs **only the active scanners** declared in `core/strategy_registry.py` (currently `SNIPER`, `VOYAGER`, `SHORT`).
-6. Each candidate → `council.veto_council.VetoCouncil` (Tier 1 hard vetoes + Tier 2 weighted soft score, threshold 50/100). Per-strategy weight profiles are gated by `COUNCIL_PROFILES_ENABLED`.
-7. Approved signals → `execution.paper_governance.evaluate_paper_signal` (paper governance) → `execution.order_manager.OrderManager`.
-8. `core.decision_logger.DecisionLogger` is the single canonical write path — strategies must not write to the DB directly.
+The actual daily research work happens via systemd timers calling `scripts/run_research_cycle.sh`:
+1. **Nightly (20:30 ET):** forecast + alpha radar + delta + lenses + gatekeeper refresh + risk-telemetry + nightly operator summary + targeted backfill dry-run
+2. **Premarket (08:00 ET):** forecast + alpha + delta
+3. **Midday (12:30 ET):** resolve + reports + delta + risk-telemetry (cache-only)
+4. **Paper-evidence timer (18:15 ET):** decommissioned — timer disabled
+5. **Options collector (15:45 ET):** daily point-in-time chain snapshot
 
-Heartbeat is written each cycle to `logs/trader_heartbeat.json` for the deadman watcher.
+There is no scan→veto→allocate→execute loop. No `OrderManager`, no `VetoCouncil`, no
+`paper_governance`. Those modules exist as archived code only.
 
 ### Module separation (doctrine)
 
@@ -90,26 +109,13 @@ Heartbeat is written each cycle to `logs/trader_heartbeat.json` for the deadman 
 - **Research:** `research/`. May experiment freely but **cannot** be invoked from `main.py` or any production strategy module. Backtesters live in `research/backtests/` and `research/sleeves/`. Paper-evidence resolvers live in `research/paper_trades/`.
 - **Legacy:** `legacy/` is migrated/archived only — not part of the runtime.
 
-### Sleeve registry — single source of truth
+### Sleeve registry — DECOMMISSIONED
 
-`core/strategy_registry.py` (`SLEEVE_REGISTRY`) is the operational source of truth for which sleeves are active vs frozen. **Do not infer sleeve status from doctrine docs, scanner files, or comments.** Current state at time of writing:
-
-- **Active paper:** `VOYAGER` (legacy paper table), `SNIPER` → baseline tag `SNIPER_V6`
-- **Frozen:** `SHORT` (`SHORT_A`, frozen 2026-05-24 — Phase 1G.3), `REMORA`, `CONTRARIAN`, `SHORT_B`, `PATHFINDER`
-
-The list above can drift — always re-read `core/strategy_registry.py` and `docs/strategy/CURRENT_READINESS.md` before acting on it.
-
-**Phase 1G.3 (2026-05-24):** `SHORT_A` is frozen to research-only (net-negative,
-noisy, fighting the bull tape). It emits no new paper signals but its historical rows
-are preserved and still resolve (paper-ledger helpers in `core/strategy_registry.py`).
-Short-side awareness is kept by the research-only **Short Opportunity Radar**
-(`research/short_opportunity_radar.py`). **LEADER_RESET** is the candidate next long
-sleeve but stays research-only until `research/leader_reset_event_study.py` and the
-formal validation-plan backtest pass their gates (current verdict: NEED_MORE_DATA).
-Forward-outcome maturation is healthy, just young (first maturity 2026-05-28; see
-`research/forward_resolution_health.py`). **Phase 2C (Trade Proposal Generator) is not
-started.** Doctrine: no active short sleeve is better than a bad one — long-only/cash is
-an acceptable temporary posture.
+All trading sleeves (`SNIPER`, `VOYAGER`, `SHORT_A`, `REMORA`, `CONTRARIAN`, `SHORT_B`,
+`PATHFINDER`) are **permanently decommissioned** as of Phase 3A (2026-06-13). They emit
+no signals, generate no paper evidence, and have no promotion path. `core/strategy_registry.py`
+is preserved for historical ledger helpers only — do not treat it as an operational signal
+source. The code in `strategies/` is dead code; do not modify it for research purposes.
 
 ### Doctrine source ordering
 

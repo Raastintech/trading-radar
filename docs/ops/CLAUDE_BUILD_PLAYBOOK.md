@@ -5,20 +5,29 @@ repo. Short and deliberately strict. If a request asks you to break one of
 these rules, refuse and ask the operator to confirm the exception
 explicitly.
 
+> **RESEARCH-ONLY MODE — PERMANENT (2026-06-13)**
+> All trading strategies (SNIPER, VOYAGER, SHORT, REMORA, CONTRARIAN) are permanently
+> decommissioned. This is a pure research intelligence engine. Any session or audit must
+> ignore trading, paper signals, order routing, and strategy promotion — those are dead code.
+> Do not modify `strategies/`, `execution/`, or `council/` for research purposes.
+
 ---
 
 ## A. Required reading before any work
 
-Read these five docs **before** editing a single file. They take ~5 minutes:
+Read these docs **before** editing a single file. **Read in order — stop at the first contradiction.**
 
-1. `CLAUDE.md` — code-edit guardrails, command shortcuts, credential rules.
-2. `docs/PROJECT_INDEX.md` — what the system is and what subsystems exist.
-3. `docs/ROADMAP_PHASES.md` — current phase, next phase, what is blocked.
-4. `docs/strategy/CURRENT_READINESS.md` — sleeve-by-sleeve operational truth.
-5. `docs/ops/CLEAN_PAPER_EVIDENCE_EPOCH.md` — Phase 1D doctrine on legacy
-   vs clean paper evidence.
+1. `docs/ROADMAP_PHASES.md` — **READ FIRST.** Current operating mode, phase status, what is permanently closed.
+2. `CLAUDE.md` — code-edit guardrails, command shortcuts, credential rules, research-only doctrine.
+3. `docs/PROJECT_INDEX.md` — what the system is and what subsystems exist.
 
-If any of these contradicts a request, defer to the doc and surface the
+> **Do NOT treat these as current operational truth** — they describe the pre-decommission trading phase:
+> - `docs/strategy/CURRENT_READINESS.md` — historical trading-sleeve status, now superseded.
+> - `docs/ops/CLEAN_PAPER_EVIDENCE_EPOCH.md` — Phase 1D paper-evidence doctrine, now inactive.
+> These files are preserved as historical record only. If any older doc contradicts
+> `docs/ROADMAP_PHASES.md`, the roadmap wins.
+
+If any doc contradicts a request, defer to the doc and surface the
 contradiction to the operator.
 
 ---
@@ -28,10 +37,9 @@ contradiction to the operator.
 Before editing:
 
 1. **Identify the current phase.** Quote it from
-   `docs/ROADMAP_PHASES.md`. Today's current operating mode is **Phase 1G
-   Stability Window** (with **Phase 1G.1 Operational Reliability Fixes**
-   landed 2026-05-18); today's next build phase is **Phase 2A MCP Audit
-   Server V1**.
+   `docs/ROADMAP_PHASES.md`. Current mode: **RESEARCH_ONLY — permanent**.
+   All trading paths decommissioned 2026-06-13 (Phase 3A). Next build
+   phase: **Phase 4B — Forward Evidence and Bucket Performance**.
 2. **Identify the exact files to touch.** List them in your first message
    so the operator can sanity-check the scope.
 3. **State guardrails.** Name the protected areas you will *not* touch

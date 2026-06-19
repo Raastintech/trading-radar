@@ -1,8 +1,23 @@
 # Current Readiness
 
-Snapshot Date: `2026-05-04`
+> **⚠ HISTORICAL DOCUMENT — NOT CURRENT OPERATIONAL TRUTH**
+>
+> All trading strategies described below (SNIPER, VOYAGER, SHORT, REMORA, CONTRARIAN)
+> are **permanently decommissioned** as of Phase 3A (2026-06-13).
+> This document records the pre-decommission trading phase for audit purposes only.
+>
+> **Current system truth:** `docs/ROADMAP_PHASES.md` → RESEARCH_ONLY mode, permanent.
+> For research engine work, ignore everything below. Do not use this file to infer
+> sleeve status, paper signal paths, or promotion gates — those paths no longer exist.
+>
+> Full decommission record: `docs/research/AUTO_TRADING_DECOMMISSION_FINAL_FINDINGS.md`
 
-This document is the current source of truth for production readiness.
+---
+
+Snapshot Date: `2026-05-04` (pre-decommission)
+
+This document recorded the production readiness state of the trading platform.
+It is preserved as historical audit record.
 
 > **Phase 1G.3 update — 2026-05-24 (Evidence Closure + SHORT_A Freeze).**
 > Per `docs/strategy/STRATEGY_TRUTH_REVIEW_2026_05.md`:
