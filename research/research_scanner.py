@@ -101,6 +101,36 @@ UNIVERSE_MISS_JSON = RESEARCH_DIR / "universe_miss_diagnostic_latest.json"
 # Scan universe cap: how many tickers to evaluate per category pass
 DEFAULT_UNIVERSE_CAP = 200
 
+# Maps FMP sector name variants to GICS sector ETFs.
+# FMP uses different naming than SECTOR_NAMES in regime_forecaster.
+_FMP_SECTOR_TO_ETF: Dict[str, str] = {
+    "technology": "XLK",
+    "information technology": "XLK",
+    "financial services": "XLF",
+    "financials": "XLF",
+    "finance": "XLF",
+    "health care": "XLV",
+    "healthcare": "XLV",
+    "health": "XLV",
+    "energy": "XLE",
+    "consumer discretionary": "XLY",
+    "consumer cyclical": "XLY",
+    "industrials": "XLI",
+    "industrial": "XLI",
+    "consumer staples": "XLP",
+    "consumer defensive": "XLP",
+    "utilities": "XLU",
+    "materials": "XLB",
+    "basic materials": "XLB",
+    "real estate": "XLRE",
+    "communication services": "XLC",
+    "communications": "XLC",
+    "media": "XLC",
+}
+
+# Social crowd stages from social_attention_radar that indicate a name has peaked
+_CROWDED_CROWD_STAGES = frozenset({"TRENDING", "VIRAL", "PEAK_ATTENTION", "POST_VIRAL"})
+
 # Key tickers tracked in the miss diagnostic (not a hardcoded inclusion list)
 _MISS_DIAGNOSTIC_TICKERS = [
     "NVDA", "AMD", "AVGO", "MRVL", "KLAC", "LRCX", "SMCI", "CRDO",
@@ -346,6 +376,37 @@ def _social_arb_tickers() -> List[str]:
     return tickers
 
 
+def _social_score_from_item(item: Dict[str, Any]) -> float:
+    """
+    Derive a 0-1 social attention score from a radar item.
+
+    Priority: legacy 'score'/'deterministic_score' fields (old sidecars)
+    → attention_velocity_score + attention_novelty_score composite (new radar).
+    Output is always in [0.0, 1.0] for use in the 50+score*40 formula.
+    """
+    # Legacy explicit score field (old social_arb sidecars)
+    legacy = item.get("score") or item.get("deterministic_score")
+    if legacy is not None:
+        return float(min(1.0, max(0.0, float(legacy))))
+
+    # New social_attention_radar fields
+    velocity = float(item.get("attention_velocity_score") or 0.0)  # 0-100
+    novelty = float(item.get("attention_novelty_score") or 0.0)    # 0-100
+    z_raw = float(item.get("mention_z_score") or 0.0)
+    confidence = float(item.get("best_confidence") or 0.0)         # 0-1
+
+    # Weighted composite on 0-100 scale
+    raw = velocity * 0.5 + novelty * 0.3 + max(0.0, min(z_raw * 10.0, 20.0)) * 0.2
+
+    # Discount low-confidence ticker mappings
+    if confidence < 0.5:
+        raw *= 0.5
+    elif confidence < 0.7:
+        raw *= 0.8
+
+    return min(1.0, max(0.0, raw / 100.0))
+
+
 def _load_social_data() -> Dict[str, Any]:
     """Load social attention data from available sidecars."""
     social: Dict[str, Any] = {}
@@ -361,15 +422,23 @@ def _load_social_data() -> Dict[str, Any]:
             data = json.loads(path.read_text())
             for item in data.get("candidates", data.get("leads", [])):
                 t = (item.get("ticker") or item.get("symbol") or "").upper()
-                if t:
-                    social[t] = {
-                        "source": name.replace("_latest.json", ""),
-                        "trust_level": TRUST_MEDIUM,
-                        "refresh_cadence": "daily_post_close",
-                        "crowded": item.get("already_viral") or item.get("crowded") or False,
-                        "score": item.get("score") or item.get("deterministic_score") or 0,
-                        "label": item.get("label") or item.get("news_label") or "",
-                    }
+                if not t:
+                    continue
+                crowd_stage = (item.get("crowd_stage") or "").upper()
+                crowded = (
+                    bool(item.get("already_viral") or item.get("crowded"))
+                    or crowd_stage in _CROWDED_CROWD_STAGES
+                )
+                score = _social_score_from_item(item)
+                social[t] = {
+                    "source": name.replace("_latest.json", ""),
+                    "trust_level": TRUST_MEDIUM,
+                    "refresh_cadence": "daily_post_close",
+                    "crowded": crowded,
+                    "score": score,
+                    "crowd_stage": crowd_stage or None,
+                    "label": item.get("label") or item.get("news_label") or "",
+                }
         except Exception:
             pass
     return social
@@ -824,6 +893,18 @@ def _enrich_item(item: Dict[str, Any], profile: Optional[Dict[str, Any]]) -> Dic
         item.setdefault("company_name", None)
         item.setdefault("sector", None)
         item.setdefault("industry", None)
+
+    # Per-company sector ETF attribution (uses FMP sector from profile)
+    company_sector = (item.get("sector") or "").lower().strip()
+    company_etf = _FMP_SECTOR_TO_ETF.get(company_sector) if company_sector else None
+    item["company_sector_etf"] = company_etf
+    # For sector_theme_leaders: check if company sector is one of the leading sectors
+    market_leaders = set(item.get("leading_sector_etfs", []))
+    if market_leaders:
+        item["company_in_leading_sector"] = (
+            company_etf in market_leaders if company_etf is not None else None
+        )
+
     item["scores"] = _derive_scores(item)
     item["data_freshness"] = {
         "price_parquet_as_of": _parquet_mtime(sym),

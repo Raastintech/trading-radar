@@ -49,6 +49,10 @@ from research.research_scanner import (
     _is_valid_equity_symbol,
     _ranked_cache_fill,
     _build_universe,
+    _load_social_data,
+    _social_score_from_item,
+    _enrich_item,
+    _FMP_SECTOR_TO_ETF,
     RESEARCH_DIR,
     PRICE_DIR,
     DEFAULT_UNIVERSE_CAP,
@@ -510,3 +514,260 @@ def test_alphabetical_fallback_triggers_only_when_ranked_fill_empty(tmp_path):
 
     # Alphabetical fallback should have fired since ranked fill returned nothing
     assert build_info["used_alphabetical_fallback"] is True
+
+
+# ── 7. Social score computation ───────────────────────────────────────────────
+
+
+def test_social_score_from_velocity_and_novelty():
+    """New radar items with attention_velocity_score should produce a nonzero score."""
+    item = {
+        "attention_velocity_score": 72.2,
+        "attention_novelty_score": 46.0,
+        "mention_z_score": 1.225,
+        "best_confidence": 0.85,
+    }
+    score = _social_score_from_item(item)
+    assert 0.0 < score <= 1.0, f"Score should be in (0, 1], got {score}"
+    assert score > 0.3, f"Score should be > 0.3 for moderate attention, got {score}"
+
+
+def test_social_score_high_novelty_high_velocity():
+    """High velocity + high novelty → score near top of range."""
+    item = {
+        "attention_velocity_score": 90.0,
+        "attention_novelty_score": 100.0,
+        "mention_z_score": 2.0,
+        "best_confidence": 0.9,
+    }
+    score = _social_score_from_item(item)
+    assert score > 0.5, f"High-attention item should score > 0.5, got {score}"
+
+
+def test_social_score_zero_for_no_attention():
+    """Item with no attention metrics should score 0."""
+    item = {
+        "attention_velocity_score": 0.0,
+        "attention_novelty_score": 0.0,
+        "mention_z_score": 0.0,
+        "best_confidence": 0.85,
+    }
+    score = _social_score_from_item(item)
+    assert score == 0.0, f"Zero-attention item should score 0.0, got {score}"
+
+
+def test_social_score_low_confidence_discounts():
+    """Low-confidence ticker mapping should reduce the score."""
+    item_high_conf = {
+        "attention_velocity_score": 70.0,
+        "attention_novelty_score": 50.0,
+        "mention_z_score": 1.0,
+        "best_confidence": 0.9,
+    }
+    item_low_conf = dict(item_high_conf, best_confidence=0.3)
+    high = _social_score_from_item(item_high_conf)
+    low = _social_score_from_item(item_low_conf)
+    assert low < high, f"Low-confidence score ({low}) should be less than high ({high})"
+
+
+def test_social_score_legacy_field_takes_priority():
+    """Legacy 'score' field on old sidecars should override new computation."""
+    item = {
+        "score": 0.75,
+        "attention_velocity_score": 10.0,  # would give much lower score
+        "attention_novelty_score": 5.0,
+    }
+    score = _social_score_from_item(item)
+    assert score == 0.75, f"Legacy score field should take priority, got {score}"
+
+
+def test_social_score_differentiates_tickers():
+    """Different attention levels should produce different scores (no flat 0.0)."""
+    high_item = {
+        "attention_velocity_score": 80.0, "attention_novelty_score": 90.0,
+        "best_confidence": 0.85,
+    }
+    low_item = {
+        "attention_velocity_score": 20.0, "attention_novelty_score": 10.0,
+        "best_confidence": 0.85,
+    }
+    high_score = _social_score_from_item(high_item)
+    low_score = _social_score_from_item(low_item)
+    assert high_score > low_score, "High-attention item should score higher"
+    assert low_score > 0.0, "Even low-attention item should have nonzero score"
+
+
+def test_load_social_data_uses_radar_scores(tmp_path):
+    """_load_social_data should produce nonzero scores from the radar format."""
+    radar_data = {
+        "leads": [
+            {
+                "ticker": "MRVL",
+                "attention_velocity_score": 72.0,
+                "attention_novelty_score": 60.0,
+                "mention_z_score": 1.5,
+                "best_confidence": 0.85,
+                "crowd_stage": "STEALTH_ATTENTION",
+                "label": "SOCIAL_ATTENTION_LEAD",
+            },
+            {
+                "ticker": "XPO",
+                "attention_velocity_score": 40.0,
+                "attention_novelty_score": 20.0,
+                "mention_z_score": 0.5,
+                "best_confidence": 0.85,
+                "crowd_stage": "STEALTH_ATTENTION",
+                "label": "SOCIAL_ATTENTION_LEAD",
+            },
+        ]
+    }
+    radar_file = tmp_path / "social_attention_radar_latest.json"
+    radar_file.write_text(json.dumps(radar_data))
+
+    with patch("research.research_scanner.RESEARCH_DIR", tmp_path):
+        social = _load_social_data()
+
+    assert "MRVL" in social
+    assert "XPO" in social
+    assert social["MRVL"]["score"] > 0.0, "MRVL should have nonzero social score"
+    assert social["XPO"]["score"] > 0.0, "XPO should have nonzero social score"
+    assert social["MRVL"]["score"] > social["XPO"]["score"], (
+        "Higher-attention MRVL should score more than lower-attention XPO"
+    )
+
+
+def test_load_social_data_crowded_stage(tmp_path):
+    """crowd_stage TRENDING should set crowded=True."""
+    radar_data = {
+        "leads": [
+            {
+                "ticker": "AAPL",
+                "attention_velocity_score": 90.0,
+                "attention_novelty_score": 80.0,
+                "best_confidence": 0.9,
+                "crowd_stage": "TRENDING",
+                "label": "SOCIAL_ATTENTION_LEAD",
+            },
+            {
+                "ticker": "MRVL",
+                "attention_velocity_score": 60.0,
+                "attention_novelty_score": 50.0,
+                "best_confidence": 0.85,
+                "crowd_stage": "STEALTH_ATTENTION",
+                "label": "SOCIAL_ATTENTION_LEAD",
+            },
+        ]
+    }
+    radar_file = tmp_path / "social_attention_radar_latest.json"
+    radar_file.write_text(json.dumps(radar_data))
+
+    with patch("research.research_scanner.RESEARCH_DIR", tmp_path):
+        social = _load_social_data()
+
+    assert social["AAPL"]["crowded"] is True, "TRENDING stage → crowded=True"
+    assert social["MRVL"]["crowded"] is False, "STEALTH_ATTENTION → crowded=False"
+
+
+# ── 8. Sector attribution ─────────────────────────────────────────────────────
+
+
+def test_fmp_sector_to_etf_mapping_common_sectors():
+    """Key FMP sector names must map to the correct GICS ETFs."""
+    assert _FMP_SECTOR_TO_ETF["technology"] == "XLK"
+    assert _FMP_SECTOR_TO_ETF["financial services"] == "XLF"
+    assert _FMP_SECTOR_TO_ETF["basic materials"] == "XLB"
+    assert _FMP_SECTOR_TO_ETF["healthcare"] == "XLV"
+    assert _FMP_SECTOR_TO_ETF["industrials"] == "XLI"
+    assert _FMP_SECTOR_TO_ETF["consumer cyclical"] == "XLY"
+    assert _FMP_SECTOR_TO_ETF["energy"] == "XLE"
+    assert _FMP_SECTOR_TO_ETF["communication services"] == "XLC"
+
+
+def test_enrich_item_adds_company_sector_etf():
+    """_enrich_item should add company_sector_etf from FMP profile sector."""
+    item = {
+        "ticker": "MRVL",
+        "category": "sector_theme_leader",
+        "leading_sector_etfs": ["XLK", "XLI"],
+    }
+    profile = {"sector": "Technology", "companyName": "Marvell Technology"}
+    enriched = _enrich_item(item, profile)
+
+    assert enriched["company_sector_etf"] == "XLK", (
+        f"Technology should map to XLK, got {enriched['company_sector_etf']}"
+    )
+
+
+def test_enrich_item_company_in_leading_sector_true():
+    """Tech company should show company_in_leading_sector=True when XLK is leading."""
+    item = {
+        "ticker": "MRVL",
+        "category": "sector_theme_leader",
+        "leading_sector_etfs": ["XLK", "XLB", "XLI", "XLF"],
+    }
+    profile = {"sector": "Technology"}
+    enriched = _enrich_item(item, profile)
+
+    assert enriched["company_in_leading_sector"] is True
+
+
+def test_enrich_item_company_not_in_leading_sector():
+    """Financial company should show company_in_leading_sector=False when XLF not leading."""
+    item = {
+        "ticker": "AJG",
+        "category": "sector_theme_leader",
+        "leading_sector_etfs": ["XLK", "XLI"],  # XLF not in list
+    }
+    profile = {"sector": "Financial Services"}
+    enriched = _enrich_item(item, profile)
+
+    assert enriched["company_sector_etf"] == "XLF"
+    assert enriched["company_in_leading_sector"] is False
+
+
+def test_enrich_item_unknown_sector_gives_null_etf():
+    """Unknown sector string should give company_sector_etf=None."""
+    item = {
+        "ticker": "XYZ",
+        "category": "early_accumulation",
+        "leading_sector_etfs": [],
+    }
+    profile = {"sector": "Cryptocurrency"}  # not in mapping
+    enriched = _enrich_item(item, profile)
+
+    assert enriched["company_sector_etf"] is None
+
+
+def test_enrich_item_sector_attribution_case_insensitive():
+    """Sector mapping should be case-insensitive."""
+    item = {"ticker": "AAPL", "category": "sector_theme_leader", "leading_sector_etfs": ["XLK"]}
+    profile_lower = {"sector": "technology"}
+    profile_upper = {"sector": "TECHNOLOGY"}
+    profile_mixed = {"sector": "Technology"}
+
+    for p in [profile_lower, profile_upper, profile_mixed]:
+        enriched = _enrich_item(item, p)
+        assert enriched["company_sector_etf"] == "XLK", (
+            f"Sector '{p['sector']}' should map to XLK"
+        )
+
+
+def test_enrich_item_materials_company_correctly_attributed():
+    """Basic Materials company (NUE, STLD) should map to XLB."""
+    item = {
+        "ticker": "NUE",
+        "category": "sector_theme_leader",
+        "leading_sector_etfs": ["XLB", "XLF", "XLI", "XLK"],
+    }
+    profile = {"sector": "Basic Materials"}
+    enriched = _enrich_item(item, profile)
+
+    assert enriched["company_sector_etf"] == "XLB"
+    assert enriched["company_in_leading_sector"] is True
+
+
+def test_enrich_item_no_profile_sector_etf_none():
+    """When profile is None, company_sector_etf should be None."""
+    item = {"ticker": "UNKN", "category": "sector_theme_leader", "leading_sector_etfs": ["XLK"]}
+    enriched = _enrich_item(item, None)
+    assert enriched["company_sector_etf"] is None
