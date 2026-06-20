@@ -77,6 +77,45 @@ def _load_frame(ticker: str, price_dir: Path):
         return None
 
 
+def _merge_frames(df_deep, df_reg):
+    """
+    Date-merge deep (historical) and shallow (recent) price DataFrames.
+
+    Deep cache has more bars but may end weeks before the shallow cache.
+    Shallow cache has fewer bars but is refreshed more recently.
+    Merging gives the full historical depth PLUS the most recent bars,
+    so RS/momentum calculations use the latest available data.
+
+    On overlapping dates, shallow wins (more recently fetched from provider).
+    Falls back to the longer series if merge fails.
+    """
+    import pandas as pd
+    if df_deep is None and df_reg is None:
+        return None
+    if df_deep is None:
+        return df_reg
+    if df_reg is None:
+        return df_deep
+    try:
+        combined = pd.concat([df_deep, df_reg], axis=0)
+        # Keep shallow on overlap (appended last → keep='last')
+        combined = combined[~combined.index.duplicated(keep="last")]
+        return combined.sort_index()
+    except Exception:
+        return df_deep if len(df_deep) >= len(df_reg) else df_reg
+
+
+def _last_bar_date(df) -> Optional[str]:
+    """Return the last index entry as an ISO string, or None."""
+    if df is None:
+        return None
+    try:
+        last = df.index[-1]
+        return last.isoformat() if hasattr(last, "isoformat") else str(last)
+    except Exception:
+        return None
+
+
 def _closes(df) -> List[float]:
     if df is None:
         return []
@@ -208,18 +247,16 @@ def enrich_research_candidate(
     item = dict(base_item)
     sym = ticker.upper()
 
-    # ── Load price data (prefer deep cache for long lookbacks) ────────────────
+    # ── Load price data ────────────────────────────────────────────────────────
     df_deep = _load_frame(sym, deep_price_dir) if deep_price_dir else None
     df_reg = _load_frame(sym, price_dir)
 
-    # Use whichever is longer
-    closes_deep = _closes(df_deep)
-    closes_reg = _closes(df_reg)
-    vols_deep = _volumes(df_deep)
-    vols_reg = _volumes(df_reg)
-
-    closes = closes_deep if len(closes_deep) >= len(closes_reg) else closes_reg
-    vols = vols_deep if len(vols_deep) >= len(vols_reg) else vols_reg
+    # Date-merge: deep gives historical depth, shallow gives recent bars.
+    # Taking the longer series (old behavior) causes RS misalignment when
+    # deep cache ends weeks before the shallow cache that nightly refreshes.
+    df_merged = _merge_frames(df_deep, df_reg)
+    closes = _closes(df_merged)
+    vols = _volumes(df_merged)
     n_bars = len(closes)
 
     item["bars_available"] = n_bars
@@ -234,7 +271,11 @@ def enrich_research_candidate(
     item.setdefault("ticker_valid", True)
     last = closes[-1]
     item["latest_close"] = round(last, 4)
-    item["latest_price_date"] = _parquet_mtime(sym, price_dir if df_reg is not None else (deep_price_dir or price_dir))
+    # Use the actual last bar date from the merged series (more accurate than file mtime)
+    item["latest_price_date"] = (
+        _last_bar_date(df_merged)
+        or _parquet_mtime(sym, price_dir if df_reg is not None else (deep_price_dir or price_dir))
+    )
 
     # ── MA20 / above_ma20 / extension_vs_ma20 ────────────────────────────────
     ma20 = _ma(closes, MIN_BARS_MA20)
