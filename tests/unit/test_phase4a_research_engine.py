@@ -443,6 +443,8 @@ class TestResearchScannerIntegration:
             df.to_parquet(tmp_path / f"{sym}.parquet")
 
         with patch.object(scanner, "PRICE_DIR", tmp_path), \
+             patch.object(scanner, "DEEP_PRICE_DIR", tmp_path / "deep"), \
+             patch.object(scanner, "RESEARCH_DIR", tmp_path), \
              patch.object(scanner, "_is_offline_fmp", return_value=True), \
              patch.object(scanner, "_load_social_data", return_value={}), \
              patch.object(scanner, "_batch_fmp_profiles", return_value={}):

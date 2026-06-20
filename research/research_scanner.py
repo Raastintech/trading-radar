@@ -141,6 +141,41 @@ import re as _re
 _INVALID_SUFFIX_RE = _re.compile(r"^[A-Z]{2,6}(?:WS|WW|W|U)$")
 _DOTTED_RE = _re.compile(r"[.\-]")
 
+# ETFs, inverse ETFs, leveraged ETFs, commodity funds, and index funds that must
+# never appear in operating-company scanner categories (early_accumulation,
+# beaten_down_recovery, sector_theme_leader, catalyst_watch, long_term_asymmetric,
+# social_arb_attention).  Macro/sector ETFs remain usable for regime + RS context.
+# Keep alphabetical for easy audit.
+_KNOWN_ETFS: frozenset = frozenset({
+    # Volatility products
+    "SVXY", "UVXY", "VIXY", "VXX",
+    # Bond ETFs
+    "AGG", "BIL", "BND", "HYG", "IEF", "LQD", "SHY", "TLT",
+    # Cannabis
+    "MSOS", "YOLO",
+    # Commodity / Metals
+    "DBTC", "DGP", "DJP", "GLD", "GLL", "PDBC", "SLV", "USO", "UNG", "ZSL",
+    # Broad US market index
+    "DIA", "IVV", "IWM", "MDY", "QQQ", "RSP", "SPY", "SPTM", "VTI", "VOO",
+    # Sector SPDR + equivalents
+    "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY",
+    # Tech / Semi sector ETFs
+    "BOTZ", "CIBR", "HACK", "ROBO", "SMH", "SOXX", "WCLD",
+    # Growth / Speculative
+    "ARKF", "ARKG", "ARKK", "ARKQ", "ARKW", "FNGU", "FNGD",
+    # Biotech
+    "IBB", "LABD", "LABU", "XBI",
+    # International
+    "EEM", "EFA", "FXI", "IEMG", "IEFA", "EWJ", "VWO",
+    # Leveraged / Inverse broad
+    "SDOW", "SOXL", "SOXS", "SPXL", "SPXS", "SPXU", "SQQQ", "TECS", "TECL",
+    "TQQQ", "UDOW", "UPRO",
+    # Income / Dividend ETFs
+    "DGRO", "JEPI", "JEPQ", "SCHD", "SPYD",
+    # Other commonly seen in social/scanner feeds
+    "BITX", "BITO", "FNGO", "GBTC", "IBIT",
+})
+
 # Watchlist label set
 WATCHLIST_LABELS = frozenset({
     "WATCH",
@@ -444,6 +479,43 @@ def _load_social_data() -> Dict[str, Any]:
     return social
 
 
+def _load_ranked_frame(sym: str) -> Optional[pd.DataFrame]:
+    """
+    Load the best available price data for ranked_fill scoring.
+    Merges deep and shallow caches (shallow wins on overlap) so tickers
+    present only in the deep cache (historical backfill) are discoverable
+    and scored on the most recent data.
+    """
+    def _read(path: "Path") -> Optional[pd.DataFrame]:
+        if not path.exists():
+            return None
+        try:
+            df = pd.read_parquet(path)
+            if df is None or df.empty:
+                return None
+            if "close" not in df.columns and "Close" in df.columns:
+                df = df.rename(columns={"Close": "close"})
+            return df
+        except Exception:
+            return None
+
+    df_shallow = _read(PRICE_DIR / f"{sym}.parquet")
+    df_deep = _read(DEEP_PRICE_DIR / f"{sym}.parquet") if DEEP_PRICE_DIR.exists() else None
+
+    if df_shallow is None and df_deep is None:
+        return None
+    if df_shallow is None:
+        return df_deep
+    if df_deep is None:
+        return df_shallow
+    try:
+        combined = pd.concat([df_deep, df_shallow], axis=0)
+        combined = combined[~combined.index.duplicated(keep="last")]
+        return combined.sort_index()
+    except Exception:
+        return df_shallow if len(df_shallow) >= len(df_deep) else df_deep
+
+
 def _ranked_cache_fill(
     needed: int,
     seen: Set[str],
@@ -451,6 +523,10 @@ def _ranked_cache_fill(
     """
     Select the best `needed` tickers from the price cache ranked by data quality,
     liquidity, and RS vs SPY.  Returns ([(ticker, 'ranked_fill'), ...], metadata).
+
+    Scans BOTH cache/prices/ (shallow) and cache/prices_deep/ (deep backfill)
+    so high-quality names like NVDA/AMD/AVGO that exist only in one cache are
+    discoverable and ranked on merit.
 
     Scoring (additive, higher = better):
       +4   bar_count >= 200  (MA200 window available)
@@ -467,31 +543,37 @@ def _ranked_cache_fill(
       -0.5 rs_20d vs SPY < -10pp
       +0.5 last_price >= $10
     Minimum viability: bar_count >= 60, last_price >= $2.
+    Excludes known ETFs / inverse ETFs / leveraged products (_KNOWN_ETFS).
     """
     if needed <= 0:
         return [], {"candidates_considered": 0, "candidates_scored": 0, "selected": 0}
 
     spy_closes = _closes(_load_cached_frame("SPY"))
 
-    # Collect all valid parquets (no size-based pre-filter — we score everything)
-    candidates = [
-        pf for pf in PRICE_DIR.glob("*.parquet")
-        if _is_valid_equity_symbol(pf.stem.upper()) and pf.stem.upper() not in seen
-    ]
-
-    # Load and score each candidate
-    scored: List[Tuple[float, str]] = []
-    all_scores: Dict[str, float] = {}  # for diagnostics
-    for pf in candidates:
+    # Collect all unique candidate symbols from BOTH caches
+    candidate_syms: Set[str] = set()
+    for pf in PRICE_DIR.glob("*.parquet"):
         sym = pf.stem.upper()
+        if _is_valid_equity_symbol(sym) and sym not in seen and sym not in _KNOWN_ETFS:
+            candidate_syms.add(sym)
+    if DEEP_PRICE_DIR.exists():
+        for pf in DEEP_PRICE_DIR.glob("*.parquet"):
+            sym = pf.stem.upper()
+            if _is_valid_equity_symbol(sym) and sym not in seen and sym not in _KNOWN_ETFS:
+                candidate_syms.add(sym)
+
+    # Load and score each candidate using merged (deep+shallow) data
+    scored: List[Tuple[float, str]] = []
+    all_scores: Dict[str, float] = {}
+    for sym in candidate_syms:
+        df = _load_ranked_frame(sym)
+        if df is None or df.empty:
+            continue
+        col_c = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else None)
+        col_v = next((c for c in ["volume", "Volume"] if c in df.columns), None)
+        if col_c is None:
+            continue
         try:
-            df = pd.read_parquet(pf)
-            if df is None or df.empty:
-                continue
-            col_c = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else None)
-            col_v = next((c for c in ["volume", "Volume"] if c in df.columns), None)
-            if col_c is None:
-                continue
             closes = [float(v) for v in df[col_c].dropna().tolist()]
             volumes = [float(v) for v in df[col_v].dropna().tolist()] if col_v else []
         except Exception:
@@ -544,13 +626,13 @@ def _ranked_cache_fill(
     scored.sort(key=lambda x: x[0], reverse=True)
     selected = [(sym, "ranked_fill") for _, sym in scored[:needed]]
     metadata = {
-        "candidates_considered": len(candidates),
+        "candidates_considered": len(candidate_syms),
         "candidates_scored": len(scored),
         "selected": len(selected),
         "all_scores": all_scores,
     }
     logger.info("ranked fill: considered=%d scored=%d selected=%d",
-                len(candidates), len(scored), len(selected))
+                len(candidate_syms), len(scored), len(selected))
     return selected, metadata
 
 
@@ -628,19 +710,30 @@ def _build_universe(
 
     final = universe[:cap]
 
-    # Build diagnostics for miss diagnostic
+    # Build diagnostics for miss diagnostic — checks BOTH caches
     all_scores = ranked_meta.get("all_scores", {})
     miss_diag: Dict[str, Any] = {}
     for sym in _MISS_DIAGNOSTIC_TICKERS:
-        in_cache = (PRICE_DIR / f"{sym}.parquet").exists()
-        selected = sym in source_map
+        in_shallow = (PRICE_DIR / f"{sym}.parquet").exists()
+        in_deep = DEEP_PRICE_DIR.exists() and (DEEP_PRICE_DIR / f"{sym}.parquet").exists()
+        in_cache = in_shallow or in_deep
+        if in_shallow and in_deep:
+            cache_location = "in_merged_cache"
+        elif in_shallow:
+            cache_location = "in_shallow_cache_only"
+        elif in_deep:
+            cache_location = "in_deep_cache_only"
+        else:
+            cache_location = "not_in_any_price_cache"
+
+        is_selected = sym in source_map
         score = all_scores.get(sym)
         reason: Optional[str]
         if not in_cache:
-            reason = "not_in_price_cache"
-        elif sym in seen and selected:
-            reason = None
-        elif sym in seen:
+            reason = "not_in_any_price_cache"
+        elif is_selected:
+            reason = None   # selected — no absent reason
+        elif sym in seen and not is_selected:
             reason = "already_in_universe_from_earlier_source"
         elif score is not None:
             reason = f"ranked_fill_not_selected (score={score})"
@@ -649,8 +742,9 @@ def _build_universe(
         else:
             reason = "unknown"
         miss_diag[sym] = {
+            "cache_location": cache_location,
             "in_price_cache": in_cache,
-            "in_universe": selected,
+            "in_universe": is_selected,
             "source": source_map.get(sym),
             "ranked_score": score,
             "absent_reason": reason,
@@ -664,6 +758,9 @@ def _build_universe(
         "ranked_fill_candidates_considered": ranked_meta.get("candidates_considered", 0),
         "ranked_fill_candidates_scored": ranked_meta.get("candidates_scored", 0),
         "ranked_fill_selected": ranked_meta.get("selected", 0),
+        # Full universe list — JSON consumers should use this, not top_50
+        "universe_full": [{"ticker": t, "source": source_map[t]} for t in final],
+        # Backward-compat alias (first 50 only)
         "top_50": [{"ticker": t, "source": source_map[t]} for t in final[:50]],
         "all_ticker_sources": source_map,
         "miss_diagnostic": miss_diag,
@@ -679,17 +776,27 @@ def _build_universe(
 
 
 def _write_universe_build_log(build_info: Dict[str, Any]) -> None:
-    """Write universe build sidecar JSON + human-readable text log."""
+    """Write universe build sidecar JSON + human-readable text log.
+
+    Paths are derived from the current module-level RESEARCH_DIR and cfg.LOG_DIR
+    at call time so that test patches to RESEARCH_DIR are respected.
+    """
     if not build_info:
         return
+
+    # Compute paths dynamically so test patches to RESEARCH_DIR take effect
+    out_json = RESEARCH_DIR / "research_universe_build_latest.json"
+    out_miss = RESEARCH_DIR / "universe_miss_diagnostic_latest.json"
+    out_txt = cfg.LOG_DIR / "research_universe_build_latest.txt"
+
     RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
     cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # JSON sidecar
-    UNIVERSE_BUILD_JSON.write_text(json.dumps(build_info, indent=2), encoding="utf-8")
+    # JSON sidecar — includes full universe list
+    out_json.write_text(json.dumps(build_info, indent=2), encoding="utf-8")
 
     # Miss diagnostic JSON
-    UNIVERSE_MISS_JSON.write_text(
+    out_miss.write_text(
         json.dumps({
             "generated_at": build_info.get("generated_at"),
             "miss_diagnostic": build_info.get("miss_diagnostic", {}),
@@ -698,40 +805,45 @@ def _write_universe_build_log(build_info: Dict[str, Any]) -> None:
     )
 
     # Human-readable text
+    total = build_info.get("total_universe_size", 0)
     counts = build_info.get("source_counts", {})
+    universe_full = build_info.get("universe_full", build_info.get("top_50", []))
+    display_n = min(50, len(universe_full))
     lines = [
         "RESEARCH UNIVERSE BUILD LOG",
         f"Generated: {build_info.get('generated_at', 'unknown')}",
-        f"Total universe size: {build_info.get('total_universe_size', 0)}",
+        f"Total universe size (selected): {total}",
         "",
-        "SOURCE COUNTS:",
+        "SOURCE COUNTS (selected tickers):",
         f"  alpha_board:          {counts.get('alpha_board', 0):4d}",
         f"  daily_alpha_radar:    {counts.get('daily_alpha_radar', 0):4d}",
         f"  social_arb:           {counts.get('social_arb', 0):4d}",
         f"  ranked_fill:          {counts.get('ranked_fill', 0):4d}",
         f"  alphabetical_fallback:{counts.get('alphabetical_fallback', 0):4d}",
+        f"  TOTAL SELECTED:       {total:4d}",
         "",
         f"RANKED FILL: considered={build_info.get('ranked_fill_candidates_considered', 0)} "
         f"scored={build_info.get('ranked_fill_candidates_scored', 0)} "
         f"selected={build_info.get('ranked_fill_selected', 0)}",
         f"ALPHABETICAL FALLBACK USED: {build_info.get('used_alphabetical_fallback', False)}",
         "",
-        "TOP 50 SELECTED TICKERS (source in brackets):",
+        f"TOP {display_n} DISPLAYED (of {total} selected) — full list in JSON universe_full:",
     ]
-    for entry in build_info.get("top_50", []):
+    for entry in universe_full[:display_n]:
         lines.append(f"  {entry['ticker']:8s}  [{entry['source']}]")
 
     lines += ["", "MISS DIAGNOSTIC (key names):"]
     for sym, d in build_info.get("miss_diagnostic", {}).items():
         status = "IN_UNIVERSE" if d["in_universe"] else "ABSENT"
-        reason = f"  reason={d['absent_reason']}" if d["absent_reason"] else ""
+        reason = f"  reason={d['absent_reason']}" if d.get("absent_reason") else ""
         score_str = f"  score={d['ranked_score']}" if d.get("ranked_score") is not None else ""
         source_str = f"  source={d['source']}" if d.get("source") else ""
-        lines.append(f"  {sym:8s}  {status}{source_str}{score_str}{reason}")
+        cache_str = f"  cache={d.get('cache_location', '?')}"
+        lines.append(f"  {sym:8s}  {status}{source_str}{score_str}{cache_str}{reason}")
 
-    UNIVERSE_BUILD_TXT.write_text("\n".join(lines), encoding="utf-8")
-    logger.info("wrote %s", UNIVERSE_BUILD_JSON)
-    logger.info("wrote %s", UNIVERSE_MISS_JSON)
+    out_txt.write_text("\n".join(lines), encoding="utf-8")
+    logger.info("wrote %s", out_json)
+    logger.info("wrote %s", out_miss)
 
 
 # ── FMP helpers ──────────────────────────────────────────────────────────────
@@ -1034,6 +1146,8 @@ def scan_early_accumulation(
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     for sym in universe:
+        if sym in _KNOWN_ETFS:
+            continue
         df = _load_cached_frame(sym)
         if df is None:
             continue
@@ -1112,6 +1226,8 @@ def scan_beaten_down(
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     for sym in universe:
+        if sym in _KNOWN_ETFS:
+            continue
         df = _load_cached_frame(sym)
         if df is None:
             continue
@@ -1223,7 +1339,7 @@ def scan_sector_leaders(
 
     results: List[Dict[str, Any]] = []
     for sym in universe:
-        if sym in leading_etfs:
+        if sym in _KNOWN_ETFS or sym in leading_etfs:
             continue
         df = _load_cached_frame(sym)
         if df is None:
@@ -1309,6 +1425,8 @@ def scan_catalyst_watch(
                 earnings_by_ticker[t] = d
 
     for sym in universe:
+        if sym in _KNOWN_ETFS:
+            continue
         df = _load_cached_frame(sym)
         s = _closes(df) if df is not None else []
 
@@ -1398,6 +1516,8 @@ def scan_social_arb(
     seen_viral: List[str] = []
 
     for sym in universe:
+        if sym in _KNOWN_ETFS:
+            continue
         entry = social_data.get(sym)
         if entry is None:
             continue
@@ -1450,6 +1570,8 @@ def scan_social_arb(
     # Add NO_SOCIAL_DATA entries for universe members with no social data
     no_data_count = 0
     for sym in universe[:20]:  # sample only first 20
+        if sym in _KNOWN_ETFS:
+            continue
         if sym not in social_data and no_data_count < 3:
             results.append({
                 "ticker": sym,
@@ -1491,6 +1613,8 @@ def scan_asymmetric(
     results: List[Dict[str, Any]] = []
 
     for sym in universe:
+        if sym in _KNOWN_ETFS:
+            continue
         df = _load_cached_frame(sym)
         if df is None:
             continue
