@@ -98,8 +98,15 @@ UNIVERSE_BUILD_JSON = RESEARCH_DIR / "research_universe_build_latest.json"
 UNIVERSE_BUILD_TXT = cfg.LOG_DIR / "research_universe_build_latest.txt"
 UNIVERSE_MISS_JSON = RESEARCH_DIR / "universe_miss_diagnostic_latest.json"
 
-# Scan universe cap: how many tickers to evaluate per category pass
-DEFAULT_UNIVERSE_CAP = 200
+# Scan universe cap: how many tickers to evaluate per category pass.
+# Restores the original design: all ~5 500 tickers → ranked by RS/liquidity/bars
+# → top 1 000 feed the 6 category scanners → ~70-100 unique candidates after dedup.
+DEFAULT_UNIVERSE_CAP = 1000
+
+# Max tickers from social-arb sidecar seeded into the universe.
+# Social arb candidates are ordered by attention score in the sidecar; we take the
+# top-N so social attention does not crowd out the RS-ranked fill.
+_SOCIAL_ARB_UNIVERSE_CAP = 50
 
 # Maps FMP sector name variants to GICS sector ETFs.
 # FMP uses different naming than SECTOR_NAMES in regime_forecaster.
@@ -678,8 +685,9 @@ def _build_universe(
     for t in _daily_radar_tickers():
         _add(t, "daily_alpha_radar")
 
-    # P3: social arb / attention names
-    for t in _social_arb_tickers():
+    # P3: social arb / attention names (capped — sidecar is ordered by attention score,
+    # so [:cap] takes the highest-signal names and leaves ranked_fill room to breathe).
+    for t in _social_arb_tickers()[:_SOCIAL_ARB_UNIVERSE_CAP]:
         _add(t, "social_arb")
 
     # P4: ranked fill from full price cache
@@ -1626,9 +1634,21 @@ def scan_asymmetric(
         if last is None:
             continue
 
-        # Focus on small/mid-cap proxies (price < $200 as rough proxy without market cap data)
-        # FMP profile has market cap but we avoid per-ticker provider calls in the scanner loop
-        # We rely on FMP fundamentals cached data if available.
+        # Compute price signals first — cheap, no provider calls.
+        # This lets us exit early before FMP calls for deeply lagging names.
+        rs_63 = _rs_vs_spy(s, spy_closes, 63)
+        rs_252 = _rs_vs_spy(s, spy_closes, 252) if len(s) >= 253 else None
+        dd = _drawdown_from_high(s)
+        vol_tr = _vol_trend(_volumes(df))
+
+        has_price_momentum = rs_63 is not None and rs_63 > 5
+
+        # Skip deeply lagging names before any FMP call — no momentum and unlikely
+        # to carry a speculative theme worth researching at scale.
+        if rs_63 is not None and rs_63 < -30:
+            continue
+
+        # Fetch fundamentals (served from data_gatekeeper cache on repeat nightly calls).
         fundamentals: Optional[Dict[str, Any]] = None
         if not offline and not _is_offline_fmp():
             fundamentals = _fmp_fundamentals(sym)
@@ -1655,14 +1675,6 @@ def scan_asymmetric(
             cash = fundamentals.get("cash") or 0
             survivability_ok = cash > debt * 0.5 if (cash or debt) else None
 
-        # Without fundamentals: use price signals as proxy
-        rs_63 = _rs_vs_spy(s, spy_closes, 63)
-        rs_252 = _rs_vs_spy(s, spy_closes, 252) if len(s) >= 253 else None
-        dd = _drawdown_from_high(s)
-        vol_tr = _vol_trend(_volumes(df))
-
-        # Skip if no evidence of growth narrative or price strength
-        has_price_momentum = rs_63 is not None and rs_63 > 5
         has_theme = in_speculative_theme
         if not has_price_momentum and not has_theme:
             continue

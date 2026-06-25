@@ -61,6 +61,7 @@ from research.research_scanner import (
     RESEARCH_DIR,
     PRICE_DIR,
     DEFAULT_UNIVERSE_CAP,
+    _SOCIAL_ARB_UNIVERSE_CAP,
 )
 
 
@@ -981,4 +982,95 @@ def test_alphabetical_fallback_false_when_ranked_fill_has_candidates(tmp_path):
 
     assert not build_info.get("used_alphabetical_fallback", True), (
         "Should not fall back to alphabetical when ranked_fill has viable candidates"
+    )
+
+
+# ── 10. Universe cap and social-arb cap ──────────────────────────────────────
+
+
+def test_default_universe_cap_is_1000():
+    """DEFAULT_UNIVERSE_CAP must be 1000 to scan the full market breadth."""
+    assert DEFAULT_UNIVERSE_CAP == 1000, (
+        f"Universe cap should be 1000 (original design), got {DEFAULT_UNIVERSE_CAP}"
+    )
+
+
+def test_social_arb_universe_cap_is_defined():
+    """_SOCIAL_ARB_UNIVERSE_CAP must be defined and smaller than DEFAULT_UNIVERSE_CAP."""
+    assert isinstance(_SOCIAL_ARB_UNIVERSE_CAP, int)
+    assert 0 < _SOCIAL_ARB_UNIVERSE_CAP < DEFAULT_UNIVERSE_CAP, (
+        f"Social arb cap {_SOCIAL_ARB_UNIVERSE_CAP} must be positive and less than universe cap {DEFAULT_UNIVERSE_CAP}"
+    )
+
+
+def test_social_arb_injection_capped_in_universe(tmp_path):
+    """When social arb has more tickers than _SOCIAL_ARB_UNIVERSE_CAP, only the cap is seeded."""
+    import research.research_scanner as scanner
+
+    # Create more social tickers than the cap
+    n_social = _SOCIAL_ARB_UNIVERSE_CAP + 20
+    social_tickers = [f"SOC{i:03d}" for i in range(n_social)]
+
+    with (
+        patch("research.research_scanner.RESEARCH_DIR", tmp_path),
+        patch("research.research_scanner._alpha_board_tickers", return_value=[]),
+        patch("research.research_scanner._daily_radar_tickers", return_value=[]),
+        patch("research.research_scanner._social_arb_tickers", return_value=social_tickers),
+        patch("research.research_scanner._ranked_cache_fill", return_value=([], {})),
+    ):
+        (tmp_path / "alpha_discovery_board_latest.json").write_text("{}")
+        universe, build_info = _build_universe(cap=_SOCIAL_ARB_UNIVERSE_CAP + 100)
+
+    sc = build_info["source_counts"]
+    assert sc["social_arb"] == _SOCIAL_ARB_UNIVERSE_CAP, (
+        f"Social arb contribution should be capped at {_SOCIAL_ARB_UNIVERSE_CAP}, "
+        f"got {sc['social_arb']} (from {n_social} available)"
+    )
+
+
+def test_social_arb_below_cap_fully_seeded(tmp_path):
+    """When social arb has fewer tickers than the cap, all are seeded."""
+    n_social = _SOCIAL_ARB_UNIVERSE_CAP - 5
+    social_tickers = [f"SOC{i:03d}" for i in range(n_social)]
+
+    with (
+        patch("research.research_scanner.RESEARCH_DIR", tmp_path),
+        patch("research.research_scanner._alpha_board_tickers", return_value=[]),
+        patch("research.research_scanner._daily_radar_tickers", return_value=[]),
+        patch("research.research_scanner._social_arb_tickers", return_value=social_tickers),
+        patch("research.research_scanner._ranked_cache_fill", return_value=([], {})),
+    ):
+        (tmp_path / "alpha_discovery_board_latest.json").write_text("{}")
+        universe, build_info = _build_universe(cap=200)
+
+    sc = build_info["source_counts"]
+    assert sc["social_arb"] == n_social, (
+        f"All {n_social} social tickers should be seeded when under cap, got {sc['social_arb']}"
+    )
+
+
+def test_ranked_fill_dominates_universe_at_full_cap(tmp_path):
+    """With 1000-cap and typical seed counts, ranked_fill must supply the majority of slots."""
+    # Simulate realistic seed counts: ~20 alpha_board + ~50 social_arb = 70 pre-seeded
+    board_tickers = [f"A{i:02d}" for i in range(20)]
+    social_tickers = [f"S{i:03d}" for i in range(50)]
+    # ranked_fill returns 930 tickers to fill the rest
+    ranked = [(f"R{i:04d}", "ranked_fill") for i in range(930)]
+
+    with (
+        patch("research.research_scanner.RESEARCH_DIR", tmp_path),
+        patch("research.research_scanner._alpha_board_tickers", return_value=board_tickers),
+        patch("research.research_scanner._daily_radar_tickers", return_value=[]),
+        patch("research.research_scanner._social_arb_tickers", return_value=social_tickers),
+        patch("research.research_scanner._ranked_cache_fill", return_value=(ranked, {})),
+    ):
+        (tmp_path / "alpha_discovery_board_latest.json").write_text("{}")
+        universe, build_info = _build_universe(cap=1000)
+
+    sc = build_info["source_counts"]
+    assert sc["ranked_fill"] >= 900, (
+        f"ranked_fill should supply ≥900 slots at full cap, got {sc['ranked_fill']}"
+    )
+    assert sc["social_arb"] <= _SOCIAL_ARB_UNIVERSE_CAP, (
+        f"social_arb capped at {_SOCIAL_ARB_UNIVERSE_CAP}, got {sc['social_arb']}"
     )
