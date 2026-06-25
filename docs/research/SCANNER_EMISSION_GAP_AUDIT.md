@@ -1,23 +1,23 @@
 # Scanner Emission Gap Audit — Phase 1G.6 (Task 1)
 
-*Generated 2026-06-19T16:45:43.090622+00:00 · research-only, cache-only.*
+*Generated 2026-06-25T16:23:38.791867+00:00 · research-only, cache-only.*
 
 ## Question
-Why did **494** liquid winners exist but only ~4 distinct tickers reach the long funnel/council?
+Why did **548** liquid winners exist but only ~4 distinct tickers reach the long funnel/council?
 
 ## Winner retention through the discovery funnel
 
 | stage | universe | winners retained | recall | dropped here | drop cause |
 |---|--:|--:|--:|--:|---|
 | 1_raw_price_universe | 2 | 0 | 0.0% | 0 | — |
-| 2_liquidity_eligible | 2 | 0 | 0.0% | 494 | LIQUIDITY_FILTER |
-| 3_base_universe_top1000 | 1000 | 341 | 69.0% | 0 | TOP_N_CAP (base limit 1000 by liquidity) |
-| 4_long_strategy_universe | 138 | 24 | 4.9% | 317 | SCORE_GATE (voyager 0.35 / sniper 0.38 + structural filters) |
+| 2_liquidity_eligible | 2 | 0 | 0.0% | 548 | LIQUIDITY_FILTER |
+| 3_base_universe_top1000 | 1000 | 379 | 69.2% | 0 | TOP_N_CAP (base limit 1000 by liquidity) |
+| 4_long_strategy_universe | 138 | 28 | 5.1% | 351 | SCORE_GATE (voyager 0.35 / sniper 0.38 + structural filters) |
 | 5_alpha_candidate_band | 320 | — | — | 0 | NOT_HISTORIZED (count-only; ticker list not persisted) |
-| 6_alpha_board | 20 | 7 | 1.4% | 24 | TOP_N_CAP (board ≤20, 10/track) |
-| 7_stock_lens_generated | 0 | 0 | 0.0% | 7 | MISSING_ARTIFACT |
-| 8_gatekeeper_generated | 0 | 0 | 0.0% | 7 | MISSING_ARTIFACT |
-| 9_council_veto_log | 30 | 2 | 0.4% | 24 | NO_EMISSION_PATH (scanner never emitted) |
+| 6_alpha_board | 20 | 9 | 1.6% | 28 | TOP_N_CAP (board ≤20, 10/track) |
+| 7_stock_lens_generated | 0 | 0 | 0.0% | 9 | MISSING_ARTIFACT |
+| 8_gatekeeper_generated | 0 | 0 | 0.0% | 9 | MISSING_ARTIFACT |
+| 9_council_veto_log | 30 | 2 | 0.4% | 28 | NO_EMISSION_PATH (scanner never emitted) |
 | 10_paper_signals | 31 | 1 | 0.2% | 1 | NO_EMISSION_PATH |
 | 11_decisions | 16 | 2 | 0.4% | 0 | NO_EMISSION_PATH |
 
@@ -25,7 +25,7 @@ Why did **494** liquid winners exist but only ~4 distinct tickers reach the long
 
 ## Root cause
 
-The discovery funnel is structurally narrow: liquidity-eligible winners (0) are cut to 341 by the top-1000 base-universe cap, then to 24 by the per-strategy score gates + structural filters (voyager 54 / sniper 90 names), and the council ultimately saw only 2 winners. The miss is an EMISSION/UNIVERSE gap upstream of the council — not a council/governance rejection.
+The discovery funnel is structurally narrow: liquidity-eligible winners (0) are cut to 379 by the top-1000 base-universe cap, then to 28 by the per-strategy score gates + structural filters (voyager 54 / sniper 90 names), and the council ultimately saw only 2 winners. The miss is an EMISSION/UNIVERSE gap upstream of the council — not a council/governance rejection.
 
 ## Answers to the specific questions
 
