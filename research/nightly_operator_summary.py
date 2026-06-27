@@ -359,6 +359,7 @@ def _build_forward_evidence(forward: Optional[Dict[str, Any]]) -> Dict[str, Any]
     total = forward.get("total_history_entries", 0)
     new_today = forward.get("new_entries_today", 0)
     matured = overall.get("matured_entries", 0)
+    matured_5d = overall.get("matured_5d_entries", 0)
     sample_status = overall.get("sample_status", "TOO_EARLY")
     verdict = overall.get("verdict", "NEED_MORE_DATA")
 
@@ -390,6 +391,7 @@ def _build_forward_evidence(forward: Optional[Dict[str, Any]]) -> Dict[str, Any]
         "total_entries": total,
         "new_today": new_today,
         "matured_count": matured,
+        "matured_5d_count": matured_5d,
         "benchmark_readiness": benchmark_readiness,
         "benchmark_detail": benchmark_detail,
         "spy_entries_with_10d": spy_ready,
@@ -426,9 +428,10 @@ def _build_warnings(
     # Forward evidence maturity
     if forward.get("available") and forward.get("verdict") == "NEED_MORE_DATA":
         mat = forward.get("matured_count", 0)
+        mat5 = forward.get("matured_5d_count", 0)
         total = forward.get("total_entries", 0)
         warnings.append(
-            f"Forward evidence immature: {mat}/{total} entries matured — do not change scoring"
+            f"Forward evidence immature: {mat5} matured 5d, {mat} matured 10d / {total} total — do not change scoring"
         )
 
     # Benchmark not ready — distinguish loaded-but-immature from truly missing
@@ -674,6 +677,7 @@ def _render_md(
         total_e = forward["total_entries"]
         new_today = forward["new_today"]
         matured = forward["matured_count"]
+        matured_5d = forward.get("matured_5d_count", 0)
         bm_status = forward["benchmark_readiness"]
         bm_detail = forward.get("benchmark_detail", "")
         sample = forward["sample_status"]
@@ -684,8 +688,9 @@ def _render_md(
         if bm_detail:
             bm_line += f" — {bm_detail}"
 
+        matured_str = f"**Matured 5d:** {matured_5d}  |  **Matured 10d:** {matured}"
         lines += [
-            f"**Total entries:** {total_e}  |  **New today:** {new_today}  |  **Matured:** {matured}",
+            f"**Total entries:** {total_e}  |  **New today:** {new_today}  |  {matured_str}",
             f"- Sample status: {sample}",
             bm_line,
             f"- Verdict: **{verdict}**",

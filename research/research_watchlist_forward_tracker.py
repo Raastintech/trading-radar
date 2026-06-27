@@ -194,6 +194,7 @@ def _load_history() -> Dict[str, Dict[str, Any]]:
 
 def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[str, Any]:
     matured = [e for e in entries if e.get("ret_10d") is not None]
+    matured_5d = [e for e in entries if e.get("ret_5d") is not None]
     n = len(matured)
     status = _sample_status(n)
 
@@ -202,6 +203,7 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
         return {
             "bucket": bucket_name,
             "total_entries": len(entries),
+            "matured_5d_entries": len(matured_5d),
             "matured_entries": n,
             "sample_status": status,
             "verdict": "NEED_MORE_DATA",
@@ -260,6 +262,7 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
     return {
         "bucket": bucket_name,
         "total_entries": len(entries),
+        "matured_5d_entries": len(matured_5d),
         "matured_entries": n,
         "sample_status": status,
         "verdict": verdict,
@@ -535,7 +538,8 @@ def _format_text(result: Dict[str, Any]) -> str:
     ]
     overall = result.get("overall", {})
     lines.append(f"Overall verdict: {overall.get('verdict', 'N/A')}  "
-                 f"(n={overall.get('matured_entries', 0)}, "
+                 f"(matured_5d={overall.get('matured_5d_entries', 0)}, "
+                 f"matured_10d={overall.get('matured_entries', 0)}, "
                  f"win%={overall.get('win_rate_10d') or 'n/a'}, "
                  f"mean10d={overall.get('mean_ret_10d') or 'n/a'})")
 
@@ -562,7 +566,7 @@ def _format_text(result: Dict[str, Any]) -> str:
         vs_qqq = v.get("avg_ret_vs_qqq")
         qqq_str = f"  vs_QQQ={vs_qqq:+.2f}%" if vs_qqq is not None else ""
         lines.append(
-            f"  {v['bucket']:<26}  n={v['matured_entries']:3d}/{v['total_entries']:3d}  "
+            f"  {v['bucket']:<26}  5d={v.get('matured_5d_entries',0):3d}  10d={v['matured_entries']:3d}/{v['total_entries']:3d}  "
             f"verdict={v['verdict']:<22}  {abs_str}{spy_str}{qqq_str}"
         )
     lines += [
