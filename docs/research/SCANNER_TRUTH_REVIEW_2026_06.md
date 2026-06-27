@@ -1,95 +1,95 @@
 # Scanner Truth Review — 2026-05 (Phase 1G.5)
 
-*Generated 2026-06-25T05:49:18.970922+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
+*Generated 2026-06-27T15:58:46.828132+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
 
 ## 1. Executive summary
 
-- **Were market winners missed? YES.** Of **273** liquid winners ≥+80% (**182** ≥2x), only **6** ever touched any historized funnel stage → **winner recall 2.2%**.
+- **Were market winners missed? YES.** Of **255** liquid winners ≥+80% (**169** ≥2x), only **5** ever touched any historized funnel stage → **winner recall 2.0%**.
 - **They fell out before the council saw them.** The active long funnel (VOYAGER+SNIPER) logged only **4 distinct tickers**; veto_log is ~all SHORT. `UNIVERSE_MISS` dominates.
-- **A dumb baseline beats the funnel on recall:** simple 20d-RS recall **18.1%** vs funnel **1.9%** on the same forward set.
-- **A clean entry existed:** 36.3% of winners had a buyable window (median 27d) before becoming extended — the system simply never surfaced them.
+- **A dumb baseline beats the funnel on recall:** simple 20d-RS recall **19.6%** vs funnel **1.7%** on the same forward set.
+- **A clean entry existed:** 30.6% of winners had a buyable window (median 28.0d) before becoming extended — the system simply never surfaced them.
 - Consistent with design (Voyager buyable-pullback mandate; Alpha penalises large momentum leaders). The question is whether a **research-only momentum/RS recall lane** + **theme radar** is worth adding — validated forward, never curve-fit.
 
 ## 2. Were market winners missed?
 
-- Liquid winners ≥+50%: **548**, ≥+80%: **273**, ≥2x: **182** (scanned 5548; 896 illiquid excluded).
-- By theme: `other`=257, `unknown`=108, `biotech_healthcare`=63, `semiconductors`=62, `hardware`=31, `space_aerospace`=16, `nuclear_energy`=4, `quantum`=3, `memory_storage`=3, `crypto_blockchain`=1.
+- Liquid winners ≥+50%: **489**, ≥+80%: **255**, ≥2x: **169** (scanned 5548; 876 illiquid excluded).
+- By theme: `other`=224, `unknown`=89, `semiconductors`=62, `biotech_healthcare`=59, `hardware`=30, `space_aerospace`=15, `quantum`=3, `memory_storage`=3, `nuclear_energy`=3, `crypto_blockchain`=1.
 
 ## 3. Top missed winners (liquid, by trailing max return)
 
 | ticker | theme | max ret | $vol(M) | recall |
 |---|---|--:|--:|:--:|
-| INHD | other | 2869% | 551 | — |
-| ASTC | space_aerospace | 2001% | 320 | — |
-| RXT | unknown | 1683% | 56 | — |
-| SDOT | other | 874% | 37 | — |
-| AGL | biotech_healthcare | 871% | 25 | — |
-| VCIG | other | 790% | 15 | — |
-| STI | other | 703% | 219 | — |
-| CAR | other | 513% | 152 | — |
-| MXL | semiconductors | 502% | 730 | — |
-| AXTI | semiconductors | 468% | 988 | — |
-| CODX | biotech_healthcare | 452% | 464 | — |
-| LWLG | other | 447% | 88 | — |
-| SKLZ | other | 421% | 7 | — |
-| AAOI | semiconductors | 407% | 2011 | — |
-| ATOM | semiconductors | 407% | 45 | — |
-| MNTS | space_aerospace | 403% | 128 | — |
-| MRAM | semiconductors | 398% | 246 | — |
-| OCC | other | 395% | 29 | — |
-| BAND | other | 379% | 50 | — |
-| WOLF | semiconductors | 376% | 845 | — |
-| CRCA | unknown | 372% | 68 | — |
+| INHD | other | 3085% | 551 | — |
+| ASTC | space_aerospace | 1672% | 150 | — |
+| RXT | unknown | 1640% | 47 | — |
+| AGL | biotech_healthcare | 1015% | 25 | — |
+| STI | other | 793% | 223 | — |
+| SDOT | other | 781% | 37 | — |
+| AXTI | semiconductors | 507% | 988 | — |
+| CODX | biotech_healthcare | 495% | 464 | — |
+| MXL | semiconductors | 488% | 730 | — |
+| CAR | other | 485% | 152 | — |
+| MNTS | space_aerospace | 430% | 73 | — |
+| LWLG | other | 426% | 88 | — |
+| AAOI | semiconductors | 408% | 2011 | — |
+| MRAM | semiconductors | 401% | 246 | — |
+| REPL | biotech_healthcare | 389% | 63 | — |
+| SKLZ | other | 381% | 7 | — |
+| BAND | other | 377% | 50 | — |
+| OCC | other | 359% | 28 | — |
+| WOLF | semiconductors | 350% | 845 | — |
+| TRT | semiconductors | 308% | 26 | — |
+| SHAZ | other | 308% | 85 | — |
 | FCEL | other | 304% | 298 | — |
-| SHAZ | other | 303% | 88 | — |
-| AEHR | semiconductors | 294% | 297 | — |
-| NVTS | semiconductors | 284% | 1593 | — |
+| CRCA | unknown | 302% | 68 | — |
+| NVTS | semiconductors | 287% | 1593 | — |
+| AEHR | semiconductors | 286% | 297 | — |
 
 ## 4. Where they fell out of the funnel
 
 | root cause | count |
 |---|--:|
-| UNIVERSE_MISS | 130 |
-| FILTER_TOO_STRICT | 105 |
-| DATA_MISS | 35 |
+| UNIVERSE_MISS | 115 |
+| FILTER_TOO_STRICT | 106 |
+| DATA_MISS | 31 |
 | VALID_NO_TRADE | 3 |
 
-Detection timing: early **0**, late **6**, blind **267**.
+Detection timing: early **0**, late **5**, blind **250**.
 
 ## 5. Recall / precision metrics
 
-- Recall (ever in funnel): **2.2%**; ≥2x bucket **2.2%**.
+- Recall (ever in funnel): **2.0%**; ≥2x bucket **2.4%**.
 - Semiconductors recall **4.7%** (n=43).
 - Recall-before-move **NOT_RETAINED**; forward precision **NOT_COMPUTABLE_YET**.
 
 ## 6. Comparison vs simple baselines
 
-As-of 2026-03-27, 60td forward, 321 forward winners in 2290 liquid names.
+As-of 2026-03-31, 60td forward, 286 forward winners in 2298 liquid names.
 
 | baseline | flagged | recall | precision | avg fwd ret |
 |---|--:|--:|--:|--:|
-| rs_20d | 379 | 17.4% | 14.8% | 9% |
-| high_50d_breakout | 128 | 1.6% | 3.9% | -7% |
-| vol_strength | 109 | 4.0% | 11.9% | 2% |
-| sector_rs | 366 | 18.1% | 15.8% | 11% |
-| mom_20_60 | 39 | 5.3% | 43.6% | 35% |
+| rs_20d | 341 | 18.9% | 15.8% | 10% |
+| high_50d_breakout | 89 | 3.5% | 11.2% | 11% |
+| vol_strength | 110 | 4.9% | 12.7% | 7% |
+| sector_rs | 327 | 19.6% | 17.1% | 12% |
+| mom_20_60 | 164 | 8.4% | 14.6% | 9% |
 
-**Verdict:** a SIMPLE baseline ('sector_rs', recall 18.1%) caught more forward winners than the live funnel (1.9%). Sophistication did not buy recall here.
+**Verdict:** a SIMPLE baseline ('sector_rs', recall 19.6%) caught more forward winners than the live funnel (1.7%). Sophistication did not buy recall here.
 
 ## 7. Theme / sector leadership audit
 
 | theme | winners | median max | on board | seen | visibility |
 |---|--:|--:|--:|--:|---|
-| other | 257 | 78% | 15 | 2 | visible_on_board |
-| unknown | 108 | 68% | 0 | 0 | absent_from_board |
-| biotech_healthcare | 63 | 82% | 3 | 2 | visible_on_board |
-| semiconductors | 62 | 125% | 2 | 2 | visible_on_board |
-| hardware | 31 | 99% | 0 | 0 | absent_from_board |
-| space_aerospace | 16 | 129% | 0 | 0 | absent_from_board |
-| nuclear_energy | 4 | 59% | 0 | 0 | absent_from_board |
-| quantum | 3 | 117% | 0 | 0 | absent_from_board |
-| memory_storage | 3 | 151% | 0 | 0 | absent_from_board |
-| crypto_blockchain | 1 | 117% | 0 | 0 | absent_from_board |
+| other | 224 | 78% | 15 | 2 | visible_on_board |
+| unknown | 89 | 69% | 0 | 0 | absent_from_board |
+| semiconductors | 62 | 114% | 2 | 2 | visible_on_board |
+| biotech_healthcare | 59 | 83% | 3 | 1 | visible_on_board |
+| hardware | 30 | 107% | 0 | 0 | absent_from_board |
+| space_aerospace | 15 | 118% | 0 | 0 | absent_from_board |
+| quantum | 3 | 109% | 0 | 0 | absent_from_board |
+| memory_storage | 3 | 165% | 0 | 0 | absent_from_board |
+| nuclear_energy | 3 | 61% | 0 | 0 | absent_from_board |
+| crypto_blockchain | 1 | 121% | 0 | 0 | absent_from_board |
 
 *Limitation:* FMP industry taxonomy is coarse: memory & AI-hardware mostly read 'Semiconductors'/'Hardware, Equipment & Parts' and cannot be cleanly separated by profile. Theme counts are lower bounds for those clusters.
 
@@ -99,19 +99,19 @@ As-of 2026-03-27, 60td forward, 321 forward winners in 2290 liquid names.
 
 | filter | threshold | winners rej | losers rej | recall cost | verdict |
 |---|---|--:|--:|--:|---|
-| liquidity_price | price∈[$5,$1000] | 536 | 1078 | 53.3% | BY-DESIGN exclusion |
-| liquidity_dvol | avg$vol≥$5M & vol≥300k | 611 | 2346 | 60.8% | BY-DESIGN exclusion |
-| voyager_max_extension_ma50 | >12% above MA50 → reject | 71 | 321 | 7.1% | KEEP |
-| voyager_ma200_floor | price < MA200×0.92 → reject | 73 | 96 | 7.3% | KEEP |
-| voyager_bars_needed_260 | <260 bars → reject | 848 | 4412 | 84.4% | INDETERMINATE |
-| sniper_bars_needed_75 | <75 bars → reject | 804 | 4171 | 80.0% | INDETERMINATE |
-| alpha_market_cap_band | mcap∉[$300M,$80B] | 70 | 175 | 7.0% | KEEP |
+| liquidity_price | price∈[$5,$1000] | 512 | 1082 | 54.5% | BY-DESIGN exclusion |
+| liquidity_dvol | avg$vol≥$5M & vol≥300k | 582 | 2371 | 61.9% | BY-DESIGN exclusion |
+| voyager_max_extension_ma50 | >12% above MA50 → reject | 72 | 331 | 7.7% | KEEP |
+| voyager_ma200_floor | price < MA200×0.92 → reject | 75 | 94 | 8.0% | KEEP |
+| voyager_bars_needed_260 | <260 bars → reject | 772 | 4457 | 82.1% | INDETERMINATE |
+| sniper_bars_needed_75 | <75 bars → reject | 724 | 4213 | 77.0% | INDETERMINATE |
+| alpha_market_cap_band | mcap∉[$300M,$80B] | 72 | 178 | 7.7% | KEEP |
 
 _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental_score; voyager_dvol_trend_ratio; sniper_vol_spike_1.4x / atr_contraction_0.85; earnings_safe_days; options_liquidity / 13F_sponsorship; top_25_board_cap.
 
 ## 9. Entry-state timing audit
 
-- **36.3%** of winners had a clean buyable window before becoming extended (median **27 days**); funnel detected **0**.
+- **30.6%** of winners had a clean buyable window before becoming extended (median **28.0 days**); funnel detected **0**.
 - buyable = near MA50 (−8%..+12%), above MA200 floor where computable. A buyable window existing but no detection ⇒ the system had a clean early entry it did not take (ENTRY_VALIDATOR/UNIVERSE gap).
 
 ## 10. Recommendations (evidence-based)
@@ -123,25 +123,25 @@ _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental
 - **Complexity:** LOW — funnel_historizer.py shipped; add a daily timer. · **Scope:** research-only · **Overfit risk:** none
 
 ### R2_investigate_emission_gap — Investigate why the LONG funnel surfaced only 4 tickers to the council
-- **Evidence:** Winner recall 2.2%; veto_log has 27 distinct tickers total, ~all SHORT. The miss is upstream of the council, not a threshold-tuning issue.
+- **Evidence:** Winner recall 2.0%; veto_log has 27 distinct tickers total, ~all SHORT. The miss is upstream of the council, not a threshold-tuning issue.
 - **Benefit:** Biggest single lever on recall — likely a universe-seed or scan-emission/score-gate gap.
 - **Risk:** Investigation only; no change until understood.
 - **Complexity:** MEDIUM — needs the historizer + a few weeks of universe snapshots. · **Scope:** research-only · **Overfit risk:** none
 
 ### R3_deepen_price_cache — Deepen the price-history cache beyond ~110 bars
-- **Evidence:** 126/273 winners are cache-limited; Voyager's 260-bar gates can't be reconstructed or back-tested faithfully.
+- **Evidence:** 103/255 winners are cache-limited; Voyager's 260-bar gates can't be reconstructed or back-tested faithfully.
 - **Benefit:** Faithful PIT reconstruction and back-tests; better universe coverage.
 - **Risk:** Provider-budget cost for backfill (one-time).
 - **Complexity:** LOW-MEDIUM. · **Scope:** research-only (cache) · **Overfit risk:** none
 
 ### R4_momentum_RS_baseline_lane — Evaluate a regime-adaptive momentum/RS recall lane (research-only first)
-- **Evidence:** A simple baseline ('sector_rs', recall 18.1%) caught far more forward winners than the funnel (1.9%). 54.6% of winners had a clean buyable window the system never took.
+- **Evidence:** A simple baseline ('sector_rs', recall 19.6%) caught far more forward winners than the funnel (1.7%). 54.6% of winners had a clean buyable window the system never took.
 - **Benefit:** Materially higher recall on momentum leaders.
 - **Risk:** Low precision (8-12%) — a recall lane needs a precision gate before any promotion; momentum drawdowns are real.
 - **Complexity:** MEDIUM. · **Scope:** research-only · **Overfit risk:** MEDIUM — validate forward, do NOT tune to this winner set.
 
 ### R5_theme_leadership_radar — Build a research-only Theme Leadership Radar
-- **Evidence:** Semiconductors: 62 winners, median max return ~125%, recall ~nil; coarse FMP labels hide memory/AI-hardware clusters.
+- **Evidence:** Semiconductors: 62 winners, median max return ~113%, recall ~nil; coarse FMP labels hide memory/AI-hardware clusters.
 - **Benefit:** Early detection of strength clusters; an additive Alpha feature later.
 - **Risk:** Descriptive only; scoring use needs a forward gate.
 - **Complexity:** MEDIUM. · **Scope:** research-only · **Overfit risk:** MEDIUM
@@ -173,7 +173,7 @@ _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental
 ---
 *Fidelity disclosures:*
 > - Alpha board+overlay are historized via research_delta since ~2026-05-20 (~6 days); per-ticker Stock Lens + Gatekeeper were NOT — funnel_historizer.py now closes that gap for FUTURE autopsies.
-> - Voyager 260-bar gates are indeterminate for ~110-bar cache names (126/273); not attributed to the scanner. The bars_needed filter audit is likewise marked INDETERMINATE (cache-confounded).
+> - Voyager 260-bar gates are indeterminate for ~110-bar cache names (103/255); not attributed to the scanner. The bars_needed filter audit is likewise marked INDETERMINATE (cache-confounded).
 > - Forward precision is NOT_COMPUTABLE_YET (today's board has no forward window).
 > - Root causes leaning on non-historized stages carry an _INFERRED suffix.
 > - Theme classifier is profile-text-limited; memory/AI-hardware counts are lower bounds.

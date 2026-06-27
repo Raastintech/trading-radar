@@ -678,7 +678,8 @@ _TTL = dict(positions=10, account=15, vix=60, spy_bars=300, etf_quotes=60,
             treasury=600, econ_cal=300, earnings=600, sector_pe=1800,
             earnings_cache_age=300,
             db_decisions=15, scan_results=20, news_market=120, regime=60,
-            universe_snap=600, universe_meta=600, price_cache_meta=600,
+            universe_snap=600, universe_meta=600, universe_earnings_meta=3600,
+            price_cache_meta=600,
             paper_summary=60, evidence_status=60,
             alpha_discovery=300, alpha_discovery_overlay=120, social_arb=300,
             market_forecast=300, market_forecast_validation=900,
@@ -893,6 +894,7 @@ class DataLayer:
         if self._stale("news_market"):  self._set("news_market",  self._fetch_news_market())
         if self._stale("regime"):       self._set("regime",       self._fetch_regime())
         if self._stale("universe_snap"): self._set("universe_snap", self._fetch_universe_snap())
+        if self._stale("universe_earnings_meta"): self._set("universe_earnings_meta", self._fetch_universe_earnings_meta())
         if self._stale("price_cache_meta"): self._set("price_cache_meta", self._fetch_price_cache_meta())
         if self._stale("universe_meta"): self._set("universe_meta", self._fetch_universe_meta())
         if self._stale("paper_summary"): self._set("paper_summary", self._fetch_paper_summary())
@@ -1304,6 +1306,24 @@ class DataLayer:
             data = json.loads(snap_path.read_text(encoding="utf-8"))
             data["_file_age_seconds"] = int(age_s)
             return data
+        except Exception:
+            return {}
+
+    def _fetch_universe_earnings_meta(self) -> Dict:
+        """Read avg_dollar_vol_20 metadata from universe_snapshot_latest.json.
+
+        Unlike _fetch_universe_snap this has NO freshness gate — avg dollar
+        volume changes slowly and the earnings wall needs it even when the
+        snapshot is 12h+ old (the 2h gate in _fetch_universe_snap discards
+        stale snapshots for trade-readiness, not for static metadata lookups).
+        Returns the 'metadata' sub-dict keyed by ticker symbol, or {}.
+        """
+        try:
+            snap_path = cfg.CACHE_DIR / "universe" / "universe_snapshot_latest.json"
+            if not snap_path.exists():
+                return {}
+            data = json.loads(snap_path.read_text(encoding="utf-8"))
+            return data.get("metadata") or {}
         except Exception:
             return {}
 
@@ -2225,18 +2245,18 @@ EVENTS
   Macro risk: {macro_str}
   News sentiment: {sentiment:.2f} ({sent_lbl})
 
-STRATEGIES (match to best fit):
-  SNP: ACTIVE PAPER — SNIPER_V6 momentum breakout LONG
-  VOY: ACTIVE PAPER — VOYAGER long-horizon institutional accumulation LONG
-  MANUAL: discretionary/manual research only, not paper evidence
+STRATEGIES (research classification only — no trading occurs):
+  MOMENTUM: SNIPER-style momentum breakout LONG (research reference)
+  ACCUMULATION: VOYAGER-style long-horizon institutional accumulation (research reference)
+  MANUAL: discretionary/manual research only
   NONE: no edge or conflicting signals
 
-Frozen this phase, NOT tradable suggestions: SHORT_A (research-only — short-side
-awareness via Short Opportunity Radar), REMORA, CONTRARIAN, SHORT_B, PATHFINDER.
+All strategies are DECOMMISSIONED. This system is research-only. Classify for
+research framing only — no paper evidence, no execution path exists.
 
 Respond in EXACTLY this format — no preamble, no markdown:
 BIAS: BULLISH|BEARISH|NEUTRAL
-SLEEVE_RESEMBLANCE: SNP|VOY|SHA|MANUAL|NONE
+SLEEVE_RESEMBLANCE: MOMENTUM|ACCUMULATION|MANUAL|NONE
 ACTIONABLE_NOW: YES|NO
 TIMEFRAME: intraday|swing|event|position
 REGIME_FIT: supportive|mixed|hostile
@@ -2659,7 +2679,7 @@ class PB:  # PanelBuilder — all static
                     ("Buy Pwr", f"${bp:>12,.2f}",   "white"),
                     ("Pos",     f"{len(pos):>12}",   "white"),
                     ("Paper open", f"{paper_open:>10}", "white"),
-                    ("Sleeves live", f"{active_live:>9}/3", "white"),
+                    ("Mode", f"{'RESEARCH ONLY':>12}", "bold magenta"),
                     ("Gov pressure", f"{pressure:>9}", "yellow" if pressure != "low" else "green")]
             for label, val, style in rows:
                 t.append(f"{label:<10}", style="dim")
@@ -4911,7 +4931,9 @@ class PB:  # PanelBuilder — all static
             c for c in (snap.get("strategy_candidates") or [])
             if c.get("readiness") == "DEVELOPING" and _active_strategy_row(c)
         ]
-        metadata = snap.get("metadata") or {}
+        # universe_earnings_meta has no 2h gate — use it so stale-bar warnings
+        # surface even when universe_snap was discarded as stale.
+        metadata = data.get("universe_earnings_meta") or snap.get("metadata") or {}
         stale_symbols = sorted(
             [sym for sym, row in metadata.items() if isinstance(row, dict) and row.get("bars_stale")]
         )[:6] if isinstance(metadata, dict) else []
@@ -5096,12 +5118,16 @@ class PB:  # PanelBuilder — all static
             t.append(f"{devl:>4}", style=dc)
             t.append(f"  {thresh_s}\n", style="dim")
 
-        # Universe metadata
-        if not snap:
-            t.append("\n  [dim]Universe snapshot not loaded[/]")
+        # Universe metadata footer — use universe_meta probe (no 2h gate) for
+        # age display; snap may be {} if the file is older than 2h.
+        uni_meta = data.get("universe_meta") or {}
+        snap_age_s = uni_meta.get("age_seconds")
+        snap_exists = uni_meta.get("exists", False)
+        if not snap_exists:
+            t.append("\n  [dim]Universe snapshot file missing[/]")
         else:
-            built = summary.get("built_at", "")
-            fallback = summary.get("fallback_used", False)
+            built = summary.get("built_at", "") or uni_meta.get("generated_at", "")
+            fallback = summary.get("fallback_used", snap.get("fallback_used", False))
             ver = summary.get("pipeline_version", "")
             age_str = ""
             if built:
@@ -5111,9 +5137,15 @@ class PB:  # PanelBuilder — all static
                     age_str = f"{age_m}m"
                 except Exception:
                     pass
-            file_age = snap.get("_file_age_seconds", 0)
-            fa_str   = f"{file_age//60}m" if file_age else "?"
-            t.append(f"\n  built {age_str} ago · file {fa_str} old", style="dim")
+            if snap_age_s is not None:
+                fa_str = f"{int(snap_age_s)//60}m"
+            else:
+                fa_str = "?"
+            stale_flag = snap_age_s is not None and snap_age_s > 7200
+            t.append(f"\n  built {age_str} ago · file {fa_str} old",
+                     style="bold yellow" if stale_flag else "dim")
+            if stale_flag:
+                t.append("  [snapshot stale — run nightly cycle]", style="bold yellow")
             if ver: t.append(f" · v{ver}", style="dim")
             if fallback: t.append("\n  ⚠ FALLBACK UNIVERSE", style="bold red")
             warns = summary.get("warnings") or []
@@ -5126,9 +5158,11 @@ class PB:  # PanelBuilder — all static
                 if total_q == 0 and not fallback:
                     t.append("\n  0 structural qualifiers across active sleeves",
                              style="bold yellow")
+            # Use ungated metadata so stale-bars warnings surface even when snap is stale.
+            meta_for_stale = data.get("universe_earnings_meta") or snap.get("metadata") or {}
             stale_symbols = sorted(
-                [sym for sym, row in (snap.get("metadata") or {}).items() if isinstance(row, dict) and row.get("bars_stale")]
-            )[:6] if isinstance(snap.get("metadata"), dict) else []
+                [sym for sym, row in meta_for_stale.items() if isinstance(row, dict) and row.get("bars_stale")]
+            )[:6] if isinstance(meta_for_stale, dict) else []
             if stale_symbols:
                 t.append(f"\n  stale bars: {', '.join(stale_symbols)}", style="yellow")
 
@@ -5391,7 +5425,9 @@ class PB:  # PanelBuilder — all static
         pos  = data.get("positions") or []
         snap = data.get("universe_snap") or {}
         held = {p["ticker"] for p in pos}
-        md   = snap.get("metadata") or {}
+        # universe_earnings_meta is fetched without the 2h freshness gate so
+        # avg_dollar_vol_20 lookups work even when universe_snap is stale.
+        md   = data.get("universe_earnings_meta") or snap.get("metadata") or {}
         active_syms = {
             str(r.get("symbol") or "").upper()
             for r in (snap.get("strategy_candidates") or [])
