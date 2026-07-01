@@ -723,6 +723,7 @@ def generate_report(
         f"*Candidates: {result['total_candidates']} scanned | "
         f"TOP_RESEARCH: {result['priority_counts'].get(TOP_RESEARCH, 0)} | "
         f"HIGH_PRIORITY: {result['priority_counts'].get(HIGH_PRIORITY_RESEARCH, 0)} | "
+        f"WATCHLIST: {result['priority_counts'].get(WATCHLIST_RESEARCH, 0)} | "
         f"DATA_QUARANTINE: {result['priority_counts'].get(DATA_QUARANTINE, 0)}*",
         "",
         "---",
@@ -757,14 +758,31 @@ def generate_report(
     reclaim_reset.sort(key=lambda x: x.get("quality_adjusted_consensus_score", 0), reverse=True)
     lines.extend(_fmt_section("Reclaim / Reset Watch", reclaim_reset, max_items=12))
 
-    # 7. Conflicted Signals
+    # 7. Research Watchlist (WATCHLIST_RESEARCH — RS momentum + multi-signal names)
+    watchlist_items = buckets.get("watchlist", [])
+    # Prioritise RS momentum leaders and multi-category names at the top
+    watchlist_items_sorted = sorted(
+        watchlist_items,
+        key=lambda x: (
+            1 if x.get("category") == "rs_momentum_leader" else 0,
+            x.get("quality_adjusted_consensus_score", 0),
+        ),
+        reverse=True,
+    )
+    lines.extend(_fmt_section(
+        "Research Watchlist — RS Momentum + Multi-Signal",
+        watchlist_items_sorted,
+        max_items=15,
+    ))
+
+    # 8. Conflicted Signals
     lines.extend(_fmt_section(
         "Conflicted Signals",
         buckets["conflicted"],
         max_items=10,
     ))
 
-    # 8. Data Quarantine
+    # 9. Data Quarantine
     lines.extend(_fmt_section(
         "Data Quarantine",
         buckets["quarantine"],
@@ -772,14 +790,14 @@ def generate_report(
         details=False,
     ))
 
-    # 9. Social / Catalyst Anomalies
+    # 10. Social / Catalyst Anomalies
     lines.extend(_fmt_section(
         "Social / Catalyst Anomalies",
         social_items,
         max_items=10,
     ))
 
-    # 10. True 10x Research Candidates
+    # 11. True 10x Research Candidates
     lines.extend(["\n## True 10x Research Candidates", ""])
     lines.append(
         "> ⚠ TRUE_10X_RESEARCH requires: confirmed speculative/structural theme + "
@@ -799,7 +817,7 @@ def generate_report(
             )
             lines.append(f"  - *{c.get('research_note', '')}*")
 
-    # 11. Asymmetric Recovery Watch
+    # 12. Asymmetric Recovery Watch
     lines.extend(["\n## Asymmetric Recovery Watch", ""])
     lines.append(
         "> ASYMMETRIC_RECOVERY_WATCH: price/volume recovery signals only. "
@@ -818,7 +836,7 @@ def generate_report(
                 f"| score={c.get('research_score', 0):.0f} | [price/volume only — no confirmed thesis]"
             )
 
-    # 12. Extended / Crowded / Avoid
+    # 13. Extended / Crowded / Avoid
     lines.extend(_fmt_section(
         "Extended / Crowded / Avoid",
         buckets["extended_crowded"],
@@ -826,10 +844,10 @@ def generate_report(
         details=False,
     ))
 
-    # 13. Forward Tracker Status
+    # 14. Forward Tracker Status
     lines.extend(_fmt_forward_tracker(sidecars.get("forward")))
 
-    # 14. Safety Confirmations
+    # 15. Safety Confirmations
     lines.extend(_fmt_safety_confirmations())
 
     lines.append("")

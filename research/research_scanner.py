@@ -194,6 +194,7 @@ WATCHLIST_LABELS = frozenset({
     "SOCIAL_ARB",
     "ASYMMETRIC_RECOVERY_WATCH",
     "TRUE_10X_RESEARCH",
+    "RS_MOMENTUM_LEADER",
     "EXTENDED",
     "RISKY",
     "AVOID",
@@ -1368,9 +1369,6 @@ def scan_sector_leaders(
         above_ma200 = last > ma200 if (last and ma200) else None
         vol_tr = _vol_trend(_volumes(df))
 
-        if not above_ma50:
-            continue
-
         score, _ = _watchlist_score(
             rs_63=rs_63, vol_trend=vol_tr, dd_from_high=_drawdown_from_high(s),
             above_ma50=above_ma50, above_ma200=above_ma200,
@@ -1401,9 +1399,12 @@ def scan_sector_leaders(
             "trust_level": TRUST_HIGH,
             "data_source": "price_cache",
             "refresh_cadence": "daily_nightly",
-            "why_appeared": f"Outperforming SPY by +{rs_20:.1f}pp over 20d; above 50d MA",
+            "why_appeared": (
+                f"Outperforming SPY by +{rs_20:.1f}pp over 20d"
+                + ("; above 50d MA" if above_ma50 else "; below 50d MA — pullback phase")
+            ),
             "confirms_if": "RS sustains, sector ETF stays in leadership, volume confirms",
-            "invalidates_if": "RS reverses, sector rotates out, undercuts 50d MA",
+            "invalidates_if": "RS reverses, sector rotates out, loses leading sector membership",
             "no_trade_recommendation": True,
         })
 
@@ -1730,6 +1731,130 @@ def scan_asymmetric(
     return results[:max_results]
 
 
+# ── Scanner category 7: RS Momentum Leaders ─────────────────────────────────
+
+
+def scan_rs_momentum_leaders(
+    universe: List[str],
+    spy_closes: List[float],
+    max_results: int = 25,
+) -> List[Dict[str, Any]]:
+    """
+    Find names with strong price momentum vs SPY — no MA position gate.
+
+    This is the high-recall lane: Phase 1G.5 Scanner Truth Review found that a
+    simple RS-rank catches 24.4% of forward winners vs 1.6% for the legacy
+    pullback-entry funnel. The prior funnel gate (`above_ma50` required) was a
+    Voyager entry condition — not a research filter. This lane removes it.
+
+    Criteria (all must hold):
+      - rs_20d > 5pp vs SPY  OR  rs_63d > 10pp vs SPY
+      - last price >= $5
+      - avg 30d daily dollar volume >= $1M
+      - enough bars: at least 21 for rs_20d, or 64 for rs_63d
+
+    No MA50 / MA200 gate.  MA position is noted in output for human context only.
+
+    Sort: combined_rs = rs_63d * 0.6 + rs_20d * 0.4 (higher = stronger momentum).
+    Label: RS_MOMENTUM_LEADER
+    """
+    results: List[Dict[str, Any]] = []
+
+    for sym in universe:
+        if sym in _KNOWN_ETFS:
+            continue
+        df = _load_cached_frame(sym)
+        if df is None:
+            continue
+        s = _closes(df)
+        v = _volumes(df)
+        n_bars = len(s)
+
+        # Need enough bars for at least one RS window
+        if n_bars < 21:
+            continue
+
+        last = _last(s)
+        if last is None or last < 5.0:
+            continue
+
+        # Liquidity floor: avg 30d daily $ vol >= $1M
+        lookback_vol = min(30, n_bars)
+        if v and len(v) >= lookback_vol:
+            avg_dvol = (sum(v[-lookback_vol:]) / lookback_vol) * last
+            if avg_dvol < 1_000_000:
+                continue
+        elif not v:
+            continue
+
+        rs_20 = _rs_vs_spy(s, spy_closes, 20) if n_bars >= 21 else None
+        rs_63 = _rs_vs_spy(s, spy_closes, 63) if n_bars >= 64 else None
+
+        # At least one RS window must meet the threshold
+        strong_20 = rs_20 is not None and rs_20 > 5
+        strong_63 = rs_63 is not None and rs_63 > 10
+        if not (strong_20 or strong_63):
+            continue
+
+        # Combined RS for ranking
+        combined_rs = 0.0
+        if rs_63 is not None and rs_20 is not None:
+            combined_rs = rs_63 * 0.6 + rs_20 * 0.4
+        elif rs_63 is not None:
+            combined_rs = rs_63
+        else:
+            combined_rs = rs_20 or 0.0
+
+        ma50 = _ma(s, 50)
+        ma200 = _ma(s, 200)
+        above_ma50 = last > ma50 if (last and ma50) else None
+        above_ma200 = last > ma200 if (last and ma200) else None
+        vol_tr = _vol_trend(v)
+        dd = _drawdown_from_high(s)
+
+        ma_note = ""
+        if above_ma200 is True and above_ma50 is True:
+            ma_note = "above MA50 + MA200"
+        elif above_ma200 is True and above_ma50 is False:
+            ma_note = "above MA200, below MA50 (pullback)"
+        elif above_ma200 is False and above_ma50 is True:
+            ma_note = "above MA50, below MA200 (early recovery)"
+        elif above_ma200 is False and above_ma50 is False:
+            ma_note = "below MA50 + MA200"
+        else:
+            ma_note = "MA position unknown"
+
+        score = min(100.0, max(0.0, 50.0 + combined_rs * 0.8))
+
+        results.append({
+            "ticker": sym,
+            "category": "rs_momentum_leader",
+            "watchlist_label": "RS_MOMENTUM_LEADER",
+            "research_score": round(score, 1),
+            "combined_rs": round(combined_rs, 2),
+            "rs_20d_vs_spy": round(rs_20, 2) if rs_20 is not None else None,
+            "rs_63d_vs_spy": round(rs_63, 2) if rs_63 is not None else None,
+            "above_ma50": above_ma50,
+            "above_ma200": above_ma200,
+            "vol_trend_ratio": round(vol_tr, 2) if vol_tr is not None else None,
+            "dd_from_high_pct": round(dd, 2) if dd is not None else None,
+            "trust_level": TRUST_HIGH,
+            "data_source": "price_cache",
+            "refresh_cadence": "daily_nightly",
+            "why_appeared": (
+                f"Strong RS vs SPY: 20d={rs_20:+.1f}pp" if rs_20 is not None else ""
+            ) + (
+                f", 63d={rs_63:+.1f}pp" if rs_63 is not None else ""
+            ) + f" | {ma_note}",
+            "confirms_if": "RS continues expanding, volume confirms, price holds above recent pivot",
+            "invalidates_if": "RS rolls over, volume dries on up-days, price undercuts pivot low",
+            "no_trade_recommendation": True,
+        })
+
+    results.sort(key=lambda x: x["combined_rs"], reverse=True)
+    return results[:max_results]
+
+
 # ── Phase 4A.4: per-item catalyst / social sanity ────────────────────────────
 
 
@@ -1837,10 +1962,13 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
     logger.info("Scanning category 6: Long-Term Asymmetric Watch")
     asymmetric = scan_asymmetric(universe, spy_closes, offline=offline)
 
+    logger.info("Scanning category 7: RS Momentum Leaders")
+    rs_momentum = scan_rs_momentum_leaders(universe, spy_closes)
+
     # Deduped master watchlist (highest score per ticker) + track all categories
     seen: Dict[str, Dict[str, Any]] = {}
     all_categories_by_ticker: Dict[str, List[str]] = {}
-    all_results = early_acc + beaten + leaders + catalyst + social + asymmetric
+    all_results = early_acc + beaten + leaders + catalyst + social + asymmetric + rs_momentum
     for item in all_results:
         t = item["ticker"]
         all_categories_by_ticker.setdefault(t, []).append(item["category"])
@@ -1917,6 +2045,7 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
             "catalyst_watch": catalyst,
             "social_arb_attention": social,
             "long_term_asymmetric": asymmetric,
+            "rs_momentum_leader": rs_momentum,
         },
         "category_counts": {
             "early_accumulation": len(early_acc),
@@ -1925,6 +2054,7 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
             "catalyst_watch": len(catalyst),
             "social_arb_attention": len(social),
             "long_term_asymmetric": len(asymmetric),
+            "rs_momentum_leader": len(rs_momentum),
         },
         "guardrails": {
             "no_trade_recommendation": True,
@@ -1981,6 +2111,7 @@ def _format_text(s: Dict[str, Any]) -> str:
         ("catalyst_watch", "CATALYST WATCH"),
         ("social_arb_attention", "SOCIAL ARB / ATTENTION ANOMALY"),
         ("long_term_asymmetric", "LONG-TERM ASYMMETRIC WATCH"),
+        ("rs_momentum_leader", "RS MOMENTUM LEADERS"),
     ]:
         items = s["categories"].get(cat_key, [])
         lines += ["", f"=== {cat_name} ({len(items)}) ==="]

@@ -68,6 +68,7 @@ logger = logging.getLogger("nightly_operator_summary")
 # Priority labels — mirror research_scoring.py values
 HIGH_PRIORITY_RESEARCH = "HIGH_PRIORITY_RESEARCH"
 TOP_RESEARCH = "TOP_RESEARCH"
+WATCHLIST_RESEARCH = "WATCHLIST_RESEARCH"
 RESET_WATCH = "RESET_WATCH"
 RECLAIM_WATCH = "RECLAIM_WATCH"
 EXTENDED_CROWDED = "EXTENDED_CROWDED"
@@ -292,11 +293,16 @@ def _build_alpha_snapshot(alpha_radar: Optional[Dict[str, Any]], scanner: Option
     quarantine_count = counts.get(DATA_QUARANTINE, 0)
     quarantine_reasons = [f"{k}: {v}" for k, v in list(q_breakdown.items())[:3] if v > 0]
 
+    watchlist_count = counts.get(WATCHLIST_RESEARCH, 0)
+    watchlist_tickers = pt.get(WATCHLIST_RESEARCH, [])
+
     return {
         "available": True,
         "total_candidates": total,
         "high_priority_count": hp_count,
         "high_priority_tickers": hp_tickers,
+        "watchlist_research_count": watchlist_count,
+        "watchlist_research_tickers": watchlist_tickers,
         "reset_watch_count": reset_count,
         "reset_watch_tickers": reset_tickers,
         "reclaim_watch_count": reclaim_count,
@@ -342,10 +348,12 @@ def _build_best_names(
         alpha_snap.get("reset_watch_tickers", []) +
         alpha_snap.get("reclaim_watch_tickers", [])
     )[:5]
+    watchlist_tickers = alpha_snap.get("watchlist_research_tickers", [])[:8]
 
     return {
         "primary": [_enrich(t) for t in hp_tickers],
         "secondary": [_enrich(t) for t in secondary_tickers],
+        "watchlist": [_enrich(t) for t in watchlist_tickers],
     }
 
 
@@ -623,8 +631,12 @@ def _render_md(
         qt_reasons = alpha_snap.get("top_quarantine_reasons", [])
         opt = alpha_snap.get("options_state", "UNKNOWN")
 
+        wl = alpha_snap.get("watchlist_research_count", 0)
+        wl_tickers = alpha_snap.get("watchlist_research_tickers", [])
+
         lines.append(f"**Total candidates:** {total}")
         lines.append(f"- HIGH_PRIORITY_RESEARCH: {hp}{_fmt_tickers(hp_tickers)}")
+        lines.append(f"- WATCHLIST_RESEARCH: {wl}{_fmt_tickers(wl_tickers)}")
         lines.append(f"- RESET_WATCH: {rw}{_fmt_tickers(rw_tickers)}")
         lines.append(f"- RECLAIM_WATCH: {rc}{_fmt_tickers(rc_tickers)}")
         lines.append(f"- EXTENDED_CROWDED: {ex}{_fmt_tickers(ex_tickers)}")
@@ -665,6 +677,16 @@ def _render_md(
         lines.append("**Secondary reset/reclaim watch:**")
         lines.append("")
         _render_name_list(secondary)
+
+    watchlist = best_names.get("watchlist", []) if isinstance(best_names, dict) else []
+    if watchlist:
+        lines.append("")
+        lines.append("**RS Momentum + Watchlist Research:**")
+        lines.append("")
+        _render_name_list(watchlist)
+
+    if not primary and not secondary and not watchlist:
+        lines.append("*No research names surfaced today.*")
 
     lines.append("")
 
