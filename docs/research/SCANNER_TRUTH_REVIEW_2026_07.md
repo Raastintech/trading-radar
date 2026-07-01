@@ -1,6 +1,6 @@
 # Scanner Truth Review — 2026-05 (Phase 1G.5)
 
-*Generated 2026-07-01T00:40:33.870989+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
+*Generated 2026-07-01T16:13:09.703435+00:00 · 1G.5 — Scanner Truth Review (FULL: Tasks 1-11) · research-only, cache-only.*
 
 ## 1. Executive summary
 
@@ -12,8 +12,8 @@
 
 ## 2. Were market winners missed?
 
-- Liquid winners ≥+50%: **433**, ≥+80%: **228**, ≥2x: **149** (scanned 5548; 808 illiquid excluded).
-- By theme: `other`=199, `unknown`=68, `semiconductors`=60, `biotech_healthcare`=53, `hardware`=29, `space_aerospace`=14, `quantum`=3, `memory_storage`=3, `nuclear_energy`=3, `crypto_blockchain`=1.
+- Liquid winners ≥+50%: **433**, ≥+80%: **228**, ≥2x: **149** (scanned 5549; 808 illiquid excluded).
+- By theme: `other`=201, `unknown`=66, `semiconductors`=60, `biotech_healthcare`=53, `hardware`=29, `space_aerospace`=14, `quantum`=3, `memory_storage`=3, `nuclear_energy`=3, `crypto_blockchain`=1.
 
 ## 3. Top missed winners (liquid, by trailing max return)
 
@@ -49,9 +49,9 @@
 
 | root cause | count |
 |---|--:|
-| FILTER_TOO_STRICT | 103 |
-| UNIVERSE_MISS | 97 |
-| DATA_MISS | 26 |
+| FILTER_TOO_STRICT | 102 |
+| UNIVERSE_MISS | 99 |
+| DATA_MISS | 25 |
 | VALID_NO_TRADE | 2 |
 
 Detection timing: early **0**, late **4**, blind **224**.
@@ -64,7 +64,7 @@ Detection timing: early **0**, late **4**, blind **224**.
 
 ## 6. Comparison vs simple baselines
 
-As-of 2026-04-02, 60td forward, 258 forward winners in 2282 liquid names.
+As-of 2026-04-02, 60td forward, 258 forward winners in 2283 liquid names.
 
 | baseline | flagged | recall | precision | avg fwd ret |
 |---|--:|--:|--:|--:|
@@ -80,8 +80,8 @@ As-of 2026-04-02, 60td forward, 258 forward winners in 2282 liquid names.
 
 | theme | winners | median max | on board | seen | visibility |
 |---|--:|--:|--:|--:|---|
-| other | 199 | 79% | 15 | 1 | visible_on_board |
-| unknown | 68 | 71% | 0 | 0 | absent_from_board |
+| other | 201 | 79% | 15 | 1 | visible_on_board |
+| unknown | 66 | 71% | 0 | 0 | absent_from_board |
 | semiconductors | 60 | 113% | 2 | 2 | visible_on_board |
 | biotech_healthcare | 53 | 81% | 3 | 1 | visible_on_board |
 | hardware | 29 | 100% | 0 | 0 | absent_from_board |
@@ -103,9 +103,9 @@ As-of 2026-04-02, 60td forward, 258 forward winners in 2282 liquid names.
 | liquidity_dvol | avg$vol≥$5M & vol≥300k | 552 | 2430 | 63.4% | BY-DESIGN exclusion |
 | voyager_max_extension_ma50 | >12% above MA50 → reject | 82 | 369 | 9.4% | KEEP |
 | voyager_ma200_floor | price < MA200×0.92 → reject | 71 | 89 | 8.2% | KEEP |
-| voyager_bars_needed_260 | <260 bars → reject | 715 | 4518 | 82.2% | INDETERMINATE |
+| voyager_bars_needed_260 | <260 bars → reject | 715 | 4519 | 82.2% | INDETERMINATE |
 | sniper_bars_needed_75 | <75 bars → reject | 668 | 4260 | 76.8% | INDETERMINATE |
-| alpha_market_cap_band | mcap∉[$300M,$80B] | 64 | 187 | 7.4% | KEEP |
+| alpha_market_cap_band | mcap∉[$300M,$80B] | 64 | 188 | 7.4% | KEEP |
 
 _Not reliably computable (disclosed, not guessed):_ voyager_rs_130 / fundamental_score; voyager_dvol_trend_ratio; sniper_vol_spike_1.4x / atr_contraction_0.85; earnings_safe_days; options_liquidity / 13F_sponsorship; top_25_board_cap.
 

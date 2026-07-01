@@ -2960,6 +2960,112 @@ class PB:  # PanelBuilder — all static
                      border_style="magenta", padding=(0, 1))
 
     @staticmethod
+    def scanner_cat_panel(
+        data: DataLayer,
+        cat_key: str,
+        title: str,
+        border_color: str = "white",
+        max_items: int = 60,
+    ) -> Panel:
+        """Compact per-category panel for Mode 4 scanner grid. Cache-only.
+
+        Items are sorted score-desc (then combined-RS desc as tie-break) so the
+        highest-conviction names always appear first regardless of how the sidecar
+        was written.
+        """
+        sc = data.get("research_scanner") or {}
+        items = list((sc.get("categories") or {}).get(cat_key, []))
+
+        # Sort: primary = research_score desc; secondary = combined RS (0.6*63d + 0.4*20d) desc
+        def _sort_key(x: Dict) -> Tuple:
+            score  = -(x.get("research_score") or 0)
+            rs20   = x.get("rs_20d_vs_spy") or 0.0
+            rs63   = x.get("rs_63d_vs_spy") or 0.0
+            crs    = -(rs63 * 0.6 + rs20 * 0.4)
+            return (score, crs)
+
+        items.sort(key=_sort_key)
+
+        _STAT_STYLE = {
+            "rs_momentum_leader":    "bold cyan",
+            "early_accumulation":    "green",
+            "catalyst_watch":        "yellow",
+            "sector_theme_leaders":  "bold green",
+            "beaten_down_recovery":  "yellow",
+            "social_arb_attention":  "magenta",
+            "long_term_asymmetric":  "bold magenta",
+        }
+        stat_style = _STAT_STYLE.get(cat_key, "white")
+
+        t = Text()
+        if not items:
+            t.append("no candidates\n", style="dim")
+        else:
+            for item in items[:max_items]:
+                ticker = str(item.get("ticker") or "?")
+                rs20   = item.get("rs_20d_vs_spy")
+                rs63   = item.get("rs_63d_vs_spy")
+                why    = str(item.get("why_appeared") or "")
+                sector = str(item.get("sector") or "")[:10]
+                score  = item.get("research_score")
+
+                t.append(f"{ticker:<6}", style="bold white")
+
+                if cat_key == "rs_momentum_leader":
+                    r20 = f"+{rs20:.0f}pp" if rs20 is not None else "?"
+                    r63 = f"+{rs63:.0f}pp" if rs63 is not None else "?"
+                    t.append(f" {r20:>8}/{r63}", style=stat_style)
+
+                elif cat_key == "catalyst_watch":
+                    m = re.search(r'\((\d{4}-(\d{2})-(\d{2}))\)', why)
+                    date_s = f"earn {m.group(2)}-{m.group(3)}" if m else why[:12]
+                    sc_s   = f"  s={score:.0f}" if score is not None else ""
+                    t.append(f" {date_s}{sc_s}", style=stat_style)
+
+                elif cat_key == "beaten_down_recovery":
+                    m = re.search(r'drawdown \((-?\d+%)', why)
+                    dd_s = m.group(1) if m else "dd=?"
+                    rs_s = f"  rs={rs20:+.0f}pp" if rs20 is not None else ""
+                    t.append(f" {dd_s}{rs_s}", style=stat_style)
+
+                elif cat_key == "social_arb_attention":
+                    if "social attention" in why.lower():
+                        src = "social signal"
+                    elif "no social" in why.lower():
+                        src = "no data"
+                    else:
+                        src = why[:14]
+                    t.append(f" {src}", style=stat_style if "signal" in src else "dim")
+
+                elif cat_key == "long_term_asymmetric":
+                    # Prefer 63d RS (multi-month); show score as conviction proxy
+                    rs_s = f"rs63={rs63:+.0f}pp" if rs63 is not None else (f"rs20={rs20:+.0f}pp" if rs20 is not None else "")
+                    sc_s = f"  s={score:.0f}" if score is not None else ""
+                    t.append(f" {rs_s}{sc_s}", style=stat_style)
+
+                else:
+                    # early_accumulation, sector_theme_leaders
+                    if rs20 is not None:
+                        t.append(f" rs20={rs20:+.0f}pp", style=stat_style)
+                    elif rs63 is not None:
+                        t.append(f" rs63={rs63:+.0f}pp", style=stat_style)
+
+                if sector:
+                    t.append(f"  {sector}\n", style="dim")
+                else:
+                    t.append("\n")
+
+        count = len(items)
+        age = sc.get("_age_short") or "?"
+        return Panel(
+            t,
+            title=f"[bold {border_color}]{title}[/] [dim]({count})[/]",
+            subtitle=f"[dim]{age} ago[/]",
+            border_style=border_color,
+            padding=(0, 1),
+        )
+
+    @staticmethod
     def evidence_freshness(data: DataLayer) -> Panel:
         ev = data.get("evidence_status") or {}
         snap = data.get("universe_snap") or {}
@@ -7494,42 +7600,54 @@ def build_risk(state,data,claude):
                         next_action=PB.next_action(state, data),
                         edge_banner=PB.selection_edge_banner(data))
 
-def build_scanner(state,data,claude):
+def build_scanner(state, data, claude):
     """
-    Mode 4 (Research) — research pipeline view.
+    Mode 4 (Research) — category scanner grid.
 
-    Left: daily research watchlist + developing universe candidates.
-    Right: alpha discovery board + universe readiness summary.
+    Four columns: RS Momentum | Early Accum + Catalyst | Sector Leaders + Beaten Down | Alpha Discovery
+    Each column shows a compact ticker list organised by scanner category so the
+    operator can see at a glance which names hit each bucket.
     """
     body = Layout()
     body.split_row(
-        Layout(name="left",  ratio=11),
-        Layout(name="right", ratio=9),
+        Layout(name="rs",    ratio=4),
+        Layout(name="mid",   ratio=3),
+        Layout(name="sect",  ratio=3),
+        Layout(name="right", ratio=4),
     )
-    body["left"].split_column(
-        Layout(PB.research_watchlist(data), name="watchlist"),
-        Layout(PB.developing_soon(data),    name="devs",      size=12),
+
+    # Column 1 — RS Momentum Leaders (full height, all tickers, sorted score-then-RS desc)
+    body["rs"].update(
+        PB.scanner_cat_panel(data, "rs_momentum_leader", "RS MOMENTUM LEADERS", "cyan")
     )
+
+    # Column 2 — Early Accumulation (top) + Catalyst Watch (bottom), all tickers each
+    body["mid"].split_column(
+        Layout(PB.scanner_cat_panel(data, "early_accumulation", "EARLY ACCUMULATION", "green"),  name="early"),
+        Layout(PB.scanner_cat_panel(data, "catalyst_watch",     "CATALYST WATCH",     "yellow"), name="cat"),
+    )
+
+    # Column 3 — Sector/Theme Leaders (top) + Beaten Down Recovery (bottom), all tickers each
+    body["sect"].split_column(
+        Layout(PB.scanner_cat_panel(data, "sector_theme_leaders", "SECTOR LEADERS",       "green"),  name="sector"),
+        Layout(PB.scanner_cat_panel(data, "beaten_down_recovery", "BEATEN DOWN RECOVERY", "yellow"), name="beaten"),
+    )
+
+    # Column 4 — Social Arb Attention (top) + Long Term Asymmetric (bottom)
+    # Alpha Discovery lives in Mode 2; removing it here avoids redundancy.
     body["right"].split_column(
-        Layout(
-            PB.alpha_discovery(
-                data,
-                state=state,
-                expanded=False,
-                bte_focus_symbols=set(),
-                show_more_level=state.alpha_show_more,
-                compact_detail=True,
-            ),
-            name="alpha",
-        ),
-        Layout(PB.universe_readiness_summary(data), name="uni_sum", size=10),
+        Layout(PB.scanner_cat_panel(data, "social_arb_attention",  "SOCIAL ARB / ATTENTION", "magenta"),     name="social"),
+        Layout(PB.scanner_cat_panel(data, "long_term_asymmetric",  "LONG TERM ASYMMETRIC",   "bold magenta"), name="longterm"),
     )
-    return _layout_root(PB.header(state,data,claude),
-                        None,
-                        body,
-                        _status_bar(),
-                        next_action=PB.next_action(state, data),
-                        edge_banner=PB.selection_edge_banner(data))
+
+    return _layout_root(
+        PB.header(state, data, claude),
+        None,
+        body,
+        _status_bar(),
+        next_action=PB.next_action(state, data),
+        edge_banner=PB.selection_edge_banner(data),
+    )
 
 _BUILDERS = {M_MONITOR:build_monitor, M_RESEARCH:build_research,
              M_RISK:build_risk, M_SCANNER:build_scanner}
