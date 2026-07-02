@@ -1028,6 +1028,17 @@ cmd_funnel_historizer() {
     run_or_warn "funnel historizer" "$PY" research/funnel_historizer.py "$@"
 }
 
+cmd_refresh_universe_prices() {
+    # Shallow price-cache refresh for the scan universe (2026-07-02 staleness
+    # fix).  Nothing else refreshes cache/prices/ for non-forecast tickers
+    # since the trading daemon's scan loop was decommissioned — without this,
+    # scanner RS/momentum math silently compares weeks-old ticker prices
+    # against a current SPY.  One FMP call per stale ticker, merge-on-write,
+    # capped at --max-calls (default 1100).  DATA-COLLECTION-ONLY.
+    log "[PROVIDER] universe price refresh (shallow cache, budget-capped)"
+    run_or_warn "universe price refresh" "$PY" research/refresh_universe_prices.py --execute "$@"
+}
+
 cmd_research_scanner() {
     # Phase 4B/4C — Research Scanner + Watchlist Scorer.  RESEARCH-ONLY / CACHE-
     # FIRST.  Runs six scanner categories (Early Accumulation, Beaten-Down
@@ -1214,6 +1225,19 @@ cmd_premarket() {
     # only provider call is the FMP earnings calendar (cached 6 h, so a
     # premarket fire typically reads from cache).  Default cap 25.
     cmd_gatekeeper_refresh
+    # Intraday scanner refresh (2026-07-02): rerun the Phase 4A scanner chain
+    # so Mode 4 boards are at most ~12h stale instead of ~24h.  The price
+    # refresh is cheap here — the nightly run already refreshed the universe,
+    # so only tickers that missed it get a provider call; fundamentals /
+    # profile caches (24h TTL) are still warm from the nightly.
+    cmd_refresh_universe_prices
+    cmd_market_heartbeat
+    cmd_research_scanner
+    cmd_research_coverage
+    cmd_research_changes
+    cmd_research_forward_tracker
+    cmd_ten_x_candidates
+    cmd_daily_alpha_radar
     log "premarket cycle complete"
 }
 
@@ -1319,6 +1343,11 @@ cmd_nightly() {
     # Market heartbeat runs here so the Daily Alpha Radar and Nightly Summary
     # read a fresh regime/trend label from the same cycle.
     cmd_market_heartbeat
+    # Universe price refresh BEFORE the scanner so RS/momentum math reads
+    # today's close for the full scan universe, not just the ~20 forecast
+    # symbols the 03:30 ET pre-warm covers.  Tickers already fresh are
+    # skipped, so the steady-state cost is one call per universe ticker/day.
+    cmd_refresh_universe_prices
     cmd_research_scanner
     cmd_research_coverage
     cmd_research_changes
@@ -1444,6 +1473,7 @@ case "$SUB" in
     market-heartbeat)      cmd_market_heartbeat      "${POS[@]}" ;;
     funnel-historizer)     cmd_funnel_historizer     "${POS[@]}" ;;
     research-scanner)      cmd_research_scanner      "${POS[@]}" ;;
+    refresh-universe-prices) cmd_refresh_universe_prices "${POS[@]}" ;;
     stock-research-card)   cmd_stock_research_card   "${POS[@]}" ;;
     fmp-provider-health)     cmd_fmp_provider_health     "${POS[@]}" ;;
     tradier-research-health) cmd_tradier_research_health "${POS[@]}" ;;

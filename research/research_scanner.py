@@ -220,19 +220,90 @@ logger = logging.getLogger("research_scanner")
 # ── Price utilities ──────────────────────────────────────────────────────────
 
 
+# Max staleness (calendar days) for a ticker's last bar before the frame is
+# treated as unusable for RS/momentum math.  None = no gate (unit-test default;
+# tests build synthetic frames with arbitrary dates).  main() sets this for
+# real runs so a 3-week-stale parquet can't be compared against a current SPY.
+_MAX_STALE_DAYS: Optional[int] = None
+_STALE_SKIPPED: Set[str] = set()
+
+# Price-series sanity guard (2026-07-02): FMP EOD history for some micro-caps
+# mixes adjusted/unadjusted prints — e.g. repeated same-week x10 up / x0.1 down
+# flips, or isolated x25-x37 single-day jumps from unadjusted reverse splits.
+# Those series produce four-digit fake RS values that crowd out real leaders.
+# Any close-to-close ratio outside [LO, HI] within the RS lookback window marks
+# the series suspect and the ticker is skipped (surfaced in the sidecar).
+_SUSPECT_JUMP_HI = 2.5
+_SUSPECT_JUMP_LO = 0.4
+_SUSPECT_WINDOW = 64
+_DATA_SUSPECT_SKIPPED: Set[str] = set()
+
+
+def _price_series_suspect(closes: List[float]) -> bool:
+    tail = closes[-_SUSPECT_WINDOW:]
+    for a, b in zip(tail, tail[1:]):
+        if a > 0 and (b / a > _SUSPECT_JUMP_HI or b / a < _SUSPECT_JUMP_LO):
+            return True
+    return False
+
+
 def _load_cached_frame(symbol: str) -> Optional[pd.DataFrame]:
-    path = PRICE_DIR / f"{symbol.upper()}.parquet"
-    if not path.exists():
-        return None
-    try:
-        df = pd.read_parquet(path)
-        if df is None or df.empty:
+    """Merged price frame: deep backfill history + shallow recent bars.
+
+    Mirrors the universe builder's merged read — the scan lanes previously
+    read only the shallow cache, so MA200/252d windows were silently None
+    for every ticker whose deep history lives in cache/prices_deep/.
+    """
+    def _read(path: Path) -> Optional[pd.DataFrame]:
+        if not path.exists():
             return None
-        if "close" not in df.columns and "Close" in df.columns:
-            df = df.rename(columns={"Close": "close"})
-        return df
-    except Exception:
+        try:
+            df = pd.read_parquet(path)
+            if df is None or df.empty:
+                return None
+            if "close" not in df.columns and "Close" in df.columns:
+                df = df.rename(columns={"Close": "close"})
+            return df
+        except Exception:
+            return None
+
+    sym = symbol.upper()
+    df_shallow = _read(PRICE_DIR / f"{sym}.parquet")
+    df_deep = _read(DEEP_PRICE_DIR / f"{sym}.parquet") if DEEP_PRICE_DIR.exists() else None
+
+    if df_shallow is None and df_deep is None:
         return None
+    if df_shallow is None:
+        df = df_deep
+    elif df_deep is None:
+        df = df_shallow
+    else:
+        try:
+            combined = pd.concat([df_deep, df_shallow], axis=0)
+            combined = combined[~combined.index.duplicated(keep="last")]
+            df = combined.sort_index()
+        except Exception:
+            df = df_shallow if len(df_shallow) >= len(df_deep) else df_deep
+
+    if _MAX_STALE_DAYS is not None and df is not None:
+        try:
+            last = pd.to_datetime(df.index).max().date()
+            age = (datetime.now(timezone.utc).date() - last).days
+            if age > _MAX_STALE_DAYS:
+                _STALE_SKIPPED.add(sym)
+                return None
+        except Exception:
+            pass
+
+    if df is not None and sym != "SPY":
+        try:
+            closes = [float(v) for v in df["close"].dropna().tolist()] if "close" in df.columns else []
+            if closes and _price_series_suspect(closes):
+                _DATA_SUSPECT_SKIPPED.add(sym)
+                return None
+        except Exception:
+            pass
+    return df
 
 
 def _closes(df: Optional[pd.DataFrame]) -> List[float]:
@@ -2032,6 +2103,11 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
         "system_mode": SYSTEM_MODE,
         "research_only": True,
         "universe_size": len(universe),
+        "stale_price_skip_days": _MAX_STALE_DAYS,
+        "stale_price_skipped_count": len(_STALE_SKIPPED),
+        "stale_price_skipped_sample": sorted(_STALE_SKIPPED)[:25],
+        "data_suspect_skipped_count": len(_DATA_SUSPECT_SKIPPED),
+        "data_suspect_skipped_sample": sorted(_DATA_SUSPECT_SKIPPED)[:25],
         "offline_mode": offline,
         "fmp_available": not _is_offline_fmp(),
         "social_data_available": social_available,
@@ -2221,7 +2297,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument("--cap", type=int, default=DEFAULT_UNIVERSE_CAP,
                         help=f"Universe size cap (default {DEFAULT_UNIVERSE_CAP})")
     parser.add_argument("--print", dest="print_text", action="store_true")
+    parser.add_argument("--max-stale-days", type=int, default=7,
+                        help="Skip tickers whose last cached bar is older than N calendar days "
+                             "(prevents stale-vs-current-SPY RS distortion; 0 disables). Default 7.")
     args = parser.parse_args(argv)
+
+    global _MAX_STALE_DAYS
+    _MAX_STALE_DAYS = args.max_stale_days if args.max_stale_days > 0 else None
 
     print(RESEARCH_ONLY_BANNER)
 
