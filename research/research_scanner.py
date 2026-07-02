@@ -858,19 +858,23 @@ def _build_universe(
 def _write_universe_build_log(build_info: Dict[str, Any]) -> None:
     """Write universe build sidecar JSON + human-readable text log.
 
-    Paths are derived from the current module-level RESEARCH_DIR and cfg.LOG_DIR
-    at call time so that test patches to RESEARCH_DIR are respected.
+    Paths come from the module-level UNIVERSE_BUILD_JSON / UNIVERSE_MISS_JSON /
+    UNIVERSE_BUILD_TXT constants, read at call time so test patches are
+    respected.  Tests are sandboxed centrally by an autouse conftest fixture —
+    on 2026-07-02 a pytest run clobbered the real
+    research_universe_build_latest.json with a fixture universe, which would
+    have silently degraded the nightly refresh-universe-prices step (it reads
+    this sidecar for its ticker list) to SPY-only.
     """
     if not build_info:
         return
 
-    # Compute paths dynamically so test patches to RESEARCH_DIR take effect
-    out_json = RESEARCH_DIR / "research_universe_build_latest.json"
-    out_miss = RESEARCH_DIR / "universe_miss_diagnostic_latest.json"
-    out_txt = cfg.LOG_DIR / "research_universe_build_latest.txt"
+    out_json = UNIVERSE_BUILD_JSON
+    out_miss = UNIVERSE_MISS_JSON
+    out_txt = UNIVERSE_BUILD_TXT
 
-    RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
-    cfg.LOG_DIR.mkdir(parents=True, exist_ok=True)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_txt.parent.mkdir(parents=True, exist_ok=True)
 
     # JSON sidecar — includes full universe list
     out_json.write_text(json.dumps(build_info, indent=2), encoding="utf-8")
