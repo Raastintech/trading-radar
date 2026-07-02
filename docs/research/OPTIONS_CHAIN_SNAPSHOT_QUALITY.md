@@ -1,37 +1,38 @@
 # Options Chain Snapshot Quality (Phase 1J.1)
 
-Generated: 2026-06-30T19:46:17.241826+00:00
+Generated: 2026-07-02T19:46:08.538626+00:00
 
 Status: **DATA_COLLECTION_ONLY** — quality audit of persisted snapshots; no strategy, no signals.
 
-Snapshot days retained: 13 (2026-06-12, 2026-06-15, 2026-06-16, 2026-06-17, 2026-06-18, 2026-06-19, 2026-06-22, 2026-06-23, 2026-06-24, 2026-06-25, 2026-06-26, 2026-06-29, 2026-06-30). Symbols: 24. Contracts (latest day): 9040.
+Snapshot days retained: 15 (2026-06-12, 2026-06-15, 2026-06-16, 2026-06-17, 2026-06-18, 2026-06-19, 2026-06-22, 2026-06-23, 2026-06-24, 2026-06-25, 2026-06-26, 2026-06-29, 2026-06-30, 2026-07-01, 2026-07-02). Symbols: 25. Contracts (latest day): 7904.
 
 | Symbol | Days | Contracts | Expirations | Bid/Ask | IV | Greeks | OI | Med Spread | Stale | Usable (per-day quality) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| AAPL | 13 | 288 | 4 | 0.9549 | 1.0 | 0.9896 | 1.0 | 0.0628 | 0.0312 | YES |
-| AMZN | 13 | 224 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0625 | 0.0 | YES |
+| AAPL | 15 | 274 | 4 | 0.9964 | 1.0 | 1.0 | 1.0 | 0.0765 | 0.0036 | YES |
+| AJG | 1 | 34 | 1 | 0.8235 | 1.0 | 1.0 | 1.0 | 0.0789 | 0.1765 | NO: contracts 34 < 40; bid/ask coverage 0.8235 < 0.9 |
+| AMZN | 15 | 232 | 4 | 0.9828 | 1.0 | 1.0 | 1.0 | 0.0734 | 0.0129 | YES |
 | ARW | 1 | 34 | 1 | 0.8235 | 1.0 | 1.0 | 1.0 | 0.1524 | 0.1176 | NO: contracts 34 < 40; bid/ask coverage 0.8235 < 0.9; median spread 0.1524 > 0.12 |
 | AVGO | 1 | 330 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0786 | 0.0 | YES |
-| DIA | 13 | 594 | 4 | 0.963 | 1.0 | 0.9899 | 1.0 | 0.0473 | 0.037 | YES |
-| GOOG | 13 | 336 | 4 | 0.994 | 1.0 | 1.0 | 1.0 | 0.0735 | 0.003 | YES |
-| GOOGL | 13 | 320 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0644 | 0.0 | YES |
-| HUM | 13 | 328 | 4 | 0.9329 | 1.0 | 1.0 | 1.0 | 0.1511 | 0.0671 | NO: median spread 0.1511 > 0.12 |
-| IWM | 13 | 516 | 4 | 1.0 | 1.0 | 0.9981 | 1.0 | 0.0096 | 0.0 | YES |
-| LSCC | 13 | 34 | 1 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0665 | 0.0 | NO: contracts 34 < 40 |
-| META | 13 | 522 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0605 | 0.0 | YES |
-| MSFT | 13 | 328 | 4 | 0.9909 | 1.0 | 1.0 | 1.0 | 0.0607 | 0.0061 | YES |
-| NUE | 12 | 36 | 1 | 0.9722 | 1.0 | 1.0 | 1.0 | 0.1091 | 0.0278 | NO: contracts 36 < 40 |
+| DIA | 15 | 532 | 4 | 0.9756 | 1.0 | 0.985 | 1.0 | 0.0433 | 0.0207 | YES |
+| GOOG | 15 | 310 | 4 | 0.9677 | 1.0 | 1.0 | 1.0 | 0.0817 | 0.0226 | YES |
+| GOOGL | 15 | 310 | 4 | 0.9968 | 1.0 | 1.0 | 1.0 | 0.0685 | 0.0032 | YES |
+| HUM | 15 | 322 | 4 | 0.9565 | 1.0 | 1.0 | 1.0 | 0.1502 | 0.0435 | NO: median spread 0.1502 > 0.12 |
+| IWM | 15 | 446 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0081 | 0.0 | YES |
+| LSCC | 14 | 34 | 1 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0724 | 0.0 | NO: contracts 34 < 40 |
+| META | 15 | 484 | 4 | 0.9917 | 1.0 | 1.0 | 1.0 | 0.0742 | 0.0041 | YES |
+| MSFT | 15 | 328 | 4 | 0.997 | 1.0 | 1.0 | 1.0 | 0.0606 | 0.0 | YES |
+| NUE | 14 | 34 | 1 | 0.9706 | 1.0 | 1.0 | 1.0 | 0.128 | 0.0294 | NO: contracts 34 < 40; median spread 0.128 > 0.12 |
 | NVDA | 12 | 200 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0289 | 0.0 | YES |
-| NXPI | 13 | 36 | 1 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0509 | 0.0 | NO: contracts 36 < 40 |
-| OSCR | 12 | 200 | 4 | 0.985 | 1.0 | 1.0 | 1.0 | 0.3016 | 0.015 | NO: median spread 0.3016 > 0.12 |
-| QQQ | 13 | 1228 | 4 | 1.0 | 1.0 | 0.9984 | 1.0 | 0.0149 | 0.0 | YES |
+| NXPI | 15 | 34 | 1 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0574 | 0.0 | NO: contracts 34 < 40 |
+| OSCR | 14 | 196 | 4 | 0.9898 | 1.0 | 1.0 | 1.0 | 0.2887 | 0.0102 | NO: median spread 0.2887 > 0.12 |
+| QQQ | 15 | 874 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.015 | 0.0 | YES |
 | SBAC | 11 | 72 | 2 | 0.6944 | 1.0 | 0.9861 | 1.0 | 0.1788 | 0.2917 | NO: bid/ask coverage 0.6944 < 0.9; median spread 0.1788 > 0.12 |
-| SMH | 13 | 722 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0421 | 0.0 | YES |
-| SPOT | 2 | 366 | 4 | 0.9809 | 1.0 | 1.0 | 1.0 | 0.1238 | 0.0164 | NO: median spread 0.1238 > 0.12 |
-| SPY | 13 | 1600 | 4 | 1.0 | 0.9856 | 0.9819 | 1.0 | 0.0162 | 0.0 | YES |
-| STLD | 13 | 34 | 1 | 1.0 | 1.0 | 1.0 | 1.0 | 0.081 | 0.0 | NO: contracts 34 < 40 |
-| STM | 1 | 214 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.1436 | 0.0 | NO: median spread 0.1436 > 0.12 |
-| XLK | 13 | 478 | 4 | 0.9686 | 1.0 | 0.9937 | 1.0 | 0.1376 | 0.0272 | NO: median spread 0.1376 > 0.12 |
+| SMH | 15 | 566 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.0485 | 0.0 | YES |
+| SPOT | 4 | 348 | 4 | 0.9799 | 1.0 | 1.0 | 1.0 | 0.1582 | 0.0172 | NO: median spread 0.1582 > 0.12 |
+| SPY | 15 | 1238 | 4 | 1.0 | 1.0 | 0.9814 | 1.0 | 0.0142 | 0.0 | YES |
+| STLD | 15 | 36 | 1 | 0.9444 | 1.0 | 1.0 | 1.0 | 0.0928 | 0.0556 | NO: contracts 36 < 40 |
+| STM | 3 | 194 | 4 | 1.0 | 1.0 | 1.0 | 1.0 | 0.1896 | 0.0 | NO: median spread 0.1896 > 0.12 |
+| XLK | 15 | 442 | 4 | 0.9751 | 1.0 | 1.0 | 1.0 | 0.169 | 0.0249 | NO: median spread 0.169 > 0.12 |
 
 ## Coverage by provider
 
@@ -51,12 +52,12 @@ Snapshot days retained: 13 (2026-06-12, 2026-06-15, 2026-06-16, 2026-06-17, 2026
   },
   "tradier": {
     "iv_coverage": 0.9994,
-    "greeks_coverage": 0.9954,
+    "greeks_coverage": 0.9957,
     "oi_coverage": 1.0,
-    "bid_ask_coverage": 0.9724
+    "bid_ask_coverage": 0.973
   }
 }
 ```
 
-13 snapshot day(s) retained. Usability verdicts describe per-day data quality only; backtest feasibility additionally requires the history gates in OPTIONS_CHAIN_COLLECTION_CADENCE.md.
+15 snapshot day(s) retained. Usability verdicts describe per-day data quality only; backtest feasibility additionally requires the history gates in OPTIONS_CHAIN_COLLECTION_CADENCE.md.
 
