@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research Command Center — RESEARCH ONLY</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --bg:#0b0e14; --panel:#11151f; --panel2:#161b28; --border:#232a3b;
+  --text:#d7dde8; --dim:#7b8496; --accent:#5aa2ff;
+  --pos:#22c55e; --pos-bg:rgba(34,197,94,.13);
+  --neg:#ef4444; --neg-bg:rgba(239,68,68,.12);
+  --amber:#f59e0b; --amber-bg:rgba(245,158,11,.13);
+  --gray-bg:rgba(123,132,150,.10);
+}
+*{box-sizing:border-box} html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:13px/1.45 "SF Mono","Cascadia Code",Menlo,Consolas,monospace;display:flex}
+
+/* ── sidebar ── */
+#sidebar{width:210px;min-width:210px;background:var(--panel);border-right:1px solid var(--border);padding:14px 0;display:flex;flex-direction:column;height:100vh;position:sticky;top:0}
+#sidebar h1{font-size:13px;margin:0 16px 4px;color:var(--accent);letter-spacing:.5px}
+#sidebar .sub{font-size:10px;color:var(--dim);margin:0 16px 14px}
+#sidebar nav{overflow-y:auto}
+#sidebar a{display:block;padding:7px 16px;color:var(--dim);text-decoration:none;border-left:2px solid transparent;cursor:pointer}
+#sidebar a.active{color:var(--text);background:var(--panel2);border-left-color:var(--accent)}
+#sidebar a:hover{color:var(--text)}
+#sidebar a .todo{font-size:9px;color:var(--amber);margin-left:5px}
+#sidebar .foot{margin-top:auto;padding:10px 16px;font-size:10px;color:var(--dim);border-top:1px solid var(--border)}
+
+/* ── main ── */
+#main{flex:1;display:flex;flex-direction:column;min-width:0}
+#status{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--border);align-items:center}
+.chip{padding:3px 9px;border-radius:4px;background:var(--panel2);border:1px solid var(--border);font-size:11px;white-space:nowrap}
+.chip b{color:var(--text)} .chip{color:var(--dim)}
+.chip.ok b{color:var(--pos)} .chip.bad b{color:var(--neg)} .chip.warn b{color:var(--amber)} .chip.info b{color:var(--accent)}
+
+#content{flex:1;overflow:auto;padding:14px}
+#board-meta{color:var(--dim);font-size:11px;margin-bottom:8px;display:flex;gap:14px;align-items:center}
+#filter{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit;width:170px}
+
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{position:sticky;top:0;background:var(--panel);color:var(--dim);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
+th:hover{color:var(--text)}
+th .arr{font-size:9px;color:var(--accent)}
+td{padding:5px 8px;border-bottom:1px solid rgba(35,42,59,.55);white-space:nowrap}
+tr.row{cursor:pointer} tr.row:hover{background:var(--panel2)}
+td.tick{color:var(--accent);font-weight:700}
+td.co{max-width:190px;overflow:hidden;text-overflow:ellipsis;color:var(--dim)}
+.cell{display:inline-block;min-width:52px;text-align:right;padding:1px 6px;border-radius:3px}
+.pos{color:var(--pos);background:var(--pos-bg)} .neg{color:var(--neg);background:var(--neg-bg)}
+.miss{color:var(--dim);background:var(--gray-bg)} .amber{color:var(--amber);background:var(--amber-bg)}
+.tag{padding:1px 6px;border-radius:3px;font-size:10px;background:var(--panel2);border:1px solid var(--border);color:var(--dim)}
+.tag.q{color:var(--amber);border-color:var(--amber)}
+.tag.hp{color:var(--pos);border-color:var(--pos)}
+
+/* ── drawer ── */
+#drawer{position:fixed;top:0;right:-460px;width:440px;height:100vh;background:var(--panel);border-left:1px solid var(--border);transition:right .18s ease;z-index:30;display:flex;flex-direction:column}
+#drawer.open{right:0}
+#drawer header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+#drawer header h2{margin:0;font-size:16px;color:var(--accent)}
+#drawer header button{background:none;border:1px solid var(--border);color:var(--dim);border-radius:4px;cursor:pointer;padding:2px 9px;font:inherit}
+#drawer .body{padding:12px 16px;overflow-y:auto;flex:1}
+#drawer .sect{margin-bottom:14px}
+#drawer .sect h3{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin:0 0 6px}
+#drawer .kv{display:grid;grid-template-columns:130px 1fr;gap:2px 10px;font-size:12px}
+#drawer .kv .k{color:var(--dim)} #drawer .kv .v{color:var(--text);word-break:break-word}
+#drawer .warnrow{margin:3px 0}
+.chart{margin:6px 0 12px} .chart .ttl{font-size:10px;color:var(--dim);margin-bottom:2px;display:flex;justify-content:space-between}
+.chart svg{display:block;background:var(--panel2);border:1px solid var(--border);border-radius:4px}
+.legend{font-size:9px;color:var(--dim);margin-top:2px}
+.legend i{display:inline-block;width:8px;height:2px;vertical-align:middle;margin:0 3px 0 8px}
+#drawer footer{padding:10px 16px;border-top:1px solid var(--border);font-size:10px;color:var(--amber)}
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:20;display:none}
+#overlay.open{display:block}
+
+.stub{padding:40px;text-align:center;color:var(--dim)}
+.stub h2{color:var(--text)} .stub .tag{margin-top:8px;display:inline-block}
+.banner{background:var(--amber-bg);border:1px solid var(--amber);color:var(--amber);padding:6px 12px;border-radius:4px;font-size:11px;margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <h1>RESEARCH COMMAND CENTER</h1>
+  <p class="sub">RESEARCH ONLY · cache-only · read-only</p>
+  <nav id="nav"></nav>
+  <div class="foot">Research only — not a signal or recommendation.</div>
+</aside>
+
+<div id="main">
+  <div id="status"></div>
+  <div id="content"></div>
+</div>
+
+<div id="overlay" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <header><h2 id="d-title">—</h2><button onclick="closeDrawer()">✕ close</button></header>
+  <div class="body" id="d-body"></div>
+  <footer id="d-footer">Research only — not a signal or recommendation.</footer>
+</div>
+
+<script>
+"use strict";
+/* Research Command Center — Phase 1.
+   RESEARCH_ONLY: this page renders cached research artifacts only.
+   It issues GET requests only and can never mutate anything. */
+
+const NAV = [
+  {id:"home",       label:"Research Home"},
+  {id:"alpha",      label:"Alpha Radar"},
+  {id:"board",      label:"Scanner Leaderboard"},
+  {id:"forward-evidence", label:"Forward Evidence", stub:3},
+  {id:"sector-compass",   label:"Sector Compass", stub:3},
+  {id:"social-arb",       label:"Social Arb", stub:3},
+  {id:"fundamental-lens", label:"Fundamental Lens", stub:5},
+  {id:"universe",   label:"Universe Health"},
+  {id:"data-quality",     label:"Data Quality", stub:4},
+  {id:"hp",         label:"High Priority Review"},
+  {id:"extended",   label:"Extended / Crowded"},
+  {id:"young",      label:"Young Listings"},
+  {id:"mot",        label:"Moment of Truth"},
+  {id:"research-journal", label:"Research Journal", stub:6},
+];
+
+let BOARD = null, STATUS = null;
+let sortKey = "research_score", sortDir = -1, filterText = "";
+let activePage = "board";
+
+const $ = s => document.querySelector(s);
+const fmt = (v,d=2) => (v===null||v===undefined||Number.isNaN(v)) ? "—" : Number(v).toFixed(d);
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function heat(v, warn){
+  if (v===null||v===undefined) return `<span class="cell miss">—</span>`;
+  const cls = warn ? "amber" : (v>0 ? "pos" : v<0 ? "neg" : "miss");
+  return `<span class="cell ${cls}">${v>0?"+":""}${Number(v).toFixed(1)}%</span>`;
+}
+
+/* ── nav ── */
+function renderNav(){
+  $("#nav").innerHTML = NAV.map(n =>
+    `<a data-id="${n.id}" class="${n.id===activePage?"active":""}">${n.label}${n.stub?`<span class="todo">P${n.stub}</span>`:""}</a>`
+  ).join("");
+  document.querySelectorAll("#nav a").forEach(a =>
+    a.onclick = () => { activePage = a.dataset.id; renderNav(); renderPage(); });
+}
+
+/* ── status strip ── */
+function chip(label, value, cls){ return `<span class="chip ${cls||""}">${label}: <b>${esc(value)}</b></span>`; }
+function renderStatus(){
+  const s = STATUS || {};
+  const p4 = s.phase_4b || {};
+  const parts = [
+    chip("MODE", s.mode || "RESEARCH_ONLY", "info"),
+    chip("NIGHTLY", s.nightly_status ?? "?", s.nightly_status==="PASS"?"ok":"warn"),
+    chip("REGIME", s.market_regime ?? "?", "info"),
+    chip("PHASE 4B", p4.status ?? "?", p4.status==="BLOCKED"?"warn":"ok"),
+    chip("VERDICT", `${s.operating_verdict??"?"} (tracker: ${s.tracker_verdict??"?"})`,
+         s.operating_verdict==="PASS"?"ok":"warn"),
+    chip("MATURED 5D", s.matured_5d ?? "—"),
+    chip("MATURED 10D", s.matured_10d ?? "—"),
+    chip("BENCHMARKS", s.benchmark_readiness ?? "?", s.benchmark_readiness==="READY"?"ok":"warn"),
+    chip("FRESHNESS", s.data_freshness ?? "?", s.data_freshness==="FRESH"?"ok":"warn"),
+    chip("STALE SKIPPED", s.stale_skipped ?? "—", (s.stale_skipped||0)>0?"warn":""),
+    chip("SUSPECT SKIPPED", s.suspect_skipped ?? "—", (s.suspect_skipped||0)>0?"warn":""),
+    chip("QUARANTINE", s.quarantine_count ?? "—", (s.quarantine_count||0)>0?"warn":""),
+  ];
+  if ((s.missing_artifacts||[]).length)
+    parts.push(chip("MISSING ARTIFACTS", s.missing_artifacts.join(", "), "bad"));
+  $("#status").innerHTML = parts.join("");
+}
+
+/* ── leaderboard ── */
+const COLS = [
+  ["ticker","Ticker"],["company","Company"],["price","Price"],
+  ["r1d","1D"],["r5d","5D"],["r10d","10D"],["r20d","20D"],
+  ["b_spy","vs SPY"],["b_qqq","vs QQQ"],["b_sec","vs Sector"],
+  ["rs_20d_vs_spy","RS"],["sector","Sector"],["sector_etf","ETF"],
+  ["label","Label"],["scanner_category","Category"],["source","Source"],
+  ["confidence","Conf"],["data_quality","DQ"],
+];
+function cellVal(r,k){
+  switch(k){
+    case "r1d": return r.returns["1d"]; case "r5d": return r.returns["5d"];
+    case "r10d": return r.returns["10d"]; case "r20d": return r.returns["20d"];
+    case "b_spy": return r.benchmarks.spy; case "b_qqq": return r.benchmarks.qqq;
+    case "b_sec": return r.benchmarks.sector;
+    default: return r[k];
+  }
+}
+function rowsFiltered(rows){
+  let out = rows;
+  if (filterText){
+    const q = filterText.toUpperCase();
+    out = out.filter(r => (r.ticker||"").includes(q) ||
+      (r.company||"").toUpperCase().includes(q) ||
+      (r.label||"").toUpperCase().includes(q) ||
+      (r.sector||"").toUpperCase().includes(q));
+  }
+  if (activePage==="hp") out = out.filter(r => (r.label||"").includes("HIGH_PRIORITY"));
+  if (activePage==="extended") out = out.filter(r =>
+      (r.label||"").includes("EXTENDED") || (r.label||"").includes("RESET_WATCH") || (r.label||"").includes("CROWDED"));
+  if (activePage==="young") out = out.filter(r => r.warnings.includes("INSUFFICIENT_HISTORY"));
+  if (activePage==="alpha") out = out.filter(r =>
+      ["alpha_board","daily_alpha_radar"].includes(r.source) || (r.label||"").match(/HIGH_PRIORITY|WATCHLIST_RESEARCH|RESET_WATCH|RECLAIM_WATCH/));
+  return out;
+}
+function renderBoard(){
+  const b = BOARD || {rows:[]};
+  if (b.fallback === "MISSING_ARTIFACT"){
+    $("#content").innerHTML = `<div class="banner">Scanner artifact missing — run the nightly research cycle to populate this board. (MISSING_ARTIFACT)</div>`;
+    return;
+  }
+  let rows = rowsFiltered(b.rows.slice());
+  rows.sort((a,b2)=>{
+    const va = cellVal(a,sortKey), vb = cellVal(b2,sortKey);
+    if (va===null||va===undefined) return 1; if (vb===null||vb===undefined) return -1;
+    return (va<vb?-1:va>vb?1:0)*sortDir;
+  });
+  const head = COLS.map(([k,l]) =>
+    `<th data-k="${k}">${l}${k===sortKey?`<span class="arr"> ${sortDir<0?"▼":"▲"}</span>`:""}</th>`).join("");
+  const body = rows.map(r=>{
+    const warn = r.warnings.length>0;
+    const dqCls = r.data_quality==="OK"?"":"q";
+    const lblCls = (r.label||"").includes("HIGH_PRIORITY")?"hp":((r.label||"").match(/QUARANTINE|CONFLICT|EXTENDED/)?"q":"");
+    return `<tr class="row" data-t="${r.ticker}">
+      <td class="tick">${r.ticker}${warn?' <span class="tag q" title="'+r.warnings.join(", ")+'">!</span>':""}</td>
+      <td class="co" title="${esc(r.company)}">${esc(r.company)||"—"}</td>
+      <td>${r.price!==null&&r.price!==undefined?"$"+fmt(r.price):"—"}</td>
+      <td>${heat(r.returns["1d"])}</td><td>${heat(r.returns["5d"])}</td>
+      <td>${heat(r.returns["10d"])}</td><td>${heat(r.returns["20d"])}</td>
+      <td>${heat(r.benchmarks.spy)}</td><td>${heat(r.benchmarks.qqq)}</td><td>${heat(r.benchmarks.sector)}</td>
+      <td>${heat(r.rs_20d_vs_spy, false)}</td>
+      <td>${esc(r.sector)||"—"}</td><td>${esc(r.sector_etf)||"—"}</td>
+      <td><span class="tag ${lblCls}">${esc(r.label)||"—"}</span></td>
+      <td>${esc(r.scanner_category)||"—"}</td>
+      <td>${esc(r.source)}</td>
+      <td>${esc(r.confidence)||"—"}</td>
+      <td><span class="tag ${dqCls}">${esc(r.data_quality)}</span></td>
+    </tr>`;
+  }).join("");
+  $("#content").innerHTML = `
+    <div id="board-meta">
+      <input id="filter" placeholder="filter ticker / sector / label" value="${esc(filterText)}">
+      <span>${rows.length} of ${b.rows.length} candidates · board ${esc(b.generated_at||"?")}</span>
+      <span>green = positive · red = negative · gray = missing/immature · amber = warning</span>
+    </div>
+    <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  document.querySelectorAll("th").forEach(th => th.onclick = ()=>{
+    const k = th.dataset.k;
+    if (sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=-1;}
+    renderBoard();
+  });
+  document.querySelectorAll("tr.row").forEach(tr => tr.onclick = ()=>openDrawer(tr.dataset.t));
+  const f = $("#filter");
+  f.oninput = ()=>{filterText=f.value; renderBoard(); $("#filter").focus();
+    const v=$("#filter").value; $("#filter").setSelectionRange(v.length,v.length);};
+}
+
+/* ── other pages ── */
+function renderHome(){
+  const s = STATUS||{};
+  $("#content").innerHTML = `
+    <div class="banner">Engine status: Phase 4B ${esc((s.phase_4b||{}).status||"?")} — ${esc((s.phase_4b||{}).reason||"")}. Evidence is presented as-is; nothing on this site is a signal.</div>
+    <div class="stub" style="text-align:left;padding:10px">
+      <h2>Research Home</h2>
+      <p>Warnings from the last nightly run:</p>
+      ${(s.warnings||[]).map(w=>`<div class="warnrow">⚠ ${esc(w)}</div>`).join("")||"<p>none</p>"}
+      <p style="margin-top:16px;color:var(--dim)">Use <b>Scanner Leaderboard</b> for the full candidate table, or the sidebar views for filtered slices. Pages marked P2–P6 are placeholders pending approval.</p>
+    </div>`;
+}
+function renderMot(){
+  fetch("api/stub/moment-of-truth"); // no dedicated endpoint yet — render from status
+  const s = STATUS||{};
+  $("#content").innerHTML = `
+    <div class="stub" style="text-align:left;padding:10px">
+      <h2>Moment of Truth</h2>
+      <div class="banner">Operating verdict: ${esc(s.operating_verdict||"?")} · tracker verdict: ${esc(s.tracker_verdict||"?")} · Phase 4B: ${esc((s.phase_4b||{}).status||"?")}</div>
+      <p>Matured 5d: <b>${s.matured_5d??"—"}</b> · Matured 10d: <b>${s.matured_10d??"—"}</b> · Benchmarks: ${esc(s.benchmark_readiness||"?")}</p>
+      <p style="color:var(--dim)">Full delta analysis: <code>docs/research/MOMENT_OF_TRUTH_DELTA_2026_07_02.md</code>. The matured cohort predates the 2026-07-02 price-cache repair — treat pre-fix and post-fix evidence separately.</p>
+    </div>`;
+}
+function renderUniverse(){
+  const s = STATUS||{};
+  $("#content").innerHTML = `
+    <div class="stub" style="text-align:left;padding:10px">
+      <h2>Universe Health</h2>
+      <p>Data freshness: <b>${esc(s.data_freshness||"?")}</b> (scanner age ${s.scanner_age_hours??"?"}h)</p>
+      <p>Stale-price skipped: <b>${s.stale_skipped??"—"}</b> · Suspect feeds skipped: <b>${s.suspect_skipped??"—"}</b> · Quarantine: <b>${s.quarantine_count??"—"}</b></p>
+      <p style="color:var(--dim)">Full data-quality dashboard is Phase 4 (pending approval).</p>
+    </div>`;
+}
+function renderStub(id){
+  fetch(`api/stub/${id}`).then(r=>r.json()).then(d=>{
+    $("#content").innerHTML = `<div class="stub"><h2>${esc(NAV.find(n=>n.id===id)?.label||id)}</h2>
+      <p>${esc(d.note||"Pending approval")}</p><span class="tag q">TODO — not yet built</span></div>`;
+  }).catch(()=>{ $("#content").innerHTML = `<div class="stub">TODO</div>`; });
+}
+function renderPage(){
+  if (["board","hp","extended","young","alpha"].includes(activePage)) return renderBoard();
+  if (activePage==="home") return renderHome();
+  if (activePage==="mot") return renderMot();
+  if (activePage==="universe") return renderUniverse();
+  return renderStub(activePage);
+}
+
+/* ── drawer ── */
+function kv(k,v){ return `<div class="k">${k}</div><div class="v">${v===null||v===undefined||v===""?"—":v}</div>`; }
+function openDrawer(t){
+  fetch(`api/ticker/${encodeURIComponent(t)}`).then(r=>r.json()).then(d=>{
+    $("#d-title").textContent = `${d.ticker} — ${d.company||"?"}`;
+    const fwd = d.forward||{}, fr = fwd.returns||{}, fb = fwd.benchmarks_10d||{};
+    const mat = fwd.forward_maturity||{};
+    $("#d-body").innerHTML = `
+      ${d.fallback?`<div class="banner">${esc(d.fallback)} — limited detail available.</div>`:""}
+      <div class="sect"><h3>Identity</h3><div class="kv">
+        ${kv("Sector", esc(d.sector))}${kv("Industry", esc(d.industry))}
+        ${kv("Sector ETF", esc(d.sector_etf))}
+        ${kv("Latest price", d.price!==null&&d.price!==undefined?`$${fmt(d.price)} <span style="color:var(--dim)">(${esc(d.price_date||"?")})</span>`:"—")}
+        ${kv("Market cap", d.market_cap?`$${(d.market_cap/1e9).toFixed(2)}B`:"—")}
+      </div></div>
+      <div class="sect"><h3>Research classification</h3><div class="kv">
+        ${kv("Label", `<span class="tag">${esc(d.label)}</span>`)}
+        ${kv("Scanner category", esc(d.scanner_category))}
+        ${kv("All categories", esc((d.all_categories||[]).join(", ")))}
+        ${kv("Source", esc(d.source))}
+        ${kv("Confidence", esc(d.confidence))}
+        ${kv("Research score", d.research_score??"—")}
+        ${kv("Extension", esc(d.extension_state))}
+      </div></div>
+      <div class="sect"><h3>Why it appeared</h3>
+        <div>${esc(d.reason)||"—"}</div>
+        ${d.confirms_if?`<div style="color:var(--pos);margin-top:4px">confirms if: ${esc(d.confirms_if)}</div>`:""}
+        ${d.invalidates_if?`<div style="color:var(--neg);margin-top:2px">invalidates if: ${esc(d.invalidates_if)}</div>`:""}
+      </div>
+      <div class="sect"><h3>Forward evidence</h3><div class="kv">
+        ${kv("Appeared", esc(fwd.appearance_date))}
+        ${kv("5d", mat.has_5d?heat(fr["5d"]):`<span class="cell miss">immature</span>`)}
+        ${kv("10d", mat.has_10d?heat(fr["10d"]):`<span class="cell miss">immature</span>`)}
+        ${kv("20d", mat.has_20d?heat(fr["20d"]):`<span class="cell miss">immature</span>`)}
+        ${kv("10d vs SPY", heat(fb.spy))}${kv("10d vs QQQ", heat(fb.qqq))}
+        ${kv("10d vs sector", heat(fb.sector))}
+      </div></div>
+      <div class="sect"><h3>Data quality</h3><div class="kv">
+        ${kv("Quality", `<span class="tag ${d.data_quality==="OK"?"":"q"}">${esc(d.data_quality)}</span>`)}
+        ${kv("Bars available", d.bars_available??"—")}
+        ${kv("RS 20d / 63d vs SPY", `${fmt(d.rs_20d_vs_spy,1)}pp / ${fmt(d.rs_63d_vs_spy,1)}pp`)}
+        ${kv("Warnings", (d.warnings||[]).length?(d.warnings||[]).map(w=>`<span class="tag q">${esc(w)}</span>`).join(" "):"none")}
+      </div></div>
+      <div class="sect"><h3>Review</h3><div class="kv">
+        ${kv("Social Arb status", esc(d.social_status)||"—")}
+        ${kv("Claude review", esc(d.claude_review)||"not available")}
+        ${kv("Manual review", d.manual_review_required?'<span class="tag q">REQUIRED</span>':"—")}
+      </div></div>
+      <div class="sect"><h3>Charts</h3><div id="d-charts" style="color:var(--dim)">loading…</div></div>`;
+    loadCharts(d.ticker);
+    $("#d-footer").textContent = d.research_only_footer || "Research only — not a signal or recommendation.";
+    $("#drawer").classList.add("open"); $("#overlay").classList.add("open");
+  });
+}
+function closeDrawer(){ $("#drawer").classList.remove("open"); $("#overlay").classList.remove("open"); }
+
+/* ── Phase 2: read-only research charts (inline SVG, no dependencies) ── */
+const W=396, LH=86, VH=44;
+function scaleSeries(all){ // min/max over every non-null value of every series
+  let mn=Infinity, mx=-Infinity;
+  all.forEach(s=>(s||[]).forEach(v=>{ if(v!==null&&v!==undefined){ if(v<mn)mn=v; if(v>mx)mx=v; }}));
+  if(!isFinite(mn)){mn=0;mx=1} if(mn===mx){mn-=1;mx+=1}
+  return [mn,mx];
+}
+function pathFor(s, mn, mx, h){
+  const n=s.length; let d="", pen=false;
+  for(let i=0;i<n;i++){
+    const v=s[i];
+    if(v===null||v===undefined){pen=false;continue}
+    const x=(i/(n-1||1))*W, y=h-((v-mn)/(mx-mn))*(h-4)-2;
+    d += (pen?"L":"M")+x.toFixed(1)+","+y.toFixed(1); pen=true;
+  }
+  return d;
+}
+function lineChart(title, series, colors, opts={}){
+  const h=opts.h||LH, [mn,mx]=scaleSeries(series);
+  let inner="";
+  if(opts.zero && mn<0 && mx>0){
+    const zy=h-((0-mn)/(mx-mn))*(h-4)-2;
+    inner+=`<line x1="0" y1="${zy.toFixed(1)}" x2="${W}" y2="${zy.toFixed(1)}" stroke="#39415a" stroke-dasharray="3,3"/>`;
+  }
+  series.forEach((s,i)=>{ if(s) inner+=`<path d="${pathFor(s,mn,mx,h)}" fill="none" stroke="${colors[i]}" stroke-width="1.3"/>`; });
+  return `<div class="chart"><div class="ttl"><span>${title}</span><span>${mn.toFixed(1)} … ${mx.toFixed(1)}</span></div>
+    <svg width="${W}" height="${h}" viewBox="0 0 ${W} ${h}">${inner}</svg>${opts.legend||""}</div>`;
+}
+function volChart(vol){
+  if(!vol) return "";
+  const mx=Math.max(...vol.filter(v=>v!==null),1);
+  const n=vol.length, bw=Math.max(1,(W/n)-0.4);
+  let bars="";
+  for(let i=0;i<n;i++){
+    const v=vol[i]; if(v===null||v===undefined) continue;
+    const bh=(v/mx)*(VH-3), x=(i/(n-1||1))*(W-bw);
+    bars+=`<rect x="${x.toFixed(1)}" y="${(VH-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="#3b4a6b"/>`;
+  }
+  return `<div class="chart"><div class="ttl"><span>Volume</span></div>
+    <svg width="${W}" height="${VH}" viewBox="0 0 ${W} ${VH}">${bars}</svg></div>`;
+}
+function fwdBars(fwd){
+  const fb=(fwd||{}).benchmarks_10d||{}, fr=(fwd||{}).returns||{};
+  const rows=[["5d abs",fr["5d"]],["10d abs",fr["10d"]],["20d abs",fr["20d"]],
+              ["10d vs SPY",fb.spy],["10d vs QQQ",fb.qqq],["10d vs sector",fb.sector]];
+  const vals=rows.map(r=>r[1]).filter(v=>v!==null&&v!==undefined);
+  if(!vals.length) return `<div class="chart"><div class="ttl"><span>Forward vs benchmark</span></div><div style="color:var(--dim);font-size:11px">immature — no matured forward evidence yet</div></div>`;
+  const mx=Math.max(...vals.map(Math.abs),1), half=W/2;
+  let g="";
+  rows.forEach((r,i)=>{
+    const y=i*16+3, v=r[1];
+    g+=`<text x="2" y="${y+9}" fill="#7b8496" font-size="9">${r[0]}</text>`;
+    if(v===null||v===undefined){ g+=`<text x="${half+4}" y="${y+9}" fill="#7b8496" font-size="9">—</text>`; return; }
+    const w=Math.abs(v)/mx*(half-70), x=v>=0?half:half-w;
+    g+=`<rect x="${x.toFixed(1)}" y="${y}" width="${Math.max(w,1).toFixed(1)}" height="11" fill="${v>=0?"#22c55e":"#ef4444"}" opacity=".75"/>
+        <text x="${(v>=0?half+w+4:half-w-30).toFixed(1)}" y="${y+9}" fill="${v>=0?"#22c55e":"#ef4444"}" font-size="9">${v>0?"+":""}${v.toFixed(1)}%</text>`;
+  });
+  const h=rows.length*16+6;
+  return `<div class="chart"><div class="ttl"><span>Forward vs benchmark</span></div>
+    <svg width="${W}" height="${h}" viewBox="0 0 ${W} ${h}">
+      <line x1="${half}" y1="0" x2="${half}" y2="${h}" stroke="#39415a"/>${g}</svg></div>`;
+}
+function loadCharts(t){
+  fetch(`api/series/${encodeURIComponent(t)}`).then(r=>r.json()).then(s=>{
+    const el=$("#d-charts"); if(!el) return;
+    if(s.fallback){ el.innerHTML=`<span class="tag q">${esc(s.fallback)}</span> no price series available`; return; }
+    const legend=`<div class="legend"><i style="background:#5aa2ff"></i>close<i style="background:#f59e0b"></i>MA50<i style="background:#a855f7"></i>MA200</div>`;
+    let html = lineChart(`Price (${s.bars} bars)`, [s.close, s.ma50, s.ma200],
+                         ["#5aa2ff","#f59e0b","#a855f7"], {legend});
+    html += volChart(s.volume);
+    if(s.rs_vs_spy)    html += lineChart("RS vs SPY (cum %, date-aligned)",    [s.rs_vs_spy],   ["#22c55e"], {zero:true,h:64});
+    if(s.rs_vs_qqq)    html += lineChart("RS vs QQQ (cum %)",                  [s.rs_vs_qqq],   ["#5aa2ff"], {zero:true,h:64});
+    if(s.rs_vs_sector) html += lineChart(`RS vs sector ETF (${esc(s.sector_etf||"?")})`, [s.rs_vs_sector],["#f59e0b"], {zero:true,h:64});
+    html += fwdBars(s.forward);
+    if((s.warnings||[]).length) html += `<div>${s.warnings.map(w=>`<span class="tag q">${esc(w)}</span>`).join(" ")}</div>`;
+    el.innerHTML = html;
+  }).catch(()=>{ const el=$("#d-charts"); if(el) el.textContent="chart data unavailable"; });
+}
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeDrawer(); });
+
+/* ── boot ── */
+Promise.all([
+  fetch("api/status").then(r=>r.json()).catch(()=>({fallback:"MISSING_ARTIFACT"})),
+  fetch("api/leaderboard").then(r=>r.json()).catch(()=>({rows:[],fallback:"MISSING_ARTIFACT"})),
+]).then(([s,b])=>{ STATUS=s; BOARD=b; renderNav(); renderStatus(); renderPage(); });
+</script>
+</body>
+</html>
