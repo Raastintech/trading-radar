@@ -392,7 +392,11 @@ def _build_forward_evidence(forward: Optional[Dict[str, Any]]) -> Dict[str, Any]
         benchmark_readiness = "NOT_READY"
         benchmark_detail = "benchmark series not yet available"
 
-    alpha_proven = verdict not in ("NEED_MORE_DATA", "TOO_EARLY")
+    # "Alpha proven" requires an affirmative verdict.  The old check
+    # (`not in NEED_MORE_DATA/TOO_EARLY`) printed "Alpha proven: YES" for
+    # MIXED and even NO_FORWARD_EDGE — an overclaim first caught 2026-07-02
+    # when the matured cohort's MIXED verdict rendered as proven alpha.
+    alpha_proven = verdict == "PROMISING"
 
     return {
         "available": True,

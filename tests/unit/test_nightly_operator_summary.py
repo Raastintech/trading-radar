@@ -321,6 +321,23 @@ def test_forward_evidence_fields():
     assert fwd["alpha_proven"] is False
 
 
+def test_forward_evidence_mixed_verdict_is_not_proven_alpha():
+    """MIXED / NO_FORWARD_EDGE must never render as 'Alpha proven: YES'.
+
+    Regression for the 2026-07-02 overclaim: the old boolean treated any
+    verdict other than NEED_MORE_DATA/TOO_EARLY as proven alpha.
+    """
+    for verdict in ("MIXED", "NO_FORWARD_EDGE", "EARLY_SIGNAL"):
+        payload = _make_forward()
+        payload["overall"]["verdict"] = verdict
+        fwd = _build_forward_evidence(payload)
+        assert fwd["alpha_proven"] is False, verdict
+    payload = _make_forward()
+    payload["overall"]["verdict"] = "PROMISING"
+    fwd = _build_forward_evidence(payload)
+    assert fwd["alpha_proven"] is True
+
+
 def test_forward_evidence_missing():
     fwd = _build_forward_evidence(None)
     assert fwd["available"] is False
