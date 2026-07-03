@@ -863,3 +863,144 @@ def build_social_overview(store: Optional[ArtifactStore] = None) -> Dict[str, An
         "fallback": None,
         "research_only_footer": RESEARCH_ONLY_FOOTER,
     }
+
+
+# ── Phase 4: data-quality dashboard ──────────────────────────────────────────
+#
+# This page exists because stale prices silently contaminated the scanner
+# for three weeks (2026-06-12 → 2026-07-02).  Everything here is read from
+# sidecars the research cycle already writes; ages are computed, thresholds
+# are display-only.
+
+SIDECAR_FRESH_HOURS = 26.0   # nightly cadence + slack; display threshold only
+
+
+def build_data_quality(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    store = store or ArtifactStore()
+
+    scanner = _load_json(store.scanner_json)
+    forward = _load_json(store.forward_json)
+    radar = _load_json(store.radar_json)
+    summary = _load_json(store.summary_json)
+    refresh = _load_json(store.research_dir / "universe_price_refresh_latest.json")
+    coverage = _load_json(store.research_dir / "research_coverage_latest.json")
+
+    if all(x is None for x in (scanner, forward, radar, summary, refresh, coverage)):
+        return {"fallback": MISSING_ARTIFACT,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+
+    # ── provider price refresh (the fix that ended the stale-cache era) ──
+    price_refresh = None
+    if refresh is not None:
+        price_refresh = {
+            "generated_at": refresh.get("generated_at"),
+            "age_hours": _age_hours(refresh.get("generated_at")),
+            "mode": refresh.get("mode"),
+            "universe_size": refresh.get("universe_size"),
+            "already_fresh": refresh.get("already_fresh"),
+            "stale_or_missing": refresh.get("stale_or_missing"),
+            "refreshed_ok": refresh.get("refreshed_ok"),
+            "refresh_failed": refresh.get("refresh_failed"),
+            "truncated_by_budget": refresh.get("truncated_by_budget"),
+            "failed": (refresh.get("failed") or [])[:25],
+        }
+
+    # ── scanner data guards ──
+    guards = None
+    if scanner is not None:
+        guards = {
+            "stale_skipped": scanner.get("stale_price_skipped_count"),
+            "stale_sample": scanner.get("stale_price_skipped_sample") or [],
+            "suspect_skipped": scanner.get("data_suspect_skipped_count"),
+            "suspect_sample": scanner.get("data_suspect_skipped_sample") or [],
+            "stale_skip_days": scanner.get("stale_price_skip_days"),
+        }
+
+    # ── universe coverage aggregates (per-ticker audit rows) ──
+    universe_coverage = None
+    if coverage is not None:
+        tickers = coverage.get("tickers") or []
+        fresh_2d = stale_7d = lt63 = lt300 = 0
+        for t in tickers:
+            age = t.get("price_age_days")
+            bars = t.get("price_bars")
+            if age is not None:
+                if age <= 2:
+                    fresh_2d += 1
+                elif age > STALE_PRICE_DAYS:
+                    stale_7d += 1
+            if bars is not None:
+                if bars < 63:
+                    lt63 += 1
+                if bars < 300:
+                    lt300 += 1
+        universe_coverage = {
+            "generated_at": coverage.get("generated_at"),
+            "total_tickers": coverage.get("total_tickers"),
+            "confidence_counts": coverage.get("confidence_counts") or {},
+            "actionable_pct": coverage.get("actionable_pct"),
+            "fresh_within_2d": fresh_2d,
+            "stale_over_7d": stale_7d,
+            "bars_below_63": lt63,
+            "bars_below_300": lt300,
+        }
+
+    # ── quarantine + young listings ──
+    quarantine = (radar or {}).get("quarantine_breakdown") or {}
+    young: List[str] = []
+    for item in (scanner or {}).get("watchlist") or []:
+        if item.get("insufficient_history_for_ma200") or (
+                item.get("bars_available") is not None
+                and item["bars_available"] < 63):
+            t = str(item.get("ticker") or "").upper()
+            if t:
+                young.append(t)
+    young = sorted(set(young))[:25]
+
+    # ── benchmark coverage (from the forward tracker) ──
+    benchmark = (forward or {}).get("benchmark_readiness") or {}
+
+    # ── sidecar health ──
+    def _health(name: str, obj: Optional[Dict[str, Any]], path: Path) -> Dict[str, Any]:
+        if obj is None:
+            return {"name": name, "status": "MISSING", "generated_at": None,
+                    "age_hours": None}
+        age = _age_hours(obj.get("generated_at"))
+        if age is None and path.exists():
+            age = (datetime.now(timezone.utc).timestamp()
+                   - path.stat().st_mtime) / 3600.0
+        status = "UNKNOWN"
+        if age is not None:
+            status = "FRESH" if age <= SIDECAR_FRESH_HOURS else "STALE"
+        return {"name": name, "status": status,
+                "generated_at": obj.get("generated_at"),
+                "age_hours": round(age, 1) if age is not None else None}
+
+    sidecar_health = [
+        _health("research_scanner", scanner, store.scanner_json),
+        _health("research_forward", forward, store.forward_json),
+        _health("daily_alpha_radar", radar, store.radar_json),
+        _health("nightly_operator_summary", summary, store.summary_json),
+        _health("universe_price_refresh", refresh,
+                store.research_dir / "universe_price_refresh_latest.json"),
+        _health("research_coverage", coverage,
+                store.research_dir / "research_coverage_latest.json"),
+    ]
+
+    return {
+        "price_refresh": price_refresh,
+        "scanner_guards": guards,
+        "universe_coverage": universe_coverage,
+        "quarantine_breakdown": quarantine,
+        "quarantine_total": sum(quarantine.values()) if quarantine else None,
+        "young_listings": young,
+        "benchmark_coverage": benchmark,
+        "sidecar_health": sidecar_health,
+        "warnings": (summary or {}).get("warnings") or [],
+        # No warnings-history artifact exists yet; showing a trend would
+        # require fabricating one.  Stated honestly instead.
+        "warning_trend_note": ("Trend unavailable — the nightly summary does "
+                               "not persist a warnings history artifact."),
+        "fallback": None,
+        "research_only_footer": RESEARCH_ONLY_FOOTER,
+    }

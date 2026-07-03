@@ -191,7 +191,7 @@ const NAV = [
   {id:"social-arb",       label:"Social Arb",       ini:"SA"},
   {id:"fundamental-lens", label:"Fundamental Lens", ini:"FL", stub:5},
   {id:"universe",   label:"Universe Health",      ini:"UH"},
-  {id:"data-quality",     label:"Data Quality",    ini:"DQ", stub:4},
+  {id:"data-quality",     label:"Data Quality",    ini:"DQ"},
   {id:"hp",         label:"High Priority Review", ini:"HP"},
   {id:"extended",   label:"Extended / Crowded",   ini:"EX"},
   {id:"young",      label:"Young Listings",       ini:"YL"},
@@ -526,7 +526,74 @@ function renderPage(){
   if(activePage==="forward-evidence") return renderForward();
   if(activePage==="sector-compass") return renderSectors();
   if(activePage==="social-arb") return renderSocial();
+  if(activePage==="data-quality") return renderDataQuality();
   return renderStub(activePage);
+}
+
+/* ── Phase 4: Data Quality dashboard ── */
+function renderDataQuality(){
+  $("#workspace").innerHTML=`<h2 class="pg">Data Quality</h2><div style="color:var(--dim)">loading…</div>`;
+  fetch("api/data-quality").then(r=>r.json()).then(d=>{
+    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Data Quality</h2><div class="banner">${esc(d.fallback)} — no data-quality artifacts available.</div>`;return;}
+    const pr=d.price_refresh||{}, g=d.scanner_guards||{}, uc=d.universe_coverage||{};
+    const cc=uc.confidence_counts||{}, bm=d.benchmark_coverage||{}, qb=d.quarantine_breakdown||{};
+    const refreshOk=(pr.refresh_failed===0||pr.refresh_failed===null||pr.refresh_failed===undefined);
+    const health=(d.sidecar_health||[]).map(s=>`<tr>
+      <td class="tick">${esc(s.name)}</td>
+      <td>${badge(s.status)}</td>
+      <td>${s.age_hours??"—"}h</td>
+      <td style="color:var(--dim)">${esc(String(s.generated_at||"—")).slice(0,19)}</td></tr>`).join("");
+    const fails=(pr.failed||[]).map(f=>`<div><span class="wi">⚠</span>${esc(f.ticker)} — ${esc(f.reason||"?")}</div>`).join("");
+    $("#workspace").innerHTML=`
+      <h2 class="pg">Data Quality</h2>
+      <div class="banner">This page exists because stale prices silently contaminated the scanner from 2026-06-12 to 2026-07-02. Watch the refresh + guard counters — if they stop moving, the pipeline is rotting again.</div>
+      <div class="cards">
+        ${card("Universe price refresh (provider)",`<div class="kv">
+          ${kvRow("Status",badge(pr.generated_at?(refreshOk?"PASS":"FAIL"):"MISSING"))}
+          ${kvRow("Last run",pr.age_hours!==null&&pr.age_hours!==undefined?`${pr.age_hours.toFixed(1)}h ago`:"—")}
+          ${kvRow("Universe",pr.universe_size??"—")}
+          ${kvRow("Already fresh",pr.already_fresh??"—",(pr.already_fresh||0)>800?"ok":"")}
+          ${kvRow("Refreshed",pr.refreshed_ok??"—")}
+          ${kvRow("Failed",pr.refresh_failed??"—",(pr.refresh_failed||0)>0?"bad":"ok")}
+          ${kvRow("Budget-truncated",pr.truncated_by_budget??"—",(pr.truncated_by_budget||0)>0?"warn":"")}
+        </div>${fails?`<div class="note">${fails}</div>`:""}`,refreshOk?"accent":"accent-warn")}
+        ${card("Scanner data guards",`<div class="kv">
+          ${kvRow("Stale-price skipped",g.stale_skipped??"—",(g.stale_skipped||0)>0?"warn":"")}
+          ${kvRow("Suspect feeds skipped",g.suspect_skipped??"—",(g.suspect_skipped||0)>0?"warn":"")}
+          ${kvRow("Stale threshold",(g.stale_skip_days??"—")+"d")}
+        </div>
+        ${g.suspect_sample&&g.suspect_sample.length?`<div class="note">suspect: ${g.suspect_sample.map(esc).join(", ")}</div>`:""}
+        ${g.stale_sample&&g.stale_sample.length?`<div class="note">stale sample: ${g.stale_sample.slice(0,15).map(esc).join(", ")}</div>`:""}`)}
+        ${card("Universe coverage (audit)",`<div class="kv">
+          ${kvRow("Tickers audited",uc.total_tickers??"—")}
+          ${kvRow("Fresh ≤ 2d",uc.fresh_within_2d??"—",(uc.fresh_within_2d||0)>0?"ok":"")}
+          ${kvRow("Stale > 7d",uc.stale_over_7d??"—",(uc.stale_over_7d||0)>0?"warn":"")}
+          ${kvRow("Bars < 63",uc.bars_below_63??"—")}
+          ${kvRow("Bars < 300",uc.bars_below_300??"—")}
+          ${kvRow("Confidence H/M/L/I",`${cc.HIGH??"—"}/${cc.MEDIUM??"—"}/${cc.LOW??"—"}/${cc.INVALID??"—"}`)}
+          ${kvRow("Actionable",uc.actionable_pct!==undefined&&uc.actionable_pct!==null?uc.actionable_pct+"%":"—")}
+        </div><div class="note">Audit spans the FULL price cache (~5.6k tickers). The nightly refresh targets the ~1k scan universe only, so a large stale count outside it is expected — the scan universe freshness is what the refresh card above tracks.</div>`)}
+        ${card("Quarantine + young listings",`<div class="kv">
+          ${kvRow("Quarantine total",d.quarantine_total??"—",(d.quarantine_total||0)>0?"warn":"")}
+          ${Object.entries(qb).map(([k,v])=>kvRow(esc(k),v)).join("")}
+        </div>
+        ${d.young_listings&&d.young_listings.length?`<div class="note">young listings (watchlist): ${d.young_listings.map(esc).join(", ")}</div>`:""}`)}
+        ${card("Benchmark coverage (forward tracker)",`<div class="kv">
+          ${kvRow("SPY loaded",badge(bm.spy_available?"READY":"MISSING"))}
+          ${kvRow("QQQ loaded",badge(bm.qqq_available?"READY":"MISSING"))}
+          ${kvRow("Entries w/ SPY 10d",bm.entries_with_spy_10d??"—")}
+          ${kvRow("Entries w/ QQQ 10d",bm.entries_with_qqq_10d??"—")}
+          ${kvRow("Entries w/ sector ETF",bm.entries_with_sector_etf??"—")}
+          ${kvRow("Entries w/ sector 10d",bm.entries_with_sector_10d??"—")}
+        </div>`)}
+      </div>
+      ${card("Sidecar health",`<table>
+        <tr><th>Artifact</th><th>Status</th><th>Age</th><th>Generated</th></tr>${health}</table>`)}
+      ${card(`Current warnings <span class="bdg ${(d.warnings||[]).length?"a":"n"}">${(d.warnings||[]).length}</span>`,
+        `<div class="warnlist">
+          ${(d.warnings||[]).map(w=>`<div><span class="wi">⚠</span>${esc(w)}</div>`).join("")||'<div style="color:var(--dim)">none</div>'}
+        </div><div class="note">${esc(d.warning_trend_note||"")}</div>`)}`;
+  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Data Quality</h2><div class="banner">unavailable</div>`;});
 }
 
 /* ── Phase 3: Forward Evidence (cohort analytics) ── */

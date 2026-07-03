@@ -780,6 +780,135 @@ def test_phase3_never_writes(tmp_path):
     assert _tree_digest(tmp_path) == before
 
 
+# ── Phase 4: data-quality dashboard ──────────────────────────────────────────
+
+
+def _write_quality_artifacts(root: Path, *, refresh_failed: int = 0) -> None:
+    research = root / "cache" / "research"
+    (research / "universe_price_refresh_latest.json").write_text(json.dumps({
+        "generated_at": "2026-07-03T00:32:00+00:00",
+        "mode": "execute", "universe_size": 1001, "already_fresh": 968,
+        "stale_or_missing": 33, "missing_parquet": 0, "planned_calls": 33,
+        "truncated_by_budget": 0, "refreshed_ok": 33 - refresh_failed,
+        "refresh_failed": refresh_failed,
+        "failed": [{"ticker": "BADT", "ok": False, "reason": "fmp_empty"}]
+        if refresh_failed else [],
+    }))
+    (research / "research_coverage_latest.json").write_text(json.dumps({
+        "generated_at": "2026-07-03T00:33:00+00:00",
+        "total_tickers": 4,
+        "confidence_counts": {"HIGH": 2, "MEDIUM": 1, "LOW": 1, "INVALID": 0},
+        "actionable_pct": 75.0,
+        "tickers": [
+            {"ticker": "A", "confidence": "HIGH", "price_bars": 330,
+             "price_age_days": 0.5},
+            {"ticker": "B", "confidence": "HIGH", "price_bars": 320,
+             "price_age_days": 1.0},
+            {"ticker": "C", "confidence": "MEDIUM", "price_bars": 120,
+             "price_age_days": 10.0},
+            {"ticker": "D", "confidence": "LOW", "price_bars": 40,
+             "price_age_days": 21.0},
+        ],
+    }))
+
+
+def test_data_quality_aggregates(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_data_quality)
+    _write_fixture_artifacts(tmp_path)
+    _write_quality_artifacts(tmp_path)
+    d = build_data_quality(ArtifactStore(root=tmp_path))
+    assert d["fallback"] is None
+    pr = d["price_refresh"]
+    assert pr["already_fresh"] == 968 and pr["refresh_failed"] == 0
+    uc = d["universe_coverage"]
+    assert uc["fresh_within_2d"] == 2       # A, B
+    assert uc["stale_over_7d"] == 2         # C, D
+    assert uc["bars_below_63"] == 1         # D
+    assert uc["bars_below_300"] == 2        # C, D
+    g = d["scanner_guards"]
+    assert g["stale_skipped"] == 3 and g["suspect_skipped"] == 2
+    assert d["quarantine_total"] == 6
+    # young listings from the watchlist (YOUNGY has 40 bars + MA200 flag)
+    assert "YOUNGY" in d["young_listings"]
+    assert d["research_only_footer"] == RESEARCH_ONLY_FOOTER
+
+
+def test_data_quality_refresh_failures_surfaced(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_data_quality)
+    _write_fixture_artifacts(tmp_path)
+    _write_quality_artifacts(tmp_path, refresh_failed=1)
+    d = build_data_quality(ArtifactStore(root=tmp_path))
+    pr = d["price_refresh"]
+    assert pr["refresh_failed"] == 1
+    assert pr["failed"][0]["ticker"] == "BADT"
+
+
+def test_data_quality_sidecar_health(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_data_quality)
+    _write_fixture_artifacts(tmp_path)
+    _write_quality_artifacts(tmp_path)
+    d = build_data_quality(ArtifactStore(root=tmp_path))
+    by_name = {s["name"]: s for s in d["sidecar_health"]}
+    assert len(by_name) == 6
+    # fixture timestamps are old relative to "now" → STALE, never hidden
+    assert by_name["research_scanner"]["status"] in ("FRESH", "STALE")
+    assert all(s["status"] in ("FRESH", "STALE", "MISSING", "UNKNOWN")
+               for s in d["sidecar_health"])
+
+
+def test_data_quality_missing_everything(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_data_quality)
+    d = build_data_quality(ArtifactStore(root=tmp_path))
+    assert d["fallback"] == MISSING_ARTIFACT
+
+
+def test_data_quality_partial_artifacts(tmp_path):
+    """Only the scanner exists → page still renders with partial blocks."""
+    from dashboards.research_command_center.data_adapter import (
+        build_data_quality)
+    _write_fixture_artifacts(tmp_path)
+    d = build_data_quality(ArtifactStore(root=tmp_path))
+    assert d["fallback"] is None
+    assert d["price_refresh"] is None       # refresh sidecar absent
+    assert d["universe_coverage"] is None   # coverage sidecar absent
+    assert d["scanner_guards"]["stale_skipped"] == 3
+    by_name = {s["name"]: s for s in d["sidecar_health"]}
+    assert by_name["universe_price_refresh"]["status"] == "MISSING"
+
+
+def test_data_quality_honest_trend_note(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_data_quality)
+    _write_fixture_artifacts(tmp_path)
+    d = build_data_quality(ArtifactStore(root=tmp_path))
+    assert "Trend unavailable" in d["warning_trend_note"]
+
+
+def test_data_quality_page_in_ui():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for marker in ("renderDataQuality", "api/data-quality",
+                   "Universe price refresh (provider)", "Scanner data guards",
+                   "Sidecar health", "Benchmark coverage",
+                   "stale prices silently contaminated the scanner"):
+        assert marker in html, marker
+    # implemented page no longer carries the P4 stub badge
+    assert '{id:"data-quality",     label:"Data Quality",    ini:"DQ"}' in html
+
+
+def test_data_quality_never_writes(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_data_quality)
+    _write_fixture_artifacts(tmp_path)
+    _write_quality_artifacts(tmp_path)
+    before = _tree_digest(tmp_path)
+    build_data_quality(ArtifactStore(root=tmp_path))
+    assert _tree_digest(tmp_path) == before
+
+
 # ── server smoke ─────────────────────────────────────────────────────────────
 
 

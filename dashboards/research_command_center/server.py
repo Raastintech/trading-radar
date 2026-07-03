@@ -27,6 +27,7 @@ if str(HERE.parents[1]) not in sys.path:
 
 from dashboards.research_command_center.data_adapter import (  # noqa: E402
     ArtifactStore,
+    build_data_quality,
     build_forward_cohorts,
     build_leaderboard,
     build_sector_compass,
@@ -42,7 +43,6 @@ INDEX_HTML = HERE / "static" / "index.html"
 # so the sidebar can link somewhere honest, not to hide unbuilt features.
 STUB_PAGES = {
     "fundamental-lens": "Phase 5 pending approval — fundamentals overlay not implemented yet.",
-    "data-quality": "Phase 4 pending approval — full data-quality dashboard not implemented yet.",
     "research-journal": "Phase 6 pending approval — manual notes not implemented yet.",
 }
 
@@ -93,6 +93,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(build_sector_compass(self.store))
             elif path == "/api/social":
                 self._json(build_social_overview(self.store))
+            elif path == "/api/data-quality":
+                self._json(build_data_quality(self.store))
             elif path.startswith("/api/stub/"):
                 page = path.rsplit("/", 1)[-1]
                 note = STUB_PAGES.get(page, "Not yet built")
