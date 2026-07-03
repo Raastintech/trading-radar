@@ -92,6 +92,10 @@ class ArtifactStore:
     def prices_deep_dir(self) -> Path:
         return self.root / "cache" / "prices_deep"
 
+    @property
+    def fundamentals_dir(self) -> Path:
+        return self.root / "cache" / "fundamentals"
+
 
 def _load_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
@@ -1001,6 +1005,160 @@ def build_data_quality(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         # require fabricating one.  Stated honestly instead.
         "warning_trend_note": ("Trend unavailable — the nightly summary does "
                                "not persist a warnings history artifact."),
+        "fallback": None,
+        "research_only_footer": RESEARCH_ONLY_FOOTER,
+    }
+
+
+# ── Phase 5: fundamental lens (descriptive overlay, never a signal) ──────────
+#
+# Computed from the cached FMP quarterly statements (4 quarters).  All
+# figures are trailing/TTM aggregates; with only four quarters cached, true
+# YoY growth is not computable — growth is shown as q/q and vs-3-quarters-ago
+# and labeled as such.  The quality label is DESCRIPTIVE (stated rules on
+# profitability + runway) and carries no predictive claim.
+
+FUNDAMENTAL_QUALITY_RULES = (
+    "PROFITABLE_CASHGEN: TTM net income > 0 and TTM FCF > 0 · "
+    "PROFITABLE: TTM net income > 0, TTM FCF <= 0 · "
+    "UNPROFITABLE_FUNDED: TTM net income <= 0 but cash covers >= 2 years of "
+    "FCF burn (or net cash position) · "
+    "UNPROFITABLE_STRESSED: TTM net income <= 0 and cash < 1 year of burn · "
+    "UNKNOWN: statements missing"
+)
+
+
+def _sum_field(rows: List[Dict[str, Any]], field: str) -> Optional[float]:
+    vals = [r.get(field) for r in rows if r.get(field) is not None]
+    return float(sum(vals)) if vals else None
+
+
+def _ratio(num: Optional[float], den: Optional[float],
+           scale: float = 100.0) -> Optional[float]:
+    if num is None or den is None or den == 0:
+        return None
+    return round(num / den * scale, 2)
+
+
+def build_fundamentals(ticker: str,
+                       store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    store = store or ArtifactStore()
+    t = str(ticker or "").upper()
+    raw = _load_json(store.fundamentals_dir / f"{t}.json")
+    if raw is None:
+        return {"ticker": t, "fallback": NO_DATA,
+                "quality_label": "UNKNOWN",
+                "quality_rules": FUNDAMENTAL_QUALITY_RULES,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+
+    def _rows(stmt: str) -> List[Dict[str, Any]]:
+        rows = raw.get(stmt) or []
+        try:
+            return sorted(rows, key=lambda r: str(r.get("date") or ""),
+                          reverse=True)
+        except Exception:
+            return rows
+
+    income, balance, cashflow = _rows("income"), _rows("balance"), _rows("cashflow")
+
+    # TTM aggregates over the available (max 4) quarters
+    ttm_rev = _sum_field(income, "revenue")
+    ttm_gross = _sum_field(income, "grossProfit")
+    ttm_opinc = _sum_field(income, "operatingIncome")
+    ttm_ni = _sum_field(income, "netIncome")
+    ttm_fcf = _sum_field(cashflow, "freeCashFlow")
+    ttm_ocf = _sum_field(cashflow, "operatingCashFlow")
+    ttm_sbc = _sum_field(cashflow, "stockBasedCompensation")
+
+    # Growth: q/q and vs 3 quarters back (NOT YoY — only 4 quarters cached)
+    def _growth(idx: int) -> Optional[float]:
+        if len(income) <= idx:
+            return None
+        newest, older = income[0].get("revenue"), income[idx].get("revenue")
+        if newest is None or older in (None, 0):
+            return None
+        return round((float(newest) / float(older) - 1.0) * 100.0, 2)
+
+    rev_growth_qoq = _growth(1)
+    rev_growth_3q = _growth(3)
+
+    # Balance sheet (latest quarter)
+    b0 = balance[0] if balance else {}
+    cash = b0.get("cashAndShortTermInvestments")
+    total_debt = b0.get("totalDebt")
+    net_debt = b0.get("netDebt")
+
+    # Dilution: diluted share count now vs 3 quarters back
+    dilution_pct = None
+    if len(income) >= 4:
+        s_new = income[0].get("weightedAverageShsOutDil")
+        s_old = income[3].get("weightedAverageShsOutDil")
+        if s_new and s_old:
+            dilution_pct = round((float(s_new) / float(s_old) - 1.0) * 100.0, 2)
+
+    # Valuation multiples need a market cap — taken from the scanner
+    # watchlist entry when the ticker is on the current board.
+    market_cap = None
+    earnings_date = None
+    scanner = _load_json(store.scanner_json)
+    if scanner is not None:
+        item = next((w for w in scanner.get("watchlist") or []
+                     if str(w.get("ticker") or "").upper() == t), None)
+        if item:
+            market_cap = item.get("market_cap")
+        for c in (scanner.get("categories") or {}).get("catalyst_watch", []):
+            if str(c.get("ticker") or "").upper() == t:
+                earnings_date = c.get("earnings_date")
+                break
+
+    ps = _ratio(market_cap, ttm_rev, 1.0)
+    pe = _ratio(market_cap, ttm_ni, 1.0) if (ttm_ni or 0) > 0 else None
+    pfcf = _ratio(market_cap, ttm_fcf, 1.0) if (ttm_fcf or 0) > 0 else None
+
+    # Descriptive quality label (rules published alongside)
+    if ttm_ni is None:
+        quality = "UNKNOWN"
+    elif ttm_ni > 0:
+        quality = "PROFITABLE_CASHGEN" if (ttm_fcf or 0) > 0 else "PROFITABLE"
+    else:
+        burn = abs(ttm_fcf) if (ttm_fcf or 0) < 0 else None
+        if (net_debt is not None and net_debt < 0) or (
+                burn and cash is not None and cash >= 2 * burn):
+            quality = "UNPROFITABLE_FUNDED"
+        elif burn and cash is not None and cash < burn:
+            quality = "UNPROFITABLE_STRESSED"
+        else:
+            quality = "UNPROFITABLE_FUNDED" if burn is None else "UNPROFITABLE_WATCH"
+
+    return {
+        "ticker": t,
+        "quarters_available": len(income),
+        "latest_statement_date": income[0].get("date") if income else None,
+        "ttm_revenue": ttm_rev,
+        "rev_growth_qoq_pct": rev_growth_qoq,
+        "rev_growth_3q_pct": rev_growth_3q,
+        "gross_margin_pct": _ratio(ttm_gross, ttm_rev),
+        "operating_margin_pct": _ratio(ttm_opinc, ttm_rev),
+        "net_margin_pct": _ratio(ttm_ni, ttm_rev),
+        "ttm_net_income": ttm_ni,
+        "ttm_fcf": ttm_fcf,
+        "ttm_ocf": ttm_ocf,
+        "ttm_sbc": ttm_sbc,
+        "cash_and_st_investments": cash,
+        "total_debt": total_debt,
+        "net_debt": net_debt,
+        "dilution_3q_pct": dilution_pct,
+        "market_cap": market_cap,
+        "ps_ttm": ps,
+        "pe_ttm": pe,
+        "p_fcf_ttm": pfcf,
+        "earnings_date": earnings_date,
+        "analyst_estimate_trend": None,        # no cached artifact — honest null
+        "institutional_ownership": None,       # no cached artifact — honest null
+        "quality_label": quality,
+        "quality_rules": FUNDAMENTAL_QUALITY_RULES,
+        "growth_caveat": ("Growth is q/q and vs-3-quarters-ago; true YoY is "
+                          "not computable from the 4 cached quarters."),
         "fallback": None,
         "research_only_footer": RESEARCH_ONLY_FOOTER,
     }

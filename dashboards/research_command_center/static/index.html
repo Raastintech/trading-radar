@@ -189,7 +189,7 @@ const NAV = [
   {id:"forward-evidence", label:"Forward Evidence", ini:"FE"},
   {id:"sector-compass",   label:"Sector Compass",   ini:"SC"},
   {id:"social-arb",       label:"Social Arb",       ini:"SA"},
-  {id:"fundamental-lens", label:"Fundamental Lens", ini:"FL", stub:5},
+  {id:"fundamental-lens", label:"Fundamental Lens", ini:"FL"},
   {id:"universe",   label:"Universe Health",      ini:"UH"},
   {id:"data-quality",     label:"Data Quality",    ini:"DQ"},
   {id:"hp",         label:"High Priority Review", ini:"HP"},
@@ -527,7 +527,90 @@ function renderPage(){
   if(activePage==="sector-compass") return renderSectors();
   if(activePage==="social-arb") return renderSocial();
   if(activePage==="data-quality") return renderDataQuality();
+  if(activePage==="fundamental-lens") return renderFundamentals();
   return renderStub(activePage);
+}
+
+/* ── Phase 5: Fundamental Lens (descriptive overlay, never a signal) ── */
+let fundamentalsTicker="";
+const money=v=>{
+  if(v===null||v===undefined)return "—";
+  const a=Math.abs(v);
+  const s=a>=1e9?(v/1e9).toFixed(2)+"B":a>=1e6?(v/1e6).toFixed(1)+"M":Number(v).toFixed(0);
+  return `$${s}`;
+};
+function fundamentalsCards(f){
+  const q=f.quality_label;
+  const qCls=q==="PROFITABLE_CASHGEN"?"g":q==="PROFITABLE"?"g":
+    q==="UNPROFITABLE_STRESSED"?"r":q==="UNKNOWN"?"n":"a";
+  return `
+    <div class="cards">
+      ${card("Quality (descriptive)",`
+        <div style="margin-bottom:8px"><span class="bdg ${qCls}">${esc(q)}</span></div>
+        <div class="kv">
+          ${kvRow("Quarters cached",f.quarters_available??"—")}
+          ${kvRow("Latest statement",esc(f.latest_statement_date)||"—")}
+          ${kvRow("Earnings date",esc(f.earnings_date)||"—")}
+        </div><div class="note">${esc(f.quality_rules||"")}</div>`,"accent")}
+      ${card("Growth (TTM basis)",`<div class="kv">
+        ${kvRow("TTM revenue",money(f.ttm_revenue))}
+        ${kvRow("Revenue q/q",heat(f.rev_growth_qoq_pct))}
+        ${kvRow("Revenue vs 3 qtrs ago",heat(f.rev_growth_3q_pct))}
+      </div><div class="note">${esc(f.growth_caveat||"")}</div>`)}
+      ${card("Margins (TTM)",`<div class="kv">
+        ${kvRow("Gross margin",heat(f.gross_margin_pct))}
+        ${kvRow("Operating margin",heat(f.operating_margin_pct))}
+        ${kvRow("Net margin",heat(f.net_margin_pct))}
+      </div>`)}
+      ${card("Cash flow & balance",`<div class="kv">
+        ${kvRow("TTM free cash flow",money(f.ttm_fcf))}
+        ${kvRow("TTM operating CF",money(f.ttm_ocf))}
+        ${kvRow("TTM stock comp",money(f.ttm_sbc))}
+        ${kvRow("Cash + ST investments",money(f.cash_and_st_investments))}
+        ${kvRow("Total debt",money(f.total_debt))}
+        ${kvRow("Net debt",money(f.net_debt))}
+        ${kvRow("Dilution (3 qtrs)",
+          (f.dilution_3q_pct===null||f.dilution_3q_pct===undefined)?"—":
+          `${f.dilution_3q_pct>0?"+":""}${f.dilution_3q_pct}% shares`,
+          (f.dilution_3q_pct||0)>2?"warn":"")}
+      </div>`)}
+      ${card("Valuation (TTM multiples)",`<div class="kv">
+        ${kvRow("Market cap",money(f.market_cap))}
+        ${kvRow("P/S",f.ps_ttm??"—")}
+        ${kvRow("P/E",f.pe_ttm??"—")}
+        ${kvRow("P/FCF",f.p_fcf_ttm??"—")}
+      </div><div class="note">Multiples need a market cap from the current scanner board — off-board tickers show "—".</div>`)}
+      ${card("Not available (no cached artifact)",`<div class="kv">
+        ${kvRow("Analyst estimate trend","—")}
+        ${kvRow("Institutional ownership","—")}
+      </div><div class="note">Shown as unavailable rather than fetched live — this dashboard is cache-only.</div>`)}
+    </div>
+    <div class="note">Fundamentals are a descriptive research overlay — not a rating, score, or signal.</div>`;
+}
+function renderFundamentals(){
+  const rows=((BOARD||{}).rows||[]).slice(0,30);
+  const picks=rows.map(r=>`<span class="tag" style="cursor:pointer" data-t="${r.ticker}">${r.ticker}</span>`).join(" ");
+  $("#workspace").innerHTML=`
+    <h2 class="pg">Fundamental Lens</h2>
+    <div id="board-toolbar">
+      <input id="fl-ticker" placeholder="ticker (e.g. SDGR)" value="${esc(fundamentalsTicker)}" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit;width:130px">
+      <button id="fl-go" style="background:var(--panel2);border:1px solid var(--border);color:var(--accent);border-radius:4px;cursor:pointer;padding:4px 10px;font:inherit">view</button>
+      <span class="key">descriptive overlay from cached quarterly statements — not a signal</span>
+    </div>
+    <div style="margin-bottom:10px;line-height:2">${picks}</div>
+    <div id="fl-out">${fundamentalsTicker?"":'<div class="stub"><h2>Pick a candidate</h2><p>Enter a ticker or click one from the current board.</p></div>'}</div>`;
+  const load=t=>{
+    fundamentalsTicker=t.toUpperCase();
+    $("#fl-out").innerHTML=`<div style="color:var(--dim)">loading…</div>`;
+    fetch(`api/fundamentals/${encodeURIComponent(fundamentalsTicker)}`).then(r=>r.json()).then(f=>{
+      if(f.fallback){$("#fl-out").innerHTML=`<div class="banner">${esc(f.fallback)} — no cached statements for ${esc(f.ticker)}.</div>`;return;}
+      $("#fl-out").innerHTML=`<h2 class="pg" style="margin-top:4px">${esc(f.ticker)}</h2>`+fundamentalsCards(f);
+    }).catch(()=>{$("#fl-out").innerHTML=`<div class="banner">unavailable</div>`;});
+  };
+  $("#fl-go").onclick=()=>{const v=$("#fl-ticker").value.trim();if(v)load(v);};
+  $("#fl-ticker").onkeydown=e=>{if(e.key==="Enter"){const v=$("#fl-ticker").value.trim();if(v)load(v);}};
+  document.querySelectorAll("#workspace .tag[data-t]").forEach(el=>el.onclick=()=>{$("#fl-ticker").value=el.dataset.t;load(el.dataset.t);});
+  if(fundamentalsTicker)load(fundamentalsTicker);
 }
 
 /* ── Phase 4: Data Quality dashboard ── */
@@ -783,11 +866,29 @@ function openDrawer(t){
         ${kv("Claude review",esc(d.claude_review)||"not available")}
         ${kv("Manual review",d.manual_review_required?'<span class="tag q">REQUIRED</span>':"—")}
       </div></div>
+      <div class="sect"><h3>Fundamentals (descriptive overlay)</h3><div id="d-fund" style="color:var(--dim)">loading…</div></div>
       <div class="sect"><h3>Charts</h3><div id="d-charts" style="color:var(--dim)">loading…</div></div>`;
     loadCharts(d.ticker);
+    loadDrawerFundamentals(d.ticker);
     $("#d-footer").textContent=d.research_only_footer||"Research only — not a signal or recommendation.";
     $("#drawer").classList.add("open");$("#overlay").classList.add("open");
   });
+}
+function loadDrawerFundamentals(t){
+  fetch(`api/fundamentals/${encodeURIComponent(t)}`).then(r=>r.json()).then(f=>{
+    const el=$("#d-fund");if(!el)return;
+    if(f.fallback){el.innerHTML=`${badge(f.fallback)} <span style="font-size:11px">no cached statements</span>`;return;}
+    const q=f.quality_label;
+    const qCls=(q==="PROFITABLE_CASHGEN"||q==="PROFITABLE")?"g":q==="UNPROFITABLE_STRESSED"?"r":q==="UNKNOWN"?"n":"a";
+    el.innerHTML=`<div class="kv">
+      ${kv("Quality",`<span class="bdg ${qCls}">${esc(q)}</span>`)}
+      ${kv("Revenue q/q",heat(f.rev_growth_qoq_pct))}
+      ${kv("Gross margin",heat(f.gross_margin_pct))}
+      ${kv("TTM FCF",money(f.ttm_fcf))}
+      ${kv("Net debt",money(f.net_debt))}
+      ${kv("P/S (TTM)",f.ps_ttm??"—")}
+    </div><div style="color:var(--dim);font-size:9.5px;margin-top:4px">descriptive overlay — full view in Fundamental Lens</div>`;
+  }).catch(()=>{const el=$("#d-fund");if(el)el.textContent="unavailable";});
 }
 function closeDrawer(){$("#drawer").classList.remove("open");$("#overlay").classList.remove("open");}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDrawer();});

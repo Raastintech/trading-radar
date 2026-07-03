@@ -29,6 +29,7 @@ from dashboards.research_command_center.data_adapter import (  # noqa: E402
     ArtifactStore,
     build_data_quality,
     build_forward_cohorts,
+    build_fundamentals,
     build_leaderboard,
     build_sector_compass,
     build_social_overview,
@@ -42,7 +43,6 @@ INDEX_HTML = HERE / "static" / "index.html"
 # Later-phase routes are stubbed on purpose — see the phase plan.  They exist
 # so the sidebar can link somewhere honest, not to hide unbuilt features.
 STUB_PAGES = {
-    "fundamental-lens": "Phase 5 pending approval — fundamentals overlay not implemented yet.",
     "research-journal": "Phase 6 pending approval — manual notes not implemented yet.",
 }
 
@@ -95,6 +95,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(build_social_overview(self.store))
             elif path == "/api/data-quality":
                 self._json(build_data_quality(self.store))
+            elif path.startswith("/api/fundamentals/"):
+                ticker = path.rsplit("/", 1)[-1]
+                self._json(build_fundamentals(ticker, self.store))
             elif path.startswith("/api/stub/"):
                 page = path.rsplit("/", 1)[-1]
                 note = STUB_PAGES.get(page, "Not yet built")

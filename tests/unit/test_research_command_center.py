@@ -909,6 +909,151 @@ def test_data_quality_never_writes(tmp_path):
     assert _tree_digest(tmp_path) == before
 
 
+# ── Phase 5: fundamental lens ────────────────────────────────────────────────
+
+
+def _write_fundamentals(root: Path, ticker: str = "GOODCO", *,
+                        net_income_q: float = 10.0, fcf_q: float = 5.0,
+                        cash: float = 100.0, total_debt: float = 20.0,
+                        net_debt: float = -80.0) -> None:
+    fund = root / "cache" / "fundamentals"
+    fund.mkdir(parents=True, exist_ok=True)
+    income, cashflow, balance = [], [], []
+    # newest-first quarters with revenue 110, 100, 95, 90
+    revs = [110.0, 100.0, 95.0, 90.0]
+    shares = [102.0, 101.0, 100.5, 100.0]
+    for i, (rev, sh) in enumerate(zip(revs, shares)):
+        income.append({"date": f"2026-0{4-i}-01", "revenue": rev,
+                       "grossProfit": rev * 0.6, "operatingIncome": rev * 0.2,
+                       "netIncome": net_income_q,
+                       "weightedAverageShsOutDil": sh})
+        cashflow.append({"date": f"2026-0{4-i}-01", "freeCashFlow": fcf_q,
+                         "operatingCashFlow": fcf_q + 2.0,
+                         "stockBasedCompensation": 1.0})
+        balance.append({"date": f"2026-0{4-i}-01",
+                        "cashAndShortTermInvestments": cash,
+                        "totalDebt": total_debt, "netDebt": net_debt})
+    (fund / f"{ticker}.json").write_text(json.dumps({
+        "ticker": ticker, "income": income, "cashflow": cashflow,
+        "balance": balance}))
+
+
+def test_fundamentals_math(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_fundamentals)
+    _write_fixture_artifacts(tmp_path)
+    _write_fundamentals(tmp_path)
+    f = build_fundamentals("GOODCO", ArtifactStore(root=tmp_path))
+    assert f["fallback"] is None
+    assert f["ttm_revenue"] == 395.0                       # 110+100+95+90
+    assert f["rev_growth_qoq_pct"] == 10.0                 # 110 vs 100
+    assert f["rev_growth_3q_pct"] == round((110/90-1)*100, 2)
+    assert f["gross_margin_pct"] == 60.0
+    assert f["operating_margin_pct"] == 20.0
+    assert f["ttm_fcf"] == 20.0
+    assert f["dilution_3q_pct"] == 2.0                     # 102 vs 100
+    assert f["quality_label"] == "PROFITABLE_CASHGEN"
+    assert f["research_only_footer"] == RESEARCH_ONLY_FOOTER
+
+
+def test_fundamentals_quality_labels(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_fundamentals)
+    _write_fixture_artifacts(tmp_path)
+    # profitable but FCF-negative
+    _write_fundamentals(tmp_path, "PROF", net_income_q=5.0, fcf_q=-1.0)
+    assert build_fundamentals("PROF", ArtifactStore(root=tmp_path))[
+        "quality_label"] == "PROFITABLE"
+    # unprofitable, burning, but net-cash position → FUNDED
+    _write_fundamentals(tmp_path, "FUNDED", net_income_q=-5.0, fcf_q=-10.0,
+                        cash=200.0, net_debt=-150.0)
+    assert build_fundamentals("FUNDED", ArtifactStore(root=tmp_path))[
+        "quality_label"] == "UNPROFITABLE_FUNDED"
+    # unprofitable, cash < 1 year of burn → STRESSED
+    _write_fundamentals(tmp_path, "STRESS", net_income_q=-5.0, fcf_q=-10.0,
+                        cash=20.0, total_debt=100.0, net_debt=80.0)
+    assert build_fundamentals("STRESS", ArtifactStore(root=tmp_path))[
+        "quality_label"] == "UNPROFITABLE_STRESSED"
+
+
+def test_fundamentals_valuation_needs_board_market_cap(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_fundamentals)
+    _write_fixture_artifacts(tmp_path)
+    _write_fundamentals(tmp_path)
+    # GOODCO is not on the fixture board with a market_cap → multiples null
+    f = build_fundamentals("GOODCO", ArtifactStore(root=tmp_path))
+    assert f["ps_ttm"] is None and f["pe_ttm"] is None
+    # add market_cap to the scanner watchlist entry → P/S computes
+    scanner_path = tmp_path / "cache" / "research" / "research_scanner_latest.json"
+    data = json.loads(scanner_path.read_text())
+    data["watchlist"][0]["market_cap"] = 3950.0
+    scanner_path.write_text(json.dumps(data))
+    f = build_fundamentals("GOODCO", ArtifactStore(root=tmp_path))
+    assert f["ps_ttm"] == 10.0                             # 3950 / 395
+
+
+def test_fundamentals_missing_is_no_data(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_fundamentals)
+    f = build_fundamentals("NOPE", ArtifactStore(root=tmp_path))
+    assert f["fallback"] == NO_DATA
+    assert f["quality_label"] == "UNKNOWN"
+
+
+def test_fundamentals_honest_unavailable_fields(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_fundamentals)
+    _write_fixture_artifacts(tmp_path)
+    _write_fundamentals(tmp_path)
+    f = build_fundamentals("GOODCO", ArtifactStore(root=tmp_path))
+    assert f["analyst_estimate_trend"] is None
+    assert f["institutional_ownership"] is None
+    assert "not computable" in f["growth_caveat"]
+    assert "UNKNOWN: statements missing" in f["quality_rules"]
+
+
+def test_fundamentals_page_and_drawer_in_ui():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for marker in ("renderFundamentals", "api/fundamentals/",
+                   "Fundamental Lens", "loadDrawerFundamentals",
+                   "descriptive overlay", "not a signal"):
+        assert marker in html, marker
+    # implemented page no longer carries the P5 stub badge
+    assert '{id:"fundamental-lens", label:"Fundamental Lens", ini:"FL"}' in html
+
+
+def test_fundamentals_endpoint_served(tmp_path):
+    import threading
+    import urllib.request
+
+    _write_fixture_artifacts(tmp_path)
+    _write_fundamentals(tmp_path)
+    from dashboards.research_command_center.server import make_server
+
+    srv = make_server(port=0, root=tmp_path)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        f = json.loads(urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/fundamentals/GOODCO").read())
+        assert f["quality_label"] == "PROFITABLE_CASHGEN"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_fundamentals_never_writes(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_fundamentals)
+    _write_fixture_artifacts(tmp_path)
+    _write_fundamentals(tmp_path)
+    before = _tree_digest(tmp_path)
+    build_fundamentals("GOODCO", ArtifactStore(root=tmp_path))
+    build_fundamentals("NOPE", ArtifactStore(root=tmp_path))
+    assert _tree_digest(tmp_path) == before
+
+
 # ── server smoke ─────────────────────────────────────────────────────────────
 
 
