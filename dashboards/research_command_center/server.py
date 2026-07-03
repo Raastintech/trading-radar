@@ -38,12 +38,12 @@ INDEX_HTML = HERE / "static" / "index.html"
 # Later-phase routes are stubbed on purpose — see the phase plan.  They exist
 # so the sidebar can link somewhere honest, not to hide unbuilt features.
 STUB_PAGES = {
-    "forward-evidence": "Phase 3 — cohort analytics (pending approval)",
-    "sector-compass": "Phase 3 — sector rotation (pending approval)",
-    "social-arb": "Phase 3 — social cohorts (pending approval)",
-    "fundamental-lens": "Phase 5 — fundamentals overlay (pending approval)",
-    "data-quality": "Phase 4 — data-quality dashboard (pending approval)",
-    "research-journal": "Phase 6 — research journal (pending approval)",
+    "forward-evidence": "Phase 3 pending approval — cohort analytics not implemented yet.",
+    "sector-compass": "Phase 3 pending approval — sector rotation view not implemented yet.",
+    "social-arb": "Phase 3 pending approval — social cohort view not implemented yet.",
+    "fundamental-lens": "Phase 5 pending approval — fundamentals overlay not implemented yet.",
+    "data-quality": "Phase 4 pending approval — full data-quality dashboard not implemented yet.",
+    "research-journal": "Phase 6 pending approval — manual notes not implemented yet.",
 }
 
 
@@ -103,21 +103,28 @@ class Handler(BaseHTTPRequestHandler):
     do_PUT = do_DELETE = do_PATCH = do_POST
 
 
-def make_server(port: int = 8787, root: Path | None = None) -> ThreadingHTTPServer:
+def make_server(port: int = 8787, root: Path | None = None,
+                host: str = "127.0.0.1") -> ThreadingHTTPServer:
     handler = Handler
     if root is not None:
         handler.store = ArtifactStore(root=Path(root))
-    return ThreadingHTTPServer(("127.0.0.1", port), handler)
+    return ThreadingHTTPServer((host, port), handler)
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Research Command Center (read-only)")
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument("--root", type=str, default=None)
+    ap.add_argument("--host", type=str, default="127.0.0.1",
+                    help="Bind address. Default 127.0.0.1 (localhost only). "
+                         "Use your LAN IP or 0.0.0.0 to reach the dashboard "
+                         "from other machines — it is read-only but has no "
+                         "auth, so only do this on a trusted network.")
     args = ap.parse_args(argv)
-    srv = make_server(port=args.port, root=Path(args.root) if args.root else None)
+    srv = make_server(port=args.port, root=Path(args.root) if args.root else None,
+                      host=args.host)
     print(f"Research Command Center (RESEARCH_ONLY, read-only) → "
-          f"http://127.0.0.1:{args.port}")
+          f"http://{args.host}:{args.port}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

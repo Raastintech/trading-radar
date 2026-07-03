@@ -180,6 +180,9 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "operating_verdict": operating_verdict,
         "matured_5d": fwd.get("matured_5d_entries"),
         "matured_10d": fwd.get("matured_entries"),
+        "total_tracked": fwd.get("total_entries"),
+        "sample_status": fwd.get("sample_status"),
+        "quarantine_breakdown": quarantine or {},
         "benchmark_readiness": (summary or {}).get("forward_evidence", {}).get(
             "benchmark_readiness") or "UNKNOWN",
         "data_freshness": freshness,

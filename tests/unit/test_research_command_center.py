@@ -96,7 +96,8 @@ def _write_fixture_artifacts(root: Path, *, stale_price_date="2026-01-02",
     (research / "research_forward_latest.json").write_text(json.dumps({
         "generated_at": "2026-07-02T17:00:00+00:00",
         "overall": {"verdict": verdict, "matured_5d_entries": 464,
-                    "matured_entries": 134, "sample_status": "ROBUST"},
+                    "matured_entries": 134, "total_entries": 1146,
+                    "sample_status": "ROBUST"},
     }))
     (research / "daily_alpha_radar_latest.json").write_text(json.dumps({
         "generated_at": "2026-07-02T17:00:00+00:00",
@@ -421,6 +422,191 @@ def test_series_served_over_http(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+# ── Phase 2.5: terminal app shell ────────────────────────────────────────────
+
+_INDEX_HTML = (REPO_ROOT / "dashboards" / "research_command_center" /
+               "static" / "index.html")
+
+
+def test_app_shell_structure():
+    """Shell has fixed sidebar, persistent global header, tab row, and a
+    dynamic workspace container."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for anchor in ('id="sidebar"', 'id="gheader"', 'id="tabbar"',
+                   'id="workspace"', 'id="nav"'):
+        assert anchor in html, anchor
+
+
+def test_global_header_has_mode_and_phase4b():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "RESEARCH_ONLY" in html
+    assert "PHASE 4B" in html
+    # header renderer exists and is fed by /api/status
+    assert "renderHeader" in html
+
+
+def test_workspace_switches_on_nav():
+    """Sidebar clicks drive the workspace: nav handler sets activePage and
+    re-renders only the workspace content."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "openPage(" in html
+    assert "activePage" in html
+    assert "renderPage()" in html
+
+
+def test_home_has_summary_cards():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for card_title in ("Engine status", "Evidence readiness", "Data quality",
+                       "Candidate summary", "Warnings"):
+        assert card_title in html, card_title
+    # quick-action navigation cards
+    assert "actionCard(" in html
+
+
+def test_leaderboard_terminal_features():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "position:sticky" in html          # sticky table header
+    assert "sel" in html and "selectedTicker" in html   # selected-row state
+    assert "of ${b.rows.length} candidates" in html      # summary line
+    assert 'title="${esc(r.warnings.join' in html        # warning tooltips
+
+
+def test_sidebar_collapse_control():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'id="side-toggle"' in html
+    assert "side-collapsed" in html
+
+
+def test_placeholder_pages_are_honest():
+    """Later-phase stubs say 'pending approval' and never imply alpha proof."""
+    from dashboards.research_command_center.server import STUB_PAGES
+    for page, note in STUB_PAGES.items():
+        assert "pending approval" in note, page
+        assert "not implemented yet" in note, page
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "pending approval" in html
+
+
+def test_status_exposes_home_card_fields(fixture_store):
+    status = build_status(fixture_store)
+    assert status["total_tracked"] == 1146
+    assert status["sample_status"] == "ROBUST"
+    assert status["quarantine_breakdown"] == {
+        "INSUFFICIENT_HISTORY": 3, "DATA_QUARANTINE": 3}
+
+
+# ── Phase 2.6: design-system polish ──────────────────────────────────────────
+
+
+def test_badge_system_covers_key_statuses():
+    """Consistent pill badges exist and the mapping covers the key states.
+    Phase 4B BLOCKED must map amber (safety gate), never red."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for cls in (".bdg.g", ".bdg.a", ".bdg.r", ".bdg.n"):
+        assert cls in html, cls
+    assert "badgeClass" in html and "function badge(" in html
+    green = html.split("BADGE_GREEN=")[1].split(";")[0]
+    amber = html.split("BADGE_AMBER=")[1].split(";")[0]
+    red = html.split("BADGE_RED=")[1].split(";")[0]
+    for v in ("PASS", "READY", "FRESH", "RESEARCH_ONLY"):
+        assert f'"{v}"' in green, v
+    for v in ("BLOCKED", "NEED_MORE_DATA", "INCONCLUSIVE", "MIXED", "PARTIAL",
+              "STALE", "DATA_QUARANTINE", "IMMATURE_FORWARD_EVIDENCE"):
+        assert f'"{v}"' in amber, v
+    assert '"BLOCKED"' not in red  # gate, not failure
+    for v in ("FAIL", "MISSING", "ERROR"):
+        assert f'"{v}"' in red, v
+
+
+def test_action_cards_are_clickable_containers():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'class="card action"' in html
+    assert 'tabindex="0"' in html          # keyboard accessible
+    assert 'role="button"' in html
+    assert "onkeydown" in html             # Enter/Space activate
+    assert ".card.action:hover" in html    # hover affordance on whole card
+
+
+def test_card_system_polish():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert ".card.accent" in html          # top accent border variant
+    assert "translateY(-1px)" in html      # subtle hover lift
+    # footer disclaimer present and styled muted (amber/dim, not loud)
+    assert html.count("Research only — not a signal or recommendation.") >= 2
+
+
+def test_placeholder_empty_state_cards():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'class="stub"' in html
+    assert "TODO — pending approval" in html
+    # stub badge uses the neutral badge class, not a loud color
+    assert 'bdg n">TODO' in html
+
+
+# ── Phase 2.7: visual cleanup ────────────────────────────────────────────────
+
+
+def test_sidebar_initials_hidden_when_expanded():
+    """Expanded sidebar shows names only; collapsed shows centered initials
+    with full-name title tooltips."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "#nav .ini{display:none" in html
+    assert "body.side-collapsed #nav .ini{display:inline-block}" in html
+    assert "body.side-collapsed #nav .lbl" in html      # labels hidden collapsed
+    assert 'title="${n.label}"' in html                  # tooltip carries name
+
+
+def test_phase_badges_muted():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    # P3-P6 badges still render but use the muted color, not amber
+    assert '<span class="ph">P${n.stub}</span>' in html
+    ph_css = html.rsplit("#nav .ph{", 1)[1].split("}")[0]
+    assert "var(--dim)" in ph_css and "var(--amber)" not in ph_css
+
+
+def test_header_two_row_grouping_keeps_safety_chips():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    # primary row keeps every safety-critical chip; data row is grouped
+    primary = html.split("const primary=[")[1].split("];")[0]
+    for label in ('"MODE"', '"NIGHTLY"', '"PHASE 4B"', "VERDICT",
+                  '"MATURED 5D"', '"MATURED 10D"', '"BENCHMARKS"'):
+        assert label in primary, label
+    assert '<span class="grp">Data:</span>' in html
+
+
+def test_home_reason_renders_as_note_block():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert '<div class="note">${esc(p4.reason||"—")}</div>' in html
+    assert ".note{" in html
+
+
+def test_alpha_radar_summary_strip():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'id="alpha-strip"' in html
+    for label in ("HIGH PRIORITY:", "RESET / RECLAIM:", "EXTENDED / CROWDED:",
+                  "QUARANTINE / YOUNG:"):
+        assert label in html, label
+    assert "curated research queue" in html
+
+
+def test_row_warning_icon_muted_with_tooltip():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'class="wico" title="${esc(r.warnings.join' in html
+    assert "tr.row:hover .wico" in html    # full opacity on hover/selection
+
+
+def test_table_natural_widths_no_truncation():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "width:max-content;min-width:100%" in html
+    assert '["scanner_category","Category"]' in html    # column still present
+
+
+def test_tab_row_is_capped():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "MAX_TABS" in html
+    assert "openTabs.length>MAX_TABS" in html
 
 
 # ── server smoke ─────────────────────────────────────────────────────────────
