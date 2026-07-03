@@ -608,3 +608,258 @@ def build_ticker_series(ticker: str,
         "fallback": None,
         "research_only_footer": RESEARCH_ONLY_FOOTER,
     }
+
+
+# ── Phase 3: forward-evidence cohort analytics ───────────────────────────────
+#
+# Two provenance tiers, kept visually separate in the UI:
+#   1. `by_label` — the tracker's OWN published verdicts, passed through
+#      unmodified (single source of truth; the dashboard never recomputes
+#      or overrides a published verdict).
+#   2. `computed` — cohorts the tracker does not publish (by scanner
+#      category, by universe source, pre/post price-fix split), computed
+#      here from the history JSONL with explicit caveats.
+#
+# Sample-maturity ladder mirrors research_watchlist_forward_tracker.py
+# (constants duplicated, not imported — the dashboard stays decoupled):
+#   TOO_EARLY < 10, PROVISIONAL 10-29, MEANINGFUL 30-99, ROBUST >= 100.
+
+SAMPLE_THRESHOLD_PROVISIONAL = 10
+SAMPLE_THRESHOLD_MEANINGFUL = 30
+SAMPLE_THRESHOLD_ROBUST = 100
+
+# Cohort boundary from the 2026-07-02 delta report: entries before this date
+# were SELECTED by a scanner running on stale prices; pooled analytics would
+# blend two different engines.  Display-only constant.
+PRICE_FIX_BOUNDARY = "2026-07-02"
+
+
+def _sample_status(n_matured: int) -> str:
+    if n_matured < SAMPLE_THRESHOLD_PROVISIONAL:
+        return "TOO_EARLY"
+    if n_matured < SAMPLE_THRESHOLD_MEANINGFUL:
+        return "PROVISIONAL"
+    if n_matured < SAMPLE_THRESHOLD_ROBUST:
+        return "MEANINGFUL"
+    return "ROBUST"
+
+
+def _median(vals: List[float]) -> Optional[float]:
+    if not vals:
+        return None
+    s = sorted(vals)
+    m = len(s) // 2
+    return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2
+
+
+def _cohort_stats(name: str, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Descriptive stats for one cohort.  10d is the primary horizon (matches
+    the tracker); 5d shown alongside.  No verdicts — computed cohorts carry
+    stats + maturity only, never a verdict of their own."""
+    def _vals(field: str) -> List[float]:
+        return [float(e[field]) for e in entries if e.get(field) is not None]
+
+    r5, r10 = _vals("ret_5d"), _vals("ret_10d")
+    vs_spy, vs_qqq, vs_sec = (_vals("ret_10d_vs_spy"), _vals("ret_10d_vs_qqq"),
+                              _vals("ret_10d_vs_sector"))
+    n10 = len(r10)
+    return {
+        "cohort": name,
+        "n_entries": len(entries),
+        "n_matured_5d": len(r5),
+        "n_matured_10d": n10,
+        "avg_ret_5d": round(sum(r5) / len(r5), 2) if r5 else None,
+        "avg_ret_10d": round(sum(r10) / n10, 2) if r10 else None,
+        "median_ret_10d": round(_median(r10), 2) if r10 else None,
+        "win_rate_10d": round(sum(1 for v in r10 if v > 0) / n10, 3) if n10 else None,
+        "mean_vs_spy_10d": round(sum(vs_spy) / len(vs_spy), 2) if vs_spy else None,
+        "mean_vs_qqq_10d": round(sum(vs_qqq) / len(vs_qqq), 2) if vs_qqq else None,
+        "mean_vs_sector_10d": round(sum(vs_sec) / len(vs_sec), 2) if vs_sec else None,
+        "n_with_spy_10d": len(vs_spy),
+        "sample_status": _sample_status(n10),
+    }
+
+
+def _all_history_entries(store: ArtifactStore) -> List[Dict[str, Any]]:
+    path = store.history_jsonl
+    if not path.exists():
+        return []
+    out: List[Dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except Exception:
+                continue
+    except Exception:
+        return []
+    return out
+
+
+def build_forward_cohorts(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Cohort analytics payload for the Forward Evidence page."""
+    store = store or ArtifactStore()
+    forward = _load_json(store.forward_json)
+    entries = _all_history_entries(store)
+    if forward is None and not entries:
+        return {"fallback": MISSING_ARTIFACT,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+
+    # Tier 1 — tracker-published label verdicts, passed through unmodified.
+    by_label = (forward or {}).get("verdicts_by_label") or []
+
+    # Tier 2 — computed cohorts (stats only, no verdicts).
+    def _group(keyfn) -> Dict[str, List[Dict[str, Any]]]:
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for e in entries:
+            k = keyfn(e)
+            if k:
+                groups.setdefault(str(k), []).append(e)
+        return groups
+
+    by_category = [
+        _cohort_stats(k, v) for k, v in sorted(
+            _group(lambda e: e.get("category")).items())
+    ]
+
+    # Source attribution caveat: history entries do not record the universe
+    # source at appearance time, so we join on the CURRENT universe map.
+    src_map = _source_by_ticker(_load_json(store.universe_json))
+    by_source = [
+        _cohort_stats(k, v) for k, v in sorted(
+            _group(lambda e: src_map.get(str(e.get("ticker") or "").upper())).items())
+    ]
+
+    # Pre/post price-fix split (delta-report doctrine: never pool the eras).
+    def _era(e) -> Optional[str]:
+        d = str(e.get("appearance_date") or "")[:10]
+        if not d:
+            return None
+        return "post_fix" if d >= PRICE_FIX_BOUNDARY else "pre_fix"
+    by_era = [_cohort_stats(k, v) for k, v in sorted(_group(_era).items())]
+
+    return {
+        "generated_at": (forward or {}).get("generated_at"),
+        "overall": (forward or {}).get("overall") or {},
+        "by_label": by_label,
+        "by_category": by_category,
+        "by_source": by_source,
+        "by_era": by_era,
+        "price_fix_boundary": PRICE_FIX_BOUNDARY,
+        "caveats": [
+            "by_label rows are the tracker's published verdicts (unmodified).",
+            "by_category / by_source / by_era are descriptive stats computed "
+            "from the history ledger — no verdicts are assigned to them.",
+            "by_source joins on the CURRENT universe source map; "
+            "appearance-time source is not recorded in the ledger.",
+            f"Entries before {PRICE_FIX_BOUNDARY} were selected on stale "
+            "price data (see delta report) — do not pool the eras.",
+        ],
+        "fallback": None,
+        "research_only_footer": RESEARCH_ONLY_FOOTER,
+    }
+
+
+# ── Phase 3: sector compass ──────────────────────────────────────────────────
+
+SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU",
+               "XLB", "XLRE", "XLC"]
+SECTOR_NAMES = {
+    "XLK": "Technology", "XLF": "Financials", "XLV": "Health Care",
+    "XLE": "Energy", "XLI": "Industrials", "XLY": "Consumer Discretionary",
+    "XLP": "Consumer Staples", "XLU": "Utilities", "XLB": "Materials",
+    "XLRE": "Real Estate", "XLC": "Communication Services",
+}
+
+
+def build_sector_compass(store: Optional[ArtifactStore] = None,
+                         spark_bars: int = 64) -> Dict[str, Any]:
+    """Sector rotation view: date-aligned RS vs SPY for each sector ETF
+    (20d / 63d cumulative relative return + a short spark series)."""
+    store = store or ArtifactStore()
+    spy = _read_price_frame(store, "SPY")
+    if spy is None:
+        return {"fallback": NO_DATA, "sectors": [],
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+    spy_close = spy["close"].astype(float)
+
+    sectors: List[Dict[str, Any]] = []
+    for etf in SECTOR_ETFS:
+        df = _read_price_frame(store, etf)
+        if df is None:
+            sectors.append({"etf": etf, "name": SECTOR_NAMES.get(etf),
+                            "fallback": NO_DATA})
+            continue
+        close = df["close"].astype(float)
+        rel_full = _rel_strength_series(close.tail(spark_bars), spy_close)
+
+        def _rs(lookback: int) -> Optional[float]:
+            c = close.tail(lookback + 1)
+            if len(c) < lookback + 1:
+                return None
+            rel = _rel_strength_series(c, spy_close)
+            return rel[-1] if rel and rel[-1] is not None else None
+
+        sectors.append({
+            "etf": etf,
+            "name": SECTOR_NAMES.get(etf),
+            "rs_20d_vs_spy": _rs(20),
+            "rs_63d_vs_spy": _rs(63),
+            "spark_rs_vs_spy": rel_full,
+            "last_date": str(df.index.max())[:10],
+            "fallback": None,
+        })
+
+    ranked = [s for s in sectors if s.get("rs_20d_vs_spy") is not None]
+    ranked.sort(key=lambda s: -(s["rs_20d_vs_spy"] or 0))
+    return {
+        "sectors": sectors,
+        "leaders": [s["etf"] for s in ranked[:4]],
+        "laggards": [s["etf"] for s in ranked[-4:]] if len(ranked) >= 4 else [],
+        "fallback": None,
+        "research_only_footer": RESEARCH_ONLY_FOOTER,
+    }
+
+
+# ── Phase 3: social attention overview ───────────────────────────────────────
+
+
+def build_social_overview(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Social attention cohort view: the social forward validator's published
+    payload (verdict passed through unmodified) + the scanner's current
+    social lane candidates."""
+    store = store or ArtifactStore()
+    social_path = store.research_dir / "social_attention_forward_latest.json"
+    social = _load_json(social_path)
+    scanner = _load_json(store.scanner_json)
+
+    lane: List[Dict[str, Any]] = []
+    for item in ((scanner or {}).get("categories") or {}).get(
+            "social_arb_attention", []):
+        if item.get("social_data_available") is False:
+            continue
+        lane.append({
+            "ticker": item.get("ticker"),
+            "research_score": item.get("research_score"),
+            "watchlist_label": item.get("watchlist_label"),
+        })
+
+    if social is None and not lane:
+        return {"fallback": MISSING_ARTIFACT,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+
+    return {
+        "generated_at": (social or {}).get("generated_at"),
+        "verdict": (social or {}).get("verdict"),
+        "verdict_reason": (social or {}).get("verdict_reason"),
+        "matured_social_led": (social or {}).get("matured_social_led_primary"),
+        "by_cohort": (social or {}).get("by_cohort") or {},
+        "comparisons": (social or {}).get("comparisons") or {},
+        "history_days": (social or {}).get("history_days"),
+        "current_lane": lane,
+        "fallback": None,
+        "research_only_footer": RESEARCH_ONLY_FOOTER,
+    }

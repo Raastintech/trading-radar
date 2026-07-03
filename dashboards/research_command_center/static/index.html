@@ -186,9 +186,9 @@ const NAV = [
   {id:"home",       label:"Research Home",       ini:"HM"},
   {id:"alpha",      label:"Alpha Radar",          ini:"AR"},
   {id:"board",      label:"Scanner Leaderboard",  ini:"SL"},
-  {id:"forward-evidence", label:"Forward Evidence", ini:"FE", stub:3},
-  {id:"sector-compass",   label:"Sector Compass",   ini:"SC", stub:3},
-  {id:"social-arb",       label:"Social Arb",       ini:"SA", stub:3},
+  {id:"forward-evidence", label:"Forward Evidence", ini:"FE"},
+  {id:"sector-compass",   label:"Sector Compass",   ini:"SC"},
+  {id:"social-arb",       label:"Social Arb",       ini:"SA"},
   {id:"fundamental-lens", label:"Fundamental Lens", ini:"FL", stub:5},
   {id:"universe",   label:"Universe Health",      ini:"UH"},
   {id:"data-quality",     label:"Data Quality",    ini:"DQ", stub:4},
@@ -523,7 +523,148 @@ function renderPage(){
   if(activePage==="home") return renderHome();
   if(activePage==="mot") return renderMot();
   if(activePage==="universe") return renderUniverse();
+  if(activePage==="forward-evidence") return renderForward();
+  if(activePage==="sector-compass") return renderSectors();
+  if(activePage==="social-arb") return renderSocial();
   return renderStub(activePage);
+}
+
+/* ── Phase 3: Forward Evidence (cohort analytics) ── */
+const pct=(v,d=2)=>(v===null||v===undefined)?"—":`${v>0?"+":""}${Number(v).toFixed(d)}%`;
+const wr=v=>(v===null||v===undefined)?"—":`${(v*100).toFixed(0)}%`;
+function cohortTable(title,rows,opts={}){
+  if(!rows||!rows.length) return card(title,`<div style="color:var(--dim);font-size:11px">no data</div>`);
+  const isTracker=!!opts.tracker;
+  const head=`<tr>
+    <th>Cohort</th><th>n</th><th>m5d</th><th>m10d</th>
+    <th>avg 5d</th><th>avg 10d</th><th>med 10d</th><th>win 10d</th>
+    <th>vs SPY</th><th>vs QQQ</th><th>vs Sector</th><th>Maturity</th>
+    ${isTracker?"<th>Tracker verdict</th>":""}</tr>`;
+  const body=rows.map(r=>{
+    const name=r.cohort||r.bucket||"?";
+    return `<tr>
+      <td class="tick">${esc(name)}</td>
+      <td>${r.n_entries??r.total_entries??"—"}</td>
+      <td>${r.n_matured_5d??r.matured_5d_entries??"—"}</td>
+      <td>${r.n_matured_10d??r.matured_entries??"—"}</td>
+      <td>${heat(r.avg_ret_5d)}</td>
+      <td>${heat(r.avg_ret_10d??r.mean_ret_10d)}</td>
+      <td>${heat(r.median_ret_10d)}</td>
+      <td>${wr(r.win_rate_10d)}</td>
+      <td>${heat(r.mean_vs_spy_10d??r.avg_ret_vs_spy)}</td>
+      <td>${heat(r.mean_vs_qqq_10d??r.avg_ret_vs_qqq)}</td>
+      <td>${heat(r.mean_vs_sector_10d??r.avg_ret_vs_sector)}</td>
+      <td>${badge(r.sample_status)}</td>
+      ${isTracker?`<td>${badge(r.verdict)}</td>`:""}
+    </tr>`;
+  }).join("");
+  return card(title,`<table>${head}${body}</table>`);
+}
+function cohortBars(title,rows,field){
+  const items=rows.filter(r=>(r[field]??null)!==null);
+  if(!items.length) return "";
+  const mx=Math.max(...items.map(r=>Math.abs(r[field])),1);
+  const Wb=420,half=Wb/2,h=items.length*16+6;
+  let g=`<line x1="${half}" y1="0" x2="${half}" y2="${h}" stroke="#39415a"/>`;
+  items.forEach((r,i)=>{
+    const y=i*16+3,v=r[field];
+    const w=Math.abs(v)/mx*(half-100),x=v>=0?half:half-w;
+    g+=`<text x="2" y="${y+9}" fill="#7b8496" font-size="9">${esc((r.cohort||r.bucket||"?").slice(0,22))}</text>
+        <rect x="${x.toFixed(1)}" y="${y}" width="${Math.max(w,1).toFixed(1)}" height="11" fill="${v>=0?"#22c55e":"#ef4444"}" opacity=".75"/>
+        <text x="${(v>=0?half+w+4:half-w-34).toFixed(1)}" y="${y+9}" fill="${v>=0?"#22c55e":"#ef4444"}" font-size="9">${v>0?"+":""}${v.toFixed(1)}%</text>`;
+  });
+  return card(title,`<svg width="${Wb}" height="${h}" viewBox="0 0 ${Wb} ${h}">${g}</svg>`);
+}
+function renderForward(){
+  $("#workspace").innerHTML=`<h2 class="pg">Forward Evidence</h2><div style="color:var(--dim)">loading…</div>`;
+  fetch("api/forward-cohorts").then(r=>r.json()).then(d=>{
+    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Forward Evidence</h2><div class="banner">${esc(d.fallback)} — forward tracker artifacts unavailable.</div>`;return;}
+    const era=(d.by_era||[]).map(r=>({...r,cohort:r.cohort==="post_fix"?`post-fix (≥ ${d.price_fix_boundary})`:`pre-fix (< ${d.price_fix_boundary})`}));
+    $("#workspace").innerHTML=`
+      <h2 class="pg">Forward Evidence — cohort analytics</h2>
+      <div class="banner">Tracker verdicts are shown unmodified. Computed cohorts carry stats + maturity only — no verdicts. Do not pool pre-fix and post-fix eras.</div>
+      ${cohortTable("By label — tracker-published verdicts",d.by_label,{tracker:true})}
+      ${cohortBars("Mean 10d vs SPY by label (matured entries)",d.by_label,"avg_ret_vs_spy")}
+      ${cohortTable(`Era split — price-cache fix boundary ${esc(d.price_fix_boundary)}`,era)}
+      ${cohortTable("By scanner category (computed, descriptive only)",d.by_category)}
+      ${cohortTable("By universe source (computed — joins CURRENT source map)",d.by_source)}
+      <div class="note">${(d.caveats||[]).map(c=>`• ${esc(c)}`).join("<br>")}</div>`;
+  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Forward Evidence</h2><div class="banner">unavailable</div>`;});
+}
+
+/* ── Phase 3: Sector Compass ── */
+function sparkSvg(series){
+  if(!series) return "";
+  const w=120,h=26,[mn,mx]=scaleSeries([series]);
+  let d="",pen=false;
+  const n=series.length;
+  for(let i=0;i<n;i++){
+    const v=series[i];
+    if(v===null||v===undefined){pen=false;continue}
+    const x=(i/(n-1||1))*w,y=h-((v-mn)/(mx-mn||1))*(h-4)-2;
+    d+=(pen?"L":"M")+x.toFixed(1)+","+y.toFixed(1);pen=true;
+  }
+  let zero="";
+  if(mn<0&&mx>0){const zy=h-((0-mn)/(mx-mn))*(h-4)-2;
+    zero=`<line x1="0" y1="${zy.toFixed(1)}" x2="${w}" y2="${zy.toFixed(1)}" stroke="#39415a" stroke-dasharray="2,2"/>`;}
+  const last=series.filter(v=>v!==null&&v!==undefined).pop()||0;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${zero}<path d="${d}" fill="none" stroke="${last>=0?"#22c55e":"#ef4444"}" stroke-width="1.2"/></svg>`;
+}
+function renderSectors(){
+  $("#workspace").innerHTML=`<h2 class="pg">Sector Compass</h2><div style="color:var(--dim)">loading…</div>`;
+  fetch("api/sectors").then(r=>r.json()).then(d=>{
+    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Sector Compass</h2><div class="banner">${esc(d.fallback)} — SPY price series unavailable.</div>`;return;}
+    const rows=(d.sectors||[]).slice().sort((a,b)=>((b.rs_20d_vs_spy??-1e9)-(a.rs_20d_vs_spy??-1e9)));
+    const body=rows.map(s=>`<tr>
+      <td class="tick">${esc(s.etf)}</td><td class="co">${esc(s.name)||"—"}</td>
+      <td>${heat(s.rs_20d_vs_spy)}</td><td>${heat(s.rs_63d_vs_spy)}</td>
+      <td>${s.fallback?badge(s.fallback):sparkSvg(s.spark_rs_vs_spy)}</td>
+      <td style="color:var(--dim)">${esc(s.last_date)||"—"}</td></tr>`).join("");
+    $("#workspace").innerHTML=`
+      <h2 class="pg">Sector Compass — RS vs SPY (date-aligned)</h2>
+      <div class="hrow" style="display:flex;gap:6px;margin-bottom:8px">
+        <span class="chip">LEADERS: <b>${(d.leaders||[]).join(" ")||"—"}</b></span>
+        <span class="chip">LAGGARDS: <b>${(d.laggards||[]).join(" ")||"—"}</b></span>
+      </div>
+      ${card("Sector ETFs ranked by 20d RS vs SPY",`<table>
+        <tr><th>ETF</th><th>Sector</th><th>RS 20d</th><th>RS 63d</th><th>RS trend (64 bars)</th><th>Last bar</th></tr>${body}</table>`)}
+      <div class="note">Cumulative relative return vs SPY over the lookback, aligned by date; gaps are never interpolated. Rotation context only — not a signal.</div>`;
+  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Sector Compass</h2><div class="banner">unavailable</div>`;});
+}
+
+/* ── Phase 3: Social Arb ── */
+function renderSocial(){
+  $("#workspace").innerHTML=`<h2 class="pg">Social Arb</h2><div style="color:var(--dim)">loading…</div>`;
+  fetch("api/social").then(r=>r.json()).then(d=>{
+    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Social Arb</h2><div class="banner">${esc(d.fallback)} — social attention artifacts unavailable.</div>`;return;}
+    const cohorts=Object.entries(d.by_cohort||{});
+    const cohortRows=cohorts.map(([k,v])=>{
+      const o=v||{};
+      return `<tr><td class="tick">${esc(k)}</td>
+        <td>${o.n??o.count??"—"}</td>
+        <td>${heat(o.avg_ret_5d??o.mean_5d??null)}</td>
+        <td>${heat(o.avg_rel_spy_5d??o.mean_rel_spy_5d??null)}</td></tr>`;
+    }).join("");
+    const lane=(d.current_lane||[]).map(x=>`<tr>
+      <td class="tick">${esc(x.ticker)}</td><td>${x.research_score??"—"}</td>
+      <td><span class="tag">${esc(x.watchlist_label)||"—"}</span></td></tr>`).join("");
+    $("#workspace").innerHTML=`
+      <h2 class="pg">Social Arb — attention cohorts</h2>
+      <div class="hrow" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <span class="chip">VALIDATOR VERDICT: ${badge(d.verdict)}</span>
+        <span class="chip">MATURED SOCIAL-LED: <b>${d.matured_social_led??"—"}</b></span>
+        <span class="chip">HISTORY DAYS: <b>${d.history_days??"—"}</b></span>
+      </div>
+      <div class="note">${esc(d.verdict_reason||"")}</div>
+      <div class="cards" style="margin-top:10px">
+        ${card("Forward cohorts (validator-published)",cohortRows?`<table>
+          <tr><th>Cohort</th><th>n</th><th>avg 5d</th><th>vs SPY 5d</th></tr>${cohortRows}</table>`
+          :`<div style="color:var(--dim);font-size:11px">no matured cohorts published yet</div>`)}
+        ${card(`Current social lane (${(d.current_lane||[]).length})`,lane?`<table>
+          <tr><th>Ticker</th><th>Score</th><th>Label</th></tr>${lane}</table>`
+          :`<div style="color:var(--dim);font-size:11px">no live social candidates</div>`)}
+      </div>`;
+  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Social Arb</h2><div class="banner">unavailable</div>`;});
 }
 
 /* ── drawer (research profile) ── */

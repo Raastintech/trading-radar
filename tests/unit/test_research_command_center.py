@@ -609,6 +609,177 @@ def test_tab_row_is_capped():
     assert "openTabs.length>MAX_TABS" in html
 
 
+# ── Phase 3: cohort analytics ────────────────────────────────────────────────
+
+
+def _write_history_multi(root: Path) -> None:
+    """Multi-entry history: pre-fix matured entries + post-fix immature."""
+    lines = []
+    for i in range(12):   # pre-fix, matured 10d, category A
+        lines.append(json.dumps({
+            "ticker": f"PRE{i}", "appearance_date": "2026-06-20",
+            "category": "early_accumulation", "watchlist_label": "EARLY_ACCUMULATION",
+            "ret_5d": 2.0, "ret_10d": 1.0 if i % 2 else -1.0, "ret_20d": None,
+            "ret_10d_vs_spy": 0.5, "ret_10d_vs_qqq": 0.4, "ret_10d_vs_sector": None,
+        }))
+    for i in range(5):    # post-fix, nothing matured
+        lines.append(json.dumps({
+            "ticker": f"POST{i}", "appearance_date": "2026-07-03",
+            "category": "rs_momentum_leader", "watchlist_label": "RS_MOMENTUM_LEADER",
+            "ret_5d": None, "ret_10d": None, "ret_20d": None,
+        }))
+    (root / "data" / "research" / "research_watchlist_history.jsonl").write_text(
+        "\n".join(lines) + "\n")
+
+
+def test_forward_cohorts_shape_and_era_split(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_forward_cohorts)
+    _write_fixture_artifacts(tmp_path)
+    _write_history_multi(tmp_path)
+    d = build_forward_cohorts(ArtifactStore(root=tmp_path))
+    assert d["fallback"] is None
+    # tracker verdicts passed through unmodified
+    assert d["by_label"] == json.loads(
+        (tmp_path / "cache" / "research" / "research_forward_latest.json")
+        .read_text()).get("verdicts_by_label", [])
+    # era split at the price-fix boundary
+    eras = {e["cohort"]: e for e in d["by_era"]}
+    assert eras["pre_fix"]["n_entries"] == 12
+    assert eras["pre_fix"]["n_matured_10d"] == 12
+    assert eras["post_fix"]["n_entries"] == 5
+    assert eras["post_fix"]["n_matured_10d"] == 0
+    assert eras["post_fix"]["sample_status"] == "TOO_EARLY"
+    # computed cohorts carry stats, never verdicts
+    for row in d["by_category"] + d["by_source"] + d["by_era"]:
+        assert "verdict" not in row
+    assert any("do not pool" in c.lower() for c in d["caveats"])
+
+
+def test_forward_cohort_math(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_forward_cohorts)
+    _write_fixture_artifacts(tmp_path)
+    _write_history_multi(tmp_path)
+    d = build_forward_cohorts(ArtifactStore(root=tmp_path))
+    ea = next(r for r in d["by_category"] if r["cohort"] == "early_accumulation")
+    assert ea["n_matured_10d"] == 12
+    assert ea["win_rate_10d"] == 0.5          # 6 of 12 positive
+    assert ea["avg_ret_10d"] == 0.0           # +1/-1 alternating
+    assert ea["mean_vs_spy_10d"] == 0.5
+    assert ea["sample_status"] == "PROVISIONAL"   # 10-29 matured
+
+
+def test_forward_cohorts_maturity_ladder():
+    from dashboards.research_command_center.data_adapter import _sample_status
+    assert _sample_status(0) == "TOO_EARLY"
+    assert _sample_status(9) == "TOO_EARLY"
+    assert _sample_status(10) == "PROVISIONAL"
+    assert _sample_status(30) == "MEANINGFUL"
+    assert _sample_status(100) == "ROBUST"
+
+
+def test_forward_cohorts_missing_artifacts(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_forward_cohorts)
+    d = build_forward_cohorts(ArtifactStore(root=tmp_path))
+    assert d["fallback"] == MISSING_ARTIFACT
+    assert d["research_only_footer"] == RESEARCH_ONLY_FOOTER
+
+
+def test_sector_compass(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_sector_compass)
+    _write_fixture_artifacts(tmp_path)
+    _write_price_parquets(tmp_path)   # writes SPY/QQQ/XLK/GOODCO
+    d = build_sector_compass(ArtifactStore(root=tmp_path))
+    assert d["fallback"] is None
+    xlk = next(s for s in d["sectors"] if s["etf"] == "XLK")
+    assert xlk["rs_20d_vs_spy"] is not None
+    assert len(xlk["spark_rs_vs_spy"]) > 0
+    # ETFs without parquets degrade to NO_DATA, never fabricated
+    xle = next(s for s in d["sectors"] if s["etf"] == "XLE")
+    assert xle["fallback"] == NO_DATA
+
+
+def test_sector_compass_no_spy(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_sector_compass)
+    d = build_sector_compass(ArtifactStore(root=tmp_path))
+    assert d["fallback"] == NO_DATA
+
+
+def test_social_overview(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_social_overview)
+    _write_fixture_artifacts(tmp_path)
+    (tmp_path / "cache" / "research" /
+     "social_attention_forward_latest.json").write_text(json.dumps({
+        "generated_at": "2026-07-03T00:00:00+00:00",
+        "verdict": "NEED_MORE_DATA",
+        "verdict_reason": "insufficient matured social-led entries",
+        "matured_social_led_primary": 3,
+        "by_cohort": {"lead_SOCIAL_LED": {"n": 3}},
+        "history_days": 12,
+     }))
+    d = build_social_overview(ArtifactStore(root=tmp_path))
+    assert d["fallback"] is None
+    assert d["verdict"] == "NEED_MORE_DATA"      # validator verdict unmodified
+    assert d["matured_social_led"] == 3
+    assert d["research_only_footer"] == RESEARCH_ONLY_FOOTER
+
+
+def test_phase3_pages_render_in_ui():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for marker in ("renderForward", "renderSectors", "renderSocial",
+                   "api/forward-cohorts", "api/sectors", "api/social",
+                   "Do not pool pre-fix and post-fix eras",
+                   "tracker-published verdicts",
+                   "joins CURRENT source map"):
+        assert marker in html, marker
+    # implemented pages no longer carry stub badges
+    assert '{id:"forward-evidence", label:"Forward Evidence", ini:"FE"}' in html
+
+
+def test_phase3_endpoints_served(tmp_path):
+    import threading
+    import urllib.request
+
+    _write_fixture_artifacts(tmp_path)
+    _write_history_multi(tmp_path)
+    _write_price_parquets(tmp_path)
+    from dashboards.research_command_center.server import make_server
+
+    srv = make_server(port=0, root=tmp_path)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{port}"
+        fc = json.loads(urllib.request.urlopen(f"{base}/api/forward-cohorts").read())
+        assert {e["cohort"] for e in fc["by_era"]} == {"pre_fix", "post_fix"}
+        sc = json.loads(urllib.request.urlopen(f"{base}/api/sectors").read())
+        assert len(sc["sectors"]) == 11
+        so = json.loads(urllib.request.urlopen(f"{base}/api/social").read())
+        assert "research_only_footer" in so
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_phase3_never_writes(tmp_path):
+    from dashboards.research_command_center.data_adapter import (
+        build_forward_cohorts, build_sector_compass, build_social_overview)
+    _write_fixture_artifacts(tmp_path)
+    _write_history_multi(tmp_path)
+    _write_price_parquets(tmp_path)
+    store = ArtifactStore(root=tmp_path)
+    before = _tree_digest(tmp_path)
+    build_forward_cohorts(store)
+    build_sector_compass(store)
+    build_social_overview(store)
+    assert _tree_digest(tmp_path) == before
+
+
 # ── server smoke ─────────────────────────────────────────────────────────────
 
 

@@ -27,7 +27,10 @@ if str(HERE.parents[1]) not in sys.path:
 
 from dashboards.research_command_center.data_adapter import (  # noqa: E402
     ArtifactStore,
+    build_forward_cohorts,
     build_leaderboard,
+    build_sector_compass,
+    build_social_overview,
     build_status,
     build_ticker_detail,
     build_ticker_series,
@@ -38,9 +41,6 @@ INDEX_HTML = HERE / "static" / "index.html"
 # Later-phase routes are stubbed on purpose — see the phase plan.  They exist
 # so the sidebar can link somewhere honest, not to hide unbuilt features.
 STUB_PAGES = {
-    "forward-evidence": "Phase 3 pending approval — cohort analytics not implemented yet.",
-    "sector-compass": "Phase 3 pending approval — sector rotation view not implemented yet.",
-    "social-arb": "Phase 3 pending approval — social cohort view not implemented yet.",
     "fundamental-lens": "Phase 5 pending approval — fundamentals overlay not implemented yet.",
     "data-quality": "Phase 4 pending approval — full data-quality dashboard not implemented yet.",
     "research-journal": "Phase 6 pending approval — manual notes not implemented yet.",
@@ -87,6 +87,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path.startswith("/api/series/"):
                 ticker = path.rsplit("/", 1)[-1]
                 self._json(build_ticker_series(ticker, self.store))
+            elif path == "/api/forward-cohorts":
+                self._json(build_forward_cohorts(self.store))
+            elif path == "/api/sectors":
+                self._json(build_sector_compass(self.store))
+            elif path == "/api/social":
+                self._json(build_social_overview(self.store))
             elif path.startswith("/api/stub/"):
                 page = path.rsplit("/", 1)[-1]
                 note = STUB_PAGES.get(page, "Not yet built")
