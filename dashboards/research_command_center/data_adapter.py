@@ -96,6 +96,10 @@ class ArtifactStore:
     def fundamentals_dir(self) -> Path:
         return self.root / "cache" / "fundamentals"
 
+    @property
+    def journal_jsonl(self) -> Path:
+        return self.root / "data" / "research" / "journal.jsonl"
+
 
 def _load_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
@@ -1160,5 +1164,158 @@ def build_fundamentals(ticker: str,
         "growth_caveat": ("Growth is q/q and vs-3-quarters-ago; true YoY is "
                           "not computable from the 4 cached quarters."),
         "fallback": None,
+        "research_only_footer": RESEARCH_ONLY_FOOTER,
+    }
+
+
+# ── Phase 6: research journal (append-only manual notes) ────────────────────
+#
+# The ONLY write path in the entire dashboard, and it touches exactly one
+# file: data/research/journal.jsonl (append-only, one JSON object per line).
+# Write authorization lives in the server layer; this module only validates,
+# sanitizes, reads, and appends.
+
+import re as _re
+import uuid as _uuid
+
+JOURNAL_STATUSES = ["NEEDS_REVIEW", "WATCHING", "REJECTED_RESEARCH",
+                    "FOLLOW_UP", "DATA_QUALITY_CONCERN", "ARCHIVED"]
+JOURNAL_LIMITS = {
+    "ticker_max": 12, "title_max": 120, "note_max": 5000,
+    "tags_max": 12, "tag_len_max": 32, "source_view_max": 64,
+}
+_TICKER_RE = _re.compile(r"^[A-Z0-9.\-]{1,12}$")
+_TAG_RE = _re.compile(r"^[A-Za-z0-9_\-. ]{1,32}$")
+# Whitelisted evidence-snapshot keys (anything else is dropped on write)
+_SNAPSHOT_KEYS = ["label", "scanner_category", "source", "sector",
+                  "sector_etf", "data_quality", "forward_5d", "forward_10d",
+                  "vs_spy", "vs_qqq", "vs_sector", "fundamental_quality"]
+
+
+def _strip_html(s: str) -> str:
+    """Remove tags and neutralize angle brackets so stored notes can never
+    carry markup into any renderer."""
+    s = _re.sub(r"<[^>]*>", " ", s)
+    return s.replace("<", "(").replace(">", ")").strip()
+
+
+def validate_journal_entry(payload: Any) -> tuple:
+    """Validate + sanitize a journal POST body.  Returns (entry, None) on
+    success or (None, error_message)."""
+    if not isinstance(payload, dict):
+        return None, "payload must be a JSON object"
+
+    ticker = str(payload.get("ticker") or "").strip().upper()
+    if not _TICKER_RE.match(ticker):
+        return None, ("ticker required: uppercase letters/numbers/dot/dash, "
+                      f"max {JOURNAL_LIMITS['ticker_max']} chars")
+
+    title = _strip_html(str(payload.get("title") or ""))
+    if not title or len(title) > JOURNAL_LIMITS["title_max"]:
+        return None, f"title required, max {JOURNAL_LIMITS['title_max']} chars"
+
+    note = _strip_html(str(payload.get("note") or ""))
+    if not note or len(note) > JOURNAL_LIMITS["note_max"]:
+        return None, f"note required, max {JOURNAL_LIMITS['note_max']} chars"
+
+    status = str(payload.get("status") or "").strip().upper()
+    if status not in JOURNAL_STATUSES:
+        return None, f"status must be one of {JOURNAL_STATUSES}"
+
+    raw_tags = payload.get("tags") or []
+    if not isinstance(raw_tags, list) or len(raw_tags) > JOURNAL_LIMITS["tags_max"]:
+        return None, f"tags must be a list of at most {JOURNAL_LIMITS['tags_max']}"
+    tags = []
+    for t in raw_tags:
+        t = _strip_html(str(t))
+        if not _TAG_RE.match(t):
+            return None, "invalid tag (max 32 chars; letters/numbers/_-. )"
+        tags.append(t)
+
+    source_view = _strip_html(str(payload.get("source_view") or ""))[
+        :JOURNAL_LIMITS["source_view_max"]] or None
+
+    snapshot = None
+    raw_snap = payload.get("evidence_snapshot")
+    if isinstance(raw_snap, dict):
+        snapshot = {}
+        for k in _SNAPSHOT_KEYS:
+            v = raw_snap.get(k)
+            if v is None:
+                snapshot[k] = None
+            elif isinstance(v, (int, float)) and not isinstance(v, bool):
+                snapshot[k] = v
+            else:
+                snapshot[k] = _strip_html(str(v))[:120]
+
+    return {
+        "id": str(_uuid.uuid4()),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": None,
+        "ticker": ticker,
+        "title": title,
+        "note": note,
+        "status": status,
+        "tags": tags,
+        "source_view": source_view,
+        "evidence_snapshot": snapshot,
+        "research_only_footer": RESEARCH_ONLY_FOOTER,
+    }, None
+
+
+def append_journal_entry(entry: Dict[str, Any],
+                         store: Optional[ArtifactStore] = None) -> None:
+    """Append one validated entry.  This is the dashboard's only write and
+    it may only ever touch journal_jsonl."""
+    store = store or ArtifactStore()
+    path = store.journal_jsonl
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def read_journal(store: Optional[ArtifactStore] = None,
+                 ticker: Optional[str] = None,
+                 status: Optional[str] = None,
+                 tag: Optional[str] = None,
+                 limit: int = 100) -> Dict[str, Any]:
+    """Read journal entries, newest first, with simple filters."""
+    store = store or ArtifactStore()
+    path = store.journal_jsonl
+    entries: List[Dict[str, Any]] = []
+    if path.exists():
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    continue
+        except Exception:
+            entries = []
+
+    if ticker:
+        t = ticker.strip().upper()
+        entries = [e for e in entries if str(e.get("ticker") or "").upper() == t]
+    if status:
+        s = status.strip().upper()
+        entries = [e for e in entries if str(e.get("status") or "").upper() == s]
+    if tag:
+        tg = tag.strip().lower()
+        entries = [e for e in entries
+                   if tg in [str(x).lower() for x in (e.get("tags") or [])]]
+
+    entries.sort(key=lambda e: str(e.get("created_at") or ""), reverse=True)
+    try:
+        limit = max(1, min(int(limit), 1000))
+    except Exception:
+        limit = 100
+    return {
+        "entries": entries[:limit],
+        "count": len(entries),
+        "journal_path": "data/research/journal.jsonl",
+        "statuses": JOURNAL_STATUSES,
         "research_only_footer": RESEARCH_ONLY_FOOTER,
     }

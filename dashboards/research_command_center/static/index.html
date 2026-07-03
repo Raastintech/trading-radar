@@ -196,7 +196,7 @@ const NAV = [
   {id:"extended",   label:"Extended / Crowded",   ini:"EX"},
   {id:"young",      label:"Young Listings",       ini:"YL"},
   {id:"mot",        label:"Moment of Truth",      ini:"MT"},
-  {id:"research-journal", label:"Research Journal", ini:"RJ", stub:6},
+  {id:"research-journal", label:"Research Journal", ini:"RJ"},
 ];
 
 let BOARD=null, STATUS=null;
@@ -528,7 +528,133 @@ function renderPage(){
   if(activePage==="social-arb") return renderSocial();
   if(activePage==="data-quality") return renderDataQuality();
   if(activePage==="fundamental-lens") return renderFundamentals();
+  if(activePage==="research-journal") return renderJournal();
   return renderStub(activePage);
+}
+
+/* ── Phase 6: Research Journal (manual notes; append-only) ── */
+let journalPrefill=null;      // set by the drawer's "Add research note" link
+let journalFilters={ticker:"",status:"",tag:"",q:"",limit:100};
+function journalEntryCard(e){
+  const snap=e.evidence_snapshot||null;
+  const snapLine=snap?[
+    snap.label?`label ${esc(snap.label)}`:null,
+    snap.scanner_category?`cat ${esc(snap.scanner_category)}`:null,
+    snap.source?`src ${esc(snap.source)}`:null,
+    snap.sector?esc(snap.sector):null,
+    snap.data_quality?`DQ ${esc(snap.data_quality)}`:null,
+    snap.fundamental_quality?`fund ${esc(snap.fundamental_quality)}`:null,
+  ].filter(Boolean).join(" · "):"";
+  return `<div class="card" style="margin-bottom:10px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <span class="tag" style="color:var(--accent)">${esc(e.ticker)}</span>
+      ${badge(e.status)}
+      <b style="font-size:12px">${esc(e.title)}</b>
+      <span style="margin-left:auto;color:var(--dim);font-size:10px">${esc(String(e.created_at||"")).slice(0,16)}</span>
+    </div>
+    <div style="font-size:11.5px;color:var(--text);white-space:pre-wrap">${esc(e.note)}</div>
+    ${(e.tags||[]).length?`<div style="margin-top:6px">${e.tags.map(t=>`<span class="tag">${esc(t)}</span>`).join(" ")}</div>`:""}
+    ${snapLine?`<div class="note">evidence snapshot: ${snapLine}</div>`:""}
+  </div>`;
+}
+function journalForm(writeEnabled){
+  if(!writeEnabled){
+    return `<div class="card" style="margin-bottom:12px">
+      <h3>New research note</h3>
+      <div style="color:var(--dim);font-size:11px">Journal write mode is disabled.
+      Set <code>GEM_RCC_ENABLE_JOURNAL_WRITES=true</code> to enable local note capture.
+      Non-loopback posting additionally requires <code>GEM_RCC_JOURNAL_TOKEN</code>.</div>
+    </div>`;
+  }
+  const p=journalPrefill||{};
+  return `<div class="card accent" style="margin-bottom:12px">
+    <h3>New research note</h3>
+    <div style="display:grid;grid-template-columns:110px 1fr;gap:6px 10px;font-size:11.5px;align-items:center">
+      <span class="k" style="color:var(--dim)">Ticker</span>
+      <input id="j-ticker" maxlength="12" value="${esc(p.ticker||"")}" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit;width:120px">
+      <span class="k" style="color:var(--dim)">Title</span>
+      <input id="j-title" maxlength="120" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit">
+      <span class="k" style="color:var(--dim)">Status</span>
+      <select id="j-status" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit;width:220px">
+        ${["NEEDS_REVIEW","WATCHING","REJECTED_RESEARCH","FOLLOW_UP","DATA_QUALITY_CONCERN","ARCHIVED"].map(s=>`<option>${s}</option>`).join("")}
+      </select>
+      <span class="k" style="color:var(--dim)">Tags (comma)</span>
+      <input id="j-tags" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit;width:260px">
+      <span class="k" style="color:var(--dim)">Note</span>
+      <textarea id="j-note" rows="4" maxlength="5000" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit"></textarea>
+      <span class="k" style="color:var(--dim)">Token <span style="font-size:9px">(if configured)</span></span>
+      <input id="j-token" type="password" autocomplete="off" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit;width:220px">
+    </div>
+    <div style="margin-top:10px;display:flex;gap:10px;align-items:center">
+      <button id="j-save" style="background:var(--panel2);border:1px solid var(--accent);color:var(--accent);border-radius:4px;cursor:pointer;padding:5px 14px;font:inherit">Save research note</button>
+      <span id="j-msg" style="font-size:11px;color:var(--dim)"></span>
+    </div>
+  </div>`;
+}
+function renderJournal(){
+  const f=journalFilters;
+  const qs=new URLSearchParams();
+  if(f.ticker)qs.set("ticker",f.ticker); if(f.status)qs.set("status",f.status);
+  if(f.tag)qs.set("tag",f.tag); qs.set("limit",f.limit||100);
+  $("#workspace").innerHTML=`<h2 class="pg">Research Journal</h2><div style="color:var(--dim)">loading…</div>`;
+  fetch(`api/journal?${qs}`).then(r=>r.json()).then(d=>{
+    let entries=d.entries||[];
+    if(f.q){const q=f.q.toLowerCase();
+      entries=entries.filter(e=>(e.title||"").toLowerCase().includes(q)||(e.note||"").toLowerCase().includes(q));}
+    $("#workspace").innerHTML=`
+      <h2 class="pg">Research Journal</h2>
+      <div class="cards" style="grid-template-columns:1fr">
+        ${card("Journal",`<div class="kv">
+          ${kvRow("Purpose","Manual research notes only")}
+          ${kvRow("Write mode",badge(d.write_enabled?"ENABLED":"DISABLED"))}
+          ${kvRow("Path",`<code>${esc(d.journal_path||"data/research/journal.jsonl")}</code>`)}
+          ${kvRow("Entries",d.count??0)}
+        </div>`,"accent")}
+      </div>
+      ${journalForm(d.write_enabled)}
+      <div id="board-toolbar">
+        <input id="jf-ticker" placeholder="ticker" value="${esc(f.ticker)}" style="width:90px;background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit">
+        <select id="jf-status" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit">
+          <option value="">any status</option>
+          ${(d.statuses||[]).map(s=>`<option ${f.status===s?"selected":""}>${s}</option>`).join("")}
+        </select>
+        <input id="jf-tag" placeholder="tag" value="${esc(f.tag)}" style="width:90px;background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit">
+        <input id="jf-q" placeholder="search text" value="${esc(f.q)}" style="width:140px;background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit">
+        <select id="jf-limit" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit">
+          ${[25,100,250,1000].map(n=>`<option ${String(f.limit)===String(n)?"selected":""}>${n}</option>`).join("")}
+        </select>
+        <span class="sum">${entries.length} of ${d.count??0} notes</span>
+      </div>
+      <div>${entries.map(journalEntryCard).join("")||'<div class="stub"><h2>No notes yet</h2><p>Notes you save land in the append-only journal file.</p></div>'}</div>
+      <div class="note">Research only — not a signal or recommendation.</div>`;
+    const apply=()=>{
+      journalFilters={ticker:$("#jf-ticker").value.trim(),status:$("#jf-status").value,
+        tag:$("#jf-tag").value.trim(),q:$("#jf-q").value.trim(),limit:$("#jf-limit").value};
+      renderJournal();
+    };
+    ["jf-ticker","jf-tag","jf-q"].forEach(id=>{$("#"+id).onkeydown=e=>{if(e.key==="Enter")apply();};});
+    $("#jf-status").onchange=apply; $("#jf-limit").onchange=apply;
+    const save=$("#j-save");
+    if(save)save.onclick=()=>{
+      const body={ticker:$("#j-ticker").value.trim().toUpperCase(),
+        title:$("#j-title").value.trim(), note:$("#j-note").value.trim(),
+        status:$("#j-status").value,
+        tags:$("#j-tags").value.split(",").map(s=>s.trim()).filter(Boolean)};
+      if(journalPrefill&&journalPrefill.evidence_snapshot&&body.ticker===(journalPrefill.ticker||""))
+        body.evidence_snapshot=journalPrefill.evidence_snapshot;
+      body.source_view=journalPrefill&&body.ticker===(journalPrefill.ticker||"")?"ticker_drawer":"journal_page";
+      const headers={"Content-Type":"application/json"};
+      const tok=$("#j-token").value;
+      if(tok)headers["X-Research-Journal-Token"]=tok;
+      $("#j-msg").textContent="saving…";
+      fetch("api/journal",{method:"POST",headers,body:JSON.stringify(body)})
+        .then(r=>r.json().then(j=>({ok:r.ok,j})))
+        .then(({ok,j})=>{
+          if(!ok){$("#j-msg").textContent=`rejected: ${j.error||"?"}`;return;}
+          journalPrefill=null; renderJournal();
+        }).catch(()=>{$("#j-msg").textContent="request failed";});
+    };
+  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Research Journal</h2><div class="banner">unavailable</div>`;});
 }
 
 /* ── Phase 5: Fundamental Lens (descriptive overlay, never a signal) ── */
@@ -865,11 +991,24 @@ function openDrawer(t){
         ${kv("Social Arb status",esc(d.social_status)||"—")}
         ${kv("Claude review",esc(d.claude_review)||"not available")}
         ${kv("Manual review",d.manual_review_required?'<span class="tag q">REQUIRED</span>':"—")}
-      </div></div>
+      </div>
+      <div style="margin-top:8px"><a id="d-addnote" style="color:var(--accent);cursor:pointer;font-size:11px">+ Add research note</a></div></div>
       <div class="sect"><h3>Fundamentals (descriptive overlay)</h3><div id="d-fund" style="color:var(--dim)">loading…</div></div>
       <div class="sect"><h3>Charts</h3><div id="d-charts" style="color:var(--dim)">loading…</div></div>`;
     loadCharts(d.ticker);
     loadDrawerFundamentals(d.ticker);
+    const addNote=$("#d-addnote");
+    if(addNote)addNote.onclick=()=>{
+      const fwd2=d.forward||{},fr2=fwd2.returns||{},fb2=fwd2.benchmarks_10d||{};
+      journalPrefill={ticker:d.ticker,evidence_snapshot:{
+        label:d.label,scanner_category:d.scanner_category,source:d.source,
+        sector:d.sector,sector_etf:d.sector_etf,data_quality:d.data_quality,
+        forward_5d:fr2["5d"],forward_10d:fr2["10d"],
+        vs_spy:fb2.spy,vs_qqq:fb2.qqq,vs_sector:fb2.sector,
+        fundamental_quality:null}};
+      closeDrawer();
+      openPage("research-journal");
+    };
     $("#d-footer").textContent=d.research_only_footer||"Research only — not a signal or recommendation.";
     $("#drawer").classList.add("open");$("#overlay").classList.add("open");
   });

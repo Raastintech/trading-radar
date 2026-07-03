@@ -1054,6 +1054,221 @@ def test_fundamentals_never_writes(tmp_path):
     assert _tree_digest(tmp_path) == before
 
 
+# ── Phase 6: research journal ────────────────────────────────────────────────
+
+
+def _post_journal(port, body, token=None):
+    import urllib.error
+    import urllib.request
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Research-Journal-Token"] = token
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/journal",
+        data=json.dumps(body).encode() if isinstance(body, dict) else body,
+        headers=headers, method="POST")
+    try:
+        resp = urllib.request.urlopen(req)
+        return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+_VALID_NOTE = {"ticker": "SDGR", "title": "Manual review note",
+               "note": "Testing journal append-only research note.",
+               "status": "NEEDS_REVIEW", "tags": ["test"]}
+
+
+@pytest.fixture
+def journal_server(tmp_path):
+    import threading
+    from dashboards.research_command_center.server import make_server
+    _write_fixture_artifacts(tmp_path)
+    srv = make_server(port=0, root=tmp_path)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield srv.server_address[1], tmp_path
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_journal_get_no_file(journal_server):
+    import urllib.request
+    port, _ = journal_server
+    d = json.loads(urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/api/journal").read())
+    assert d["enabled"] is True
+    assert d["entries"] == [] and d["count"] == 0
+    assert d["journal_path"] == "data/research/journal.jsonl"
+    assert d["research_only_footer"] == RESEARCH_ONLY_FOOTER
+
+
+def test_journal_read_and_filters(tmp_path):
+    from dashboards.research_command_center.data_adapter import read_journal
+    jf = tmp_path / "data" / "research" / "journal.jsonl"
+    jf.parent.mkdir(parents=True)
+    rows = [
+        {"id": "1", "created_at": "2026-07-01T00:00:00+00:00", "ticker": "AAA",
+         "status": "WATCHING", "tags": ["x"], "title": "a", "note": "n"},
+        {"id": "2", "created_at": "2026-07-02T00:00:00+00:00", "ticker": "BBB",
+         "status": "NEEDS_REVIEW", "tags": ["quality"], "title": "b", "note": "n"},
+        {"id": "3", "created_at": "2026-07-03T00:00:00+00:00", "ticker": "AAA",
+         "status": "FOLLOW_UP", "tags": ["quality", "x"], "title": "c", "note": "n"},
+    ]
+    jf.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    store = ArtifactStore(root=tmp_path)
+    d = read_journal(store)
+    assert d["count"] == 3
+    assert [e["id"] for e in d["entries"]] == ["3", "2", "1"]   # newest first
+    assert [e["id"] for e in read_journal(store, ticker="aaa")["entries"]] == ["3", "1"]
+    assert [e["id"] for e in read_journal(store, status="needs_review")["entries"]] == ["2"]
+    assert [e["id"] for e in read_journal(store, tag="QUALITY")["entries"]] == ["3", "2"]
+    assert len(read_journal(store, limit=2)["entries"]) == 2
+
+
+def test_journal_post_disabled_by_default(journal_server, monkeypatch):
+    monkeypatch.delenv("GEM_RCC_ENABLE_JOURNAL_WRITES", raising=False)
+    port, root = journal_server
+    code, body = _post_journal(port, _VALID_NOTE)
+    assert code == 403
+    assert body["error"] == "journal writes disabled"
+    assert not (root / "data" / "research" / "journal.jsonl").exists()
+
+
+def test_journal_post_enabled_loopback(journal_server, monkeypatch):
+    monkeypatch.setenv("GEM_RCC_ENABLE_JOURNAL_WRITES", "true")
+    monkeypatch.delenv("GEM_RCC_JOURNAL_TOKEN", raising=False)
+    port, root = journal_server
+    code, body = _post_journal(port, _VALID_NOTE)
+    assert code == 201
+    assert body["ticker"] == "SDGR" and body["id"]
+    assert body["research_only_footer"] == RESEARCH_ONLY_FOOTER
+    jf = root / "data" / "research" / "journal.jsonl"
+    assert jf.exists()
+    stored = json.loads(jf.read_text().strip())
+    assert stored["title"] == "Manual review note"
+
+
+def test_journal_post_token_required_when_set(journal_server, monkeypatch):
+    monkeypatch.setenv("GEM_RCC_ENABLE_JOURNAL_WRITES", "true")
+    monkeypatch.setenv("GEM_RCC_JOURNAL_TOKEN", "sekrit")
+    port, _ = journal_server
+    code, body = _post_journal(port, _VALID_NOTE)              # no token
+    assert code == 403 and "Token" in body["error"]
+    code, _b = _post_journal(port, _VALID_NOTE, token="wrong")
+    assert code == 403
+    code, body = _post_journal(port, _VALID_NOTE, token="sekrit")
+    assert code == 201 and body["ticker"] == "SDGR"
+
+
+def test_journal_nonloopback_requires_token():
+    """Authorization decision unit-tested directly for a LAN client."""
+    from dashboards.research_command_center.server import (
+        journal_post_authorized)
+    import os
+    os.environ["GEM_RCC_ENABLE_JOURNAL_WRITES"] = "true"
+    os.environ.pop("GEM_RCC_JOURNAL_TOKEN", None)
+    try:
+        ok, err = journal_post_authorized("192.168.0.107", None)
+        assert not ok and "GEM_RCC_JOURNAL_TOKEN" in err
+        ok, _e = journal_post_authorized("127.0.0.1", None)
+        assert ok
+        os.environ["GEM_RCC_JOURNAL_TOKEN"] = "tok"
+        ok, _e = journal_post_authorized("192.168.0.107", "tok")
+        assert ok
+        ok, _e = journal_post_authorized("192.168.0.107", "bad")
+        assert not ok
+    finally:
+        os.environ.pop("GEM_RCC_ENABLE_JOURNAL_WRITES", None)
+        os.environ.pop("GEM_RCC_JOURNAL_TOKEN", None)
+
+
+def test_journal_post_invalid_payloads(journal_server, monkeypatch):
+    monkeypatch.setenv("GEM_RCC_ENABLE_JOURNAL_WRITES", "true")
+    monkeypatch.delenv("GEM_RCC_JOURNAL_TOKEN", raising=False)
+    port, _ = journal_server
+    assert _post_journal(port, b"not json")[0] == 400
+    assert _post_journal(port, {**_VALID_NOTE, "ticker": "bad ticker!"})[0] == 400
+    assert _post_journal(port, {**_VALID_NOTE, "title": ""})[0] == 400
+    assert _post_journal(port, {**_VALID_NOTE, "status": "LONG"})[0] == 400
+    assert _post_journal(port, {**_VALID_NOTE, "tags": ["x"] * 13})[0] == 400
+
+
+def test_journal_post_oversized_rejected(journal_server, monkeypatch):
+    monkeypatch.setenv("GEM_RCC_ENABLE_JOURNAL_WRITES", "true")
+    port, _ = journal_server
+    big = {**_VALID_NOTE, "note": "x" * 70_000}
+    code, _b = _post_journal(port, big)
+    assert code in (400, 413)
+    code, _b = _post_journal(port, {**_VALID_NOTE, "note": "y" * 5001})
+    assert code == 400   # over the 5000-char note limit
+
+
+def test_journal_html_sanitized_on_write():
+    from dashboards.research_command_center.data_adapter import (
+        validate_journal_entry)
+    entry, err = validate_journal_entry({
+        "ticker": "SDGR", "status": "WATCHING",
+        "title": "hello <script>alert(1)</script> world",
+        "note": "a <b>bold</b> claim < 5 & > 3",
+        "tags": []})
+    assert err is None
+    assert "<" not in entry["title"] and "<" not in entry["note"]
+    assert "script" not in entry["title"]
+    assert "bold" in entry["note"]    # text kept, markup gone
+
+
+def test_journal_writes_touch_only_journal_file(journal_server, monkeypatch):
+    monkeypatch.setenv("GEM_RCC_ENABLE_JOURNAL_WRITES", "true")
+    port, root = journal_server
+    jf = root / "data" / "research" / "journal.jsonl"
+
+    def _digest_except_journal():
+        import hashlib
+        h = hashlib.md5()
+        for p in sorted(root.rglob("*")):
+            if p.is_file() and p != jf:
+                h.update(str(p.relative_to(root)).encode())
+                h.update(p.read_bytes())
+        return h.hexdigest()
+
+    before = _digest_except_journal()
+    code, _b = _post_journal(port, _VALID_NOTE)
+    assert code == 201
+    assert _digest_except_journal() == before
+    assert jf.exists()
+    # cache/research, logs, docs/research were never created or touched
+    assert not (root / "logs").exists()
+    assert not (root / "docs").exists()
+
+
+def test_journal_schema_endpoint(journal_server):
+    import urllib.request
+    port, _ = journal_server
+    d = json.loads(urllib.request.urlopen(
+        f"http://127.0.0.1:{port}/api/journal/schema").read())
+    assert "NEEDS_REVIEW" in d["statuses"]
+    assert d["limits"]["note_max"] == 5000
+    assert any("append-only" in s.lower() for s in d["safety"])
+
+
+def test_journal_page_replaces_stub():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for marker in ("renderJournal", "api/journal", "Save research note",
+                   "Journal write mode is disabled",
+                   "Add research note", "journalPrefill"):
+        assert marker in html, marker
+    assert '{id:"research-journal", label:"Research Journal", ini:"RJ"}' in html
+    from dashboards.research_command_center.server import STUB_PAGES
+    assert STUB_PAGES == {}
+
+
+def test_journal_statuses_are_research_wording():
+    from dashboards.research_command_center.data_adapter import (
+        JOURNAL_STATUSES)
+    for bad in ("LONG", "SHORT", "OPEN", "CLOSED", "FILLED"):
+        assert bad not in JOURNAL_STATUSES
+
+
 # ── server smoke ─────────────────────────────────────────────────────────────
 
 

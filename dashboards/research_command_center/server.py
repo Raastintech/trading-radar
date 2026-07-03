@@ -1,9 +1,18 @@
 """Research Command Center — local read-only web server.
 
 Serves the dashboard single page + JSON API from the research artifacts.
-RESEARCH_ONLY / CACHE-ONLY / CRED-FREE: stdlib http.server, GET-only
-(anything else returns 405), no provider calls, no writes, no execution
-paths, no core.config import.
+RESEARCH_ONLY / CACHE-ONLY / CRED-FREE: stdlib http.server, no provider
+calls, no execution paths, no core.config import.
+
+The single exception to GET-only is POST /api/journal (Phase 6): manual
+research notes appended to data/research/journal.jsonl — the dashboard's
+only write path, disabled by default and triple-guarded:
+  1. GEM_RCC_ENABLE_JOURNAL_WRITES=true must be set (default: 403).
+  2. If GEM_RCC_JOURNAL_TOKEN is set, the X-Research-Journal-Token header
+     must match (constant-time compare; token never echoed or logged).
+  3. Without a token, only loopback clients may post — a 0.0.0.0 bind
+     must not accept LAN notes unless a token was explicitly configured.
+Every other write method/path still returns 405.
 
 Run:
     .venv/bin/python -m dashboards.research_command_center.server
@@ -16,10 +25,13 @@ Options:
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).resolve().parent
 if str(HERE.parents[1]) not in sys.path:
@@ -36,15 +48,44 @@ from dashboards.research_command_center.data_adapter import (  # noqa: E402
     build_status,
     build_ticker_detail,
     build_ticker_series,
+    JOURNAL_LIMITS,
+    JOURNAL_STATUSES,
+    append_journal_entry,
+    read_journal,
+    validate_journal_entry,
 )
+
+JOURNAL_MAX_PAYLOAD = 64_000  # bytes; a note tops out well under this
+LOOPBACK_IPS = {"127.0.0.1", "::1"}
+
+
+def journal_writes_enabled() -> bool:
+    return os.environ.get("GEM_RCC_ENABLE_JOURNAL_WRITES", "").strip().lower() \
+        in {"1", "true", "yes"}
+
+
+def journal_post_authorized(client_ip: str,
+                            token_header: str | None) -> tuple:
+    """(allowed, error_message).  Token beats loopback; no token restricts
+    posting to loopback clients so a 0.0.0.0 bind stays LAN-safe."""
+    if not journal_writes_enabled():
+        return False, "journal writes disabled"
+    token = os.environ.get("GEM_RCC_JOURNAL_TOKEN", "")
+    if token:
+        if not token_header or not hmac.compare_digest(token, token_header):
+            return False, "invalid or missing X-Research-Journal-Token"
+        return True, None
+    if client_ip not in LOOPBACK_IPS:
+        return False, ("journal token not configured — non-loopback clients "
+                       "may not post; set GEM_RCC_JOURNAL_TOKEN to enable "
+                       "LAN note capture")
+    return True, None
 
 INDEX_HTML = HERE / "static" / "index.html"
 
 # Later-phase routes are stubbed on purpose — see the phase plan.  They exist
 # so the sidebar can link somewhere honest, not to hide unbuilt features.
-STUB_PAGES = {
-    "research-journal": "Phase 6 pending approval — manual notes not implemented yet.",
-}
+STUB_PAGES = {}  # every planned page is implemented
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -98,6 +139,33 @@ class Handler(BaseHTTPRequestHandler):
             elif path.startswith("/api/fundamentals/"):
                 ticker = path.rsplit("/", 1)[-1]
                 self._json(build_fundamentals(ticker, self.store))
+            elif path == "/api/journal":
+                q = parse_qs(urlparse(self.path).query)
+                payload = read_journal(
+                    self.store,
+                    ticker=(q.get("ticker") or [None])[0],
+                    status=(q.get("status") or [None])[0],
+                    tag=(q.get("tag") or [None])[0],
+                    limit=(q.get("limit") or [100])[0],
+                )
+                payload["enabled"] = True
+                payload["write_enabled"] = journal_writes_enabled()
+                self._json(payload)
+            elif path == "/api/journal/schema":
+                self._json({
+                    "statuses": JOURNAL_STATUSES,
+                    "limits": JOURNAL_LIMITS,
+                    "write_enabled": journal_writes_enabled(),
+                    "safety": [
+                        "Append-only; writes touch only "
+                        "data/research/journal.jsonl.",
+                        "Writes disabled unless "
+                        "GEM_RCC_ENABLE_JOURNAL_WRITES=true.",
+                        "Set GEM_RCC_JOURNAL_TOKEN to allow non-loopback "
+                        "posting; otherwise loopback only.",
+                        "Manual research notes only — never a signal.",
+                    ],
+                })
             elif path.startswith("/api/stub/"):
                 page = path.rsplit("/", 1)[-1]
                 note = STUB_PAGES.get(page, "Not yet built")
@@ -108,10 +176,43 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # never crash the server on a bad artifact
             self._json({"error": f"internal: {exc}"}, 500)
 
-    def do_POST(self):  # noqa: N802 — read-only dashboard
+    def do_POST(self):  # noqa: N802 — journal notes are the ONLY write path
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if path != "/api/journal":
+            self._json({"error": "read-only dashboard"}, 405)
+            return
+        try:
+            client_ip = self.client_address[0]
+            token_header = self.headers.get("X-Research-Journal-Token")
+            allowed, err = journal_post_authorized(client_ip, token_header)
+            if not allowed:
+                self._json({"error": err}, 403)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0:
+                self._json({"error": "empty body"}, 400)
+                return
+            if length > JOURNAL_MAX_PAYLOAD:
+                self._json({"error": "payload too large"}, 413)
+                return
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except Exception:
+                self._json({"error": "malformed JSON"}, 400)
+                return
+            entry, verr = validate_journal_entry(payload)
+            if entry is None:
+                self._json({"error": verr}, 400)
+                return
+            append_journal_entry(entry, self.store)
+            self._json(entry, 201)
+        except Exception as exc:
+            self._json({"error": f"internal: {exc}"}, 500)
+
+    def _reject_write(self):  # noqa: N802
         self._json({"error": "read-only dashboard"}, 405)
 
-    do_PUT = do_DELETE = do_PATCH = do_POST
+    do_PUT = do_DELETE = do_PATCH = _reject_write
 
 
 def make_server(port: int = 8787, root: Path | None = None,
