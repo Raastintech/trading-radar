@@ -100,6 +100,10 @@ class ArtifactStore:
     def journal_jsonl(self) -> Path:
         return self.root / "data" / "research" / "journal.jsonl"
 
+    @property
+    def journal_audit_json(self) -> Path:
+        return self.research_dir / "journal_audit_latest.json"
+
 
 def _load_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
@@ -133,6 +137,37 @@ def _days_since(date_s: Optional[str]) -> Optional[int]:
 
 
 # ── Status strip ─────────────────────────────────────────────────────────────
+
+
+def build_journal_audit(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Latest journal-audit verdict for the dashboard.  Cache-only read of
+    the sidecar written by research/journal_audit_reviewer.py — the
+    dashboard never invokes the auditor or any LLM.  ``promote_to_signal``
+    is re-forced false at display time as a belt-and-suspenders guard."""
+    store = store or ArtifactStore()
+    audit = _load_json(store.journal_audit_json)
+    if audit is None:
+        return {"present": False, "promote_to_signal": False}
+    flaws = audit.get("flaws_detected") or []
+    return {
+        "present": True,
+        "generated_at": audit.get("generated_at"),
+        "age_hours": _age_hours(audit.get("generated_at")),
+        "audit_source": audit.get("audit_source"),
+        "research_verdict": audit.get("research_verdict"),
+        "alpha_discovery_quality": audit.get("alpha_discovery_quality"),
+        "engine_health": audit.get("engine_health"),
+        "promote_to_signal": False,
+        "one_line_summary": audit.get("one_line_summary"),
+        "flaw_count": len(flaws) if isinstance(flaws, list) else 0,
+        "top_flaws": [
+            {"severity": f.get("severity"), "area": f.get("area"),
+             "issue": f.get("issue")}
+            for f in flaws[:3] if isinstance(f, dict)
+        ],
+        "recommended_tasks": (audit.get("recommended_claude_code_tasks")
+                              or [])[:5],
+    }
 
 
 def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
@@ -199,6 +234,7 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "suspect_skipped": (scanner or {}).get("data_suspect_skipped_count"),
         "quarantine_count": sum(quarantine.values()) if quarantine else None,
         "warnings": (summary or {}).get("warnings") or [],
+        "journal_audit": build_journal_audit(store),
         "missing_artifacts": missing,
         "fallback": MISSING_ARTIFACT if missing else None,
         "generated_at": (scanner or {}).get("generated_at"),

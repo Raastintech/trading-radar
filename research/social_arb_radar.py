@@ -2611,6 +2611,27 @@ def _anthropic_prompt(candidates: Sequence[Candidate], regime_ctx: Dict[str, Any
     )
 
 
+def _resolve_anthropic_api_key() -> str:
+    """ANTHROPIC_API_KEY with the canonical credential file (SNIPER_ENV_PATH)
+    taking precedence over an inherited shell value — a stale
+    ``export ANTHROPIC_API_KEY=...`` in the invoking shell must not shadow a
+    rotated key in trading.env.  Same convention as
+    research/journal_audit_reviewer.py; GEM_TRADER_SKIP_DOTENV disables the
+    file read (tests / cred-free tooling)."""
+    if os.getenv("GEM_TRADER_SKIP_DOTENV", "").lower() not in ("1", "true", "yes"):
+        env_path = os.getenv("SNIPER_ENV_PATH", "").strip()
+        if env_path:
+            try:
+                from dotenv import dotenv_values
+                v = (dotenv_values(env_path).get("ANTHROPIC_API_KEY")
+                     or "").strip()
+                if v:
+                    return v
+            except Exception:
+                pass
+    return os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+
 def anthropic_review(candidates: Sequence[Candidate], args: argparse.Namespace, stats: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     review_count = min(len(candidates), max(0, min(args.anthropic_limit, DEFAULT_REVIEW_LIMIT)))
     if review_count <= 0:
@@ -2619,7 +2640,7 @@ def anthropic_review(candidates: Sequence[Candidate], args: argparse.Namespace, 
     if args.skip_anthropic:
         stats["anthropic"] = {"called": False, "reason": "skipped by flag", "review_count": 0}
         return {}
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    api_key = _resolve_anthropic_api_key()
     if not api_key:
         stats["anthropic"] = {"called": False, "reason": "ANTHROPIC_API_KEY not set", "review_count": 0}
         return {}

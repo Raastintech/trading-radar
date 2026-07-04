@@ -313,6 +313,26 @@ function actionCard(title,desc,page){
     <div style="color:var(--dim);font-size:11px;margin-bottom:6px">${desc}</div>
     <span class="go">open →</span></div>`;
 }
+/* Journal audit card — reads the cached audit sidecar only (never calls an
+   LLM). Research-only: promote_to_signal is always false upstream. */
+function journalAuditCard(a){
+  if(!a||!a.present)
+    return card("Journal audit",
+      `<div class="note">No audit yet — runs after the nightly journal digest.</div>`);
+  const flaws=(a.top_flaws||[]).map(f=>
+    `<div><span class="wi">⚠</span><b>${esc(f.severity||"?")}</b> ${esc(f.area||"other")} — ${esc(f.issue||"")}</div>`
+  ).join("")||'<div style="color:var(--dim)">no flaws flagged</div>';
+  return card(`Journal audit <span class="bdg ${a.flaw_count?"a":"n"}">${a.flaw_count||0}</span>`,
+    `<div class="kv">
+      ${kvRow("Engine health",badge(a.engine_health))}
+      ${kvRow("Alpha quality",badge(a.alpha_discovery_quality))}
+      ${kvRow("Verdict",badge(a.research_verdict))}
+      ${kvRow("Source",esc(a.audit_source||"—"))}
+    </div>
+    <div class="note">${esc(a.one_line_summary||"—")}</div>
+    <div class="warnlist">${flaws}</div>`);
+}
+
 function renderHome(){
   const s=STATUS||{}, p4=s.phase_4b||{};
   const rows=(BOARD||{}).rows||[];
@@ -351,6 +371,7 @@ function renderHome(){
         ${kvRow("Extended / crowded",nEXT,nEXT>0?"warn":"")}
         ${kvRow("Young / quarantine",nYQ,nYQ>0?"warn":"")}
       </div>`)}
+      ${journalAuditCard(s.journal_audit)}
     </div>
     ${card(`Warnings — last nightly run <span class="bdg ${(s.warnings||[]).length?"a":"n"}">${(s.warnings||[]).length}</span>`,
       `<div class="warnlist">

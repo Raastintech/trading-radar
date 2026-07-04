@@ -1215,6 +1215,21 @@ cmd_journal_digest() {
         "$PY" scripts/generate_research_journal_digest.py --append "$@"
 }
 
+cmd_journal_audit() {
+    # Journal digest audit — LLM review of the final daily digest with a
+    # deterministic rule-based fallback (no key / timeout / bad JSON never
+    # blocks the nightly).  RESEARCH-ONLY: audits internal consistency,
+    # evidence quality, blockers, and false-positive risk; never changes
+    # scanner scores, rankings, gates, watchlists, or artifacts;
+    # promote_to_signal is always false.  Writes
+    # cache/research/journal_audit_latest.json and appends recommended
+    # tasks to logs/research_engine_feedback_queue.jsonl (deduped per
+    # digest).  Flags: --skip-llm, --dry-run, --digest-file PATH.
+    log "[AUDIT] journal digest audit (LLM with rule-based fallback)"
+    run_or_warn "journal digest audit" \
+        "$PY" research/journal_audit_reviewer.py "$@"
+}
+
 _disabled_execution_cmd() {
     echo "RESEARCH_ONLY_MODE: command disabled."
 }
@@ -1385,6 +1400,11 @@ cmd_nightly() {
     # Append-only to data/research/journal.jsonl; digest_key dedupe makes
     # nightly re-runs safe.  Cache-only, cred-free, research-only.
     cmd_journal_digest
+    # Journal audit — runs after the digest so it reviews the exact note the
+    # operator will read.  LLM optional; deterministic fallback keeps the
+    # tail non-blocking.  Research-only; writes only the audit sidecar +
+    # feedback queue.
+    cmd_journal_audit
     log "nightly cycle complete"
 }
 
@@ -1509,6 +1529,7 @@ case "$SUB" in
     nightly-operator-summary)  cmd_nightly_operator_summary   "${POS[@]}" ;;
     targeted-backfill)         cmd_targeted_backfill          "${POS[@]}" ;;
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
+    journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
         _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;
