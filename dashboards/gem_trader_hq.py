@@ -2959,22 +2959,36 @@ class PB:  # PanelBuilder — all static
                      subtitle=f"[dim]{age} ago  ·  RESEARCH ONLY — no trade recommendations[/]",
                      border_style="magenta", padding=(0, 1))
 
+    # Category-count map: ticker → number of scanner categories it appears in.
+    # A name hitting 3+ lanes at once is the strongest skim signal on the board.
+    @staticmethod
+    def _scanner_category_counts(sc: Dict) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for items in (sc.get("categories") or {}).values():
+            for item in items or []:
+                t = str(item.get("ticker") or "").upper()
+                if t:
+                    counts[t] = counts.get(t, 0) + 1
+        return counts
+
     @staticmethod
     def scanner_cat_panel(
         data: DataLayer,
         cat_key: str,
         title: str,
         border_color: str = "white",
-        max_items: int = 60,
+        max_items: int = 10,
     ) -> Panel:
         """Compact per-category panel for Mode 4 scanner grid. Cache-only.
 
-        Items are sorted score-desc (then combined-RS desc as tie-break) so the
-        highest-conviction names always appear first regardless of how the sidecar
-        was written.
+        Top-10 per lane, each lane showing the stats that answer ITS question
+        (sector ETF for sector leaders, days-to-earnings for catalysts, real
+        drawdown-from-high + recovery flags for beaten-down, ...).  A dim ×N
+        badge marks tickers that appear in N scanner categories.
         """
         sc = data.get("research_scanner") or {}
         items = list((sc.get("categories") or {}).get(cat_key, []))
+        cat_counts = PB._scanner_category_counts(sc)
 
         # Sort: primary = research_score desc; secondary = combined RS (0.6*63d + 0.4*20d) desc
         def _sort_key(x: Dict) -> Tuple:
@@ -2997,73 +3011,174 @@ class PB:  # PanelBuilder — all static
         }
         stat_style = _STAT_STYLE.get(cat_key, "white")
 
+        # Social lane: dead "no data" rows waste the scarcest resource
+        # (vertical space) — show only tickers with a live social signal.
+        # (Real signals carry social_data_available=None; only explicit
+        # NO_SOCIAL_DATA rows carry False.)
+        if cat_key == "social_arb_attention":
+            items = [x for x in items if x.get("social_data_available") is not False]
+
+        # Sector lane: leading_sector_etfs is the same board-level list on
+        # every row — hoist it into the title instead of repeating it.
+        title_suffix = ""
+        if cat_key == "sector_theme_leaders" and items:
+            etfs = items[0].get("leading_sector_etfs") or []
+            if etfs:
+                title_suffix = f" [dim green]{'/'.join(etfs[:4])}[/]"
+
+        def _pp(v: Optional[float]) -> str:
+            return f"{v:+.0f}" if v is not None else "?"
+
         t = Text()
         if not items:
             t.append("no candidates\n", style="dim")
-        else:
-            for item in items[:max_items]:
-                ticker = str(item.get("ticker") or "?")
-                rs20   = item.get("rs_20d_vs_spy")
-                rs63   = item.get("rs_63d_vs_spy")
-                why    = str(item.get("why_appeared") or "")
-                sector = str(item.get("sector") or "")[:10]
-                score  = item.get("research_score")
+        for item in items[:max_items]:
+            ticker = str(item.get("ticker") or "?")
+            rs20   = item.get("rs_20d_vs_spy")
+            rs63   = item.get("rs_63d_vs_spy")
+            score  = item.get("research_score")
+            vol_tr = item.get("vol_trend_ratio")
+            dd_hi  = item.get("dd_from_high_pct")
 
-                t.append(f"{ticker:<6}", style="bold white")
+            t.append(f"{ticker:<6}", style="bold white")
 
-                if cat_key == "rs_momentum_leader":
-                    r20 = f"+{rs20:.0f}pp" if rs20 is not None else "?"
-                    r63 = f"+{rs63:.0f}pp" if rs63 is not None else "?"
-                    t.append(f" {r20:>8}/{r63}", style=stat_style)
+            if cat_key == "rs_momentum_leader":
+                # rs20/rs63 vs SPY + volume trend
+                t.append(f" {_pp(rs20):>5}/{_pp(rs63):<5}", style=stat_style)
+                if vol_tr is not None:
+                    t.append(f" v{vol_tr:.1f}", style="dim" if vol_tr < 1.1 else "cyan")
 
-                elif cat_key == "catalyst_watch":
-                    m = re.search(r'\((\d{4}-(\d{2})-(\d{2}))\)', why)
-                    date_s = f"earn {m.group(2)}-{m.group(3)}" if m else why[:12]
-                    sc_s   = f"  s={score:.0f}" if score is not None else ""
-                    t.append(f" {date_s}{sc_s}", style=stat_style)
+            elif cat_key == "early_accumulation":
+                # The lane's signature is the volume ramp + higher lows
+                t.append(f" {_pp(rs20):>4}", style=stat_style)
+                if vol_tr is not None:
+                    t.append(f" v{vol_tr:.1f}", style="green" if vol_tr > 1.1 else "dim")
+                if item.get("higher_lows"):
+                    t.append(" HL", style="green")
 
-                elif cat_key == "beaten_down_recovery":
-                    m = re.search(r'drawdown \((-?\d+%)', why)
-                    dd_s = m.group(1) if m else "dd=?"
-                    rs_s = f"  rs={rs20:+.0f}pp" if rs20 is not None else ""
-                    t.append(f" {dd_s}{rs_s}", style=stat_style)
+            elif cat_key == "sector_theme_leaders":
+                # rs20 + how extended above MA200 (chase risk at a glance)
+                t.append(f" {_pp(rs20):>4}", style=stat_style)
+                ext = item.get("extension_vs_ma200_pct")
+                if ext is not None:
+                    t.append(f" ext{ext:+.0f}%", style="red" if ext > 60 else "dim")
 
-                elif cat_key == "social_arb_attention":
-                    if "social attention" in why.lower():
-                        src = "social signal"
-                    elif "no social" in why.lower():
-                        src = "no data"
-                    else:
-                        src = why[:14]
-                    t.append(f" {src}", style=stat_style if "signal" in src else "dim")
+            elif cat_key == "catalyst_watch":
+                ed  = str(item.get("earnings_date") or "")[5:10]  # MM-DD
+                dte = item.get("days_to_earnings")
+                t.append(f" {ed}", style=stat_style)
+                if dte is not None:
+                    t.append(f" {dte:>2}d", style="bold yellow" if dte <= 3 else "dim")
+                if item.get("has_analyst_upgrade"):
+                    t.append(" UPG", style="green")
+                if item.get("extended_into_earnings"):
+                    t.append(" ext!", style="red")
 
-                elif cat_key == "long_term_asymmetric":
-                    # Prefer 63d RS (multi-month); show score as conviction proxy
-                    rs_s = f"rs63={rs63:+.0f}pp" if rs63 is not None else (f"rs20={rs20:+.0f}pp" if rs20 is not None else "")
-                    sc_s = f"  s={score:.0f}" if score is not None else ""
-                    t.append(f" {rs_s}{sc_s}", style=stat_style)
+            elif cat_key == "beaten_down_recovery":
+                # Real drawdown from 52w high — NOT the trailing return
+                if dd_hi is not None:
+                    t.append(f" {dd_hi:>4.0f}%hi", style=stat_style)
+                t.append(f" rs{_pp(rs20)}", style="dim")
+                flags = ""
+                if item.get("reclaiming_ma50"):
+                    flags += "R"
+                if item.get("stabilizing"):
+                    flags += "S"
+                if flags:
+                    t.append(f" {flags}", style="green")
 
-                else:
-                    # early_accumulation, sector_theme_leaders
-                    if rs20 is not None:
-                        t.append(f" rs20={rs20:+.0f}pp", style=stat_style)
-                    elif rs63 is not None:
-                        t.append(f" rs63={rs63:+.0f}pp", style=stat_style)
+            elif cat_key == "social_arb_attention":
+                t.append(f" s={score:.0f}" if score is not None else " signal", style=stat_style)
 
-                if sector:
-                    t.append(f"  {sector}\n", style="dim")
-                else:
-                    t.append("\n")
+            elif cat_key == "long_term_asymmetric":
+                t.append(f" {_pp(rs63):>5}", style=stat_style)
+                if dd_hi is not None:
+                    t.append(f" {dd_hi:.0f}%hi", style="dim")
+                if item.get("in_speculative_theme"):
+                    t.append(" theme", style="magenta")
+
+            n_cats = cat_counts.get(ticker.upper(), 1)
+            if n_cats >= 2:
+                t.append(f" ×{n_cats}", style="bold white on dark_green")
+            t.append("\n")
 
         count = len(items)
-        age = sc.get("_age_short") or "?"
+        shown = min(count, max_items)
+        cnt_s = f"(top {shown} of {count})" if count > shown else f"({count})"
         return Panel(
             t,
-            title=f"[bold {border_color}]{title}[/] [dim]({count})[/]",
-            subtitle=f"[dim]{age} ago[/]",
+            title=f"[bold {border_color}]{title}[/] [dim]{cnt_s}[/]{title_suffix}",
             border_style=border_color,
             padding=(0, 1),
         )
+
+    @staticmethod
+    def scanner_consensus_panel(data: DataLayer, max_items: int = 10) -> Panel:
+        """Tickers hitting ≥2 scanner categories — the board's strongest skim
+        signal.  Shows the lanes each name hit (abbreviated) + its best score."""
+        sc = data.get("research_scanner") or {}
+        cats = sc.get("categories") or {}
+        _ABBR = {
+            "rs_momentum_leader":   "RS",
+            "early_accumulation":   "EA",
+            "sector_theme_leaders": "SEC",
+            "catalyst_watch":       "CAT",
+            "beaten_down_recovery": "BD",
+            "social_arb_attention": "SOC",
+            "long_term_asymmetric": "LT",
+        }
+        by_ticker: Dict[str, Dict] = {}
+        for key, items in cats.items():
+            for item in items or []:
+                tick = str(item.get("ticker") or "").upper()
+                if not tick:
+                    continue
+                e = by_ticker.setdefault(tick, {"lanes": [], "score": 0.0, "rs20": None})
+                e["lanes"].append(_ABBR.get(key, key[:3].upper()))
+                e["score"] = max(e["score"], item.get("research_score") or 0.0)
+                if item.get("rs_20d_vs_spy") is not None:
+                    e["rs20"] = item.get("rs_20d_vs_spy")
+
+        multi = [(t, e) for t, e in by_ticker.items() if len(e["lanes"]) >= 2]
+        multi.sort(key=lambda x: (-len(x[1]["lanes"]), -x[1]["score"]))
+
+        t = Text()
+        if not multi:
+            t.append("no multi-category names\n", style="dim")
+        for tick, e in multi[:max_items]:
+            t.append(f"{tick:<6}", style="bold white")
+            t.append(f" ×{len(e['lanes'])}", style="bold green")
+            t.append(f" {'+'.join(e['lanes'])}", style="dim")
+            if e["rs20"] is not None:
+                t.append(f" rs{e['rs20']:+.0f}", style="cyan")
+            t.append("\n")
+
+        return Panel(
+            t,
+            title=f"[bold white]MULTI-CATEGORY HITS[/] [dim]({len(multi)})[/]",
+            border_style="white",
+            padding=(0, 1),
+        )
+
+    @staticmethod
+    def scanner_board_strip(data: DataLayer) -> Panel:
+        """One-line board header: freshness + universe size + data-quality
+        counters.  Replaces the per-panel 'Xh ago' subtitles."""
+        sc = data.get("research_scanner") or {}
+        t = Text()
+        age = sc.get("_age_short") or "?"
+        stale_age = str(age).endswith(("h", "d")) and not str(age).endswith("0m")
+        t.append(" board built ", style="dim")
+        t.append(f"{age} ago", style="bold yellow" if "h" in str(age) or "d" in str(age) else "bold green")
+        t.append(f"  ·  universe {sc.get('universe_size') or '?'}", style="dim")
+        n_stale   = sc.get("stale_price_skipped_count")
+        n_suspect = sc.get("data_suspect_skipped_count")
+        if n_stale is not None:
+            t.append(f"  ·  stale-px skipped {n_stale}", style="dim yellow" if n_stale else "dim")
+        if n_suspect is not None:
+            t.append(f"  ·  bad-feed skipped {n_suspect}", style="dim red" if n_suspect else "dim")
+        t.append("  ·  ×N = in N categories", style="dim")
+        return Panel(t, box=box.SIMPLE, padding=(0, 1))
 
     @staticmethod
     def evidence_freshness(data: DataLayer) -> Panel:
@@ -7604,40 +7719,34 @@ def build_scanner(state, data, claude):
     """
     Mode 4 (Research) — category scanner grid.
 
-    Four columns: RS Momentum | Early Accum + Catalyst | Sector Leaders + Beaten Down | Alpha Discovery
-    Each column shows a compact ticker list organised by scanner category so the
-    operator can see at a glance which names hit each bucket.
+    Balanced 4×2 grid, top-10 per lane (2026-07-02 UX pass):
+
+        RS MOMENTUM | EARLY ACCUM | SECTOR LEADERS | CATALYST
+        MULTI-CAT   | BEATEN DOWN | LONG TERM      | SOCIAL
+
+    One header strip carries board freshness + universe + data-quality
+    counters; each lane shows the stats that answer its own question and a
+    ×N badge for names hitting multiple lanes.  MULTI-CATEGORY HITS is the
+    skim panel: names surfacing in ≥2 lanes at once.
     """
     body = Layout()
-    body.split_row(
-        Layout(name="rs",    ratio=4),
-        Layout(name="mid",   ratio=3),
-        Layout(name="sect",  ratio=3),
-        Layout(name="right", ratio=4),
+    body.split_column(
+        Layout(PB.scanner_board_strip(data), name="strip", size=3),
+        Layout(name="row1"),
+        Layout(name="row2"),
     )
 
-    # Column 1 — RS Momentum Leaders (full height, all tickers, sorted score-then-RS desc)
-    body["rs"].update(
-        PB.scanner_cat_panel(data, "rs_momentum_leader", "RS MOMENTUM LEADERS", "cyan")
+    body["row1"].split_row(
+        Layout(PB.scanner_cat_panel(data, "rs_momentum_leader",   "RS MOMENTUM",        "cyan"),   name="rs"),
+        Layout(PB.scanner_cat_panel(data, "early_accumulation",   "EARLY ACCUMULATION", "green"),  name="early"),
+        Layout(PB.scanner_cat_panel(data, "sector_theme_leaders", "SECTOR LEADERS",     "green"),  name="sector"),
+        Layout(PB.scanner_cat_panel(data, "catalyst_watch",       "CATALYST WATCH",     "yellow"), name="cat"),
     )
-
-    # Column 2 — Early Accumulation (top) + Catalyst Watch (bottom), all tickers each
-    body["mid"].split_column(
-        Layout(PB.scanner_cat_panel(data, "early_accumulation", "EARLY ACCUMULATION", "green"),  name="early"),
-        Layout(PB.scanner_cat_panel(data, "catalyst_watch",     "CATALYST WATCH",     "yellow"), name="cat"),
-    )
-
-    # Column 3 — Sector/Theme Leaders (top) + Beaten Down Recovery (bottom), all tickers each
-    body["sect"].split_column(
-        Layout(PB.scanner_cat_panel(data, "sector_theme_leaders", "SECTOR LEADERS",       "green"),  name="sector"),
-        Layout(PB.scanner_cat_panel(data, "beaten_down_recovery", "BEATEN DOWN RECOVERY", "yellow"), name="beaten"),
-    )
-
-    # Column 4 — Social Arb Attention (top) + Long Term Asymmetric (bottom)
-    # Alpha Discovery lives in Mode 2; removing it here avoids redundancy.
-    body["right"].split_column(
-        Layout(PB.scanner_cat_panel(data, "social_arb_attention",  "SOCIAL ARB / ATTENTION", "magenta"),     name="social"),
-        Layout(PB.scanner_cat_panel(data, "long_term_asymmetric",  "LONG TERM ASYMMETRIC",   "bold magenta"), name="longterm"),
+    body["row2"].split_row(
+        Layout(PB.scanner_consensus_panel(data),                                                     name="consensus"),
+        Layout(PB.scanner_cat_panel(data, "beaten_down_recovery", "BEATEN DOWN RECOVERY",   "yellow"),       name="beaten"),
+        Layout(PB.scanner_cat_panel(data, "long_term_asymmetric", "LONG TERM ASYMMETRIC",   "bold magenta"), name="longterm"),
+        Layout(PB.scanner_cat_panel(data, "social_arb_attention", "SOCIAL ARB / ATTENTION", "magenta"),      name="social"),
     )
 
     return _layout_root(
