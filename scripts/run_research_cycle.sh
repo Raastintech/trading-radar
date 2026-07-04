@@ -1199,6 +1199,22 @@ cmd_targeted_backfill() {
     fi
 }
 
+cmd_journal_digest() {
+    # Daily Research Digest — appends ONE Phase-6-format summary note to
+    # data/research/journal.jsonl so the operator gets a single digest
+    # (data quality, scanner, sector/regime, forward evidence, fundamental
+    # overlay, review queue, final finding) instead of reading every report.
+    # Cache-only reads; cred-free; the only write is the append-only journal.
+    # A deterministic digest_key makes re-runs on unchanged artifacts no-ops,
+    # so restarting the nightly cannot spam duplicate notes.  RESEARCH-ONLY.
+    #
+    # Standalone flags: --force, --date YYYY-MM-DD, --top N
+    # (--append is implied here; use the script directly for a dry-run.)
+    log "[CACHE] daily research journal digest (append-only journal note)"
+    run_or_warn "research journal digest" \
+        "$PY" scripts/generate_research_journal_digest.py --append "$@"
+}
+
 _disabled_execution_cmd() {
     echo "RESEARCH_ONLY_MODE: command disabled."
 }
@@ -1364,6 +1380,11 @@ cmd_nightly() {
     # nightly cycle just refreshed.  Cache-only; no provider calls.
     # No strategy abbreviations or trade language in output.
     cmd_nightly_operator_summary
+    # Daily Research Digest — runs after the operator summary so the journal
+    # note reads the final state of every sidecar this cycle produced.
+    # Append-only to data/research/journal.jsonl; digest_key dedupe makes
+    # nightly re-runs safe.  Cache-only, cred-free, research-only.
+    cmd_journal_digest
     log "nightly cycle complete"
 }
 
@@ -1487,6 +1508,7 @@ case "$SUB" in
     daily-alpha-radar)          cmd_daily_alpha_radar          "${POS[@]}" ;;
     nightly-operator-summary)  cmd_nightly_operator_summary   "${POS[@]}" ;;
     targeted-backfill)         cmd_targeted_backfill          "${POS[@]}" ;;
+    journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
         _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;
