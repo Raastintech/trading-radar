@@ -481,13 +481,25 @@ def _social_arb_tickers() -> List[str]:
             continue
         try:
             data = json.loads(path.read_text())
-            for item in data.get("candidates", data.get("leads", [])):
+            for item in _social_items(data):
                 t = (item.get("ticker") or item.get("symbol") or "").upper()
                 if t and len(t) <= 6 and t not in tickers:
                     tickers.append(t)
         except Exception:
             pass
     return tickers
+
+
+def _social_items(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Candidate rows from a social sidecar, tolerant of each artifact's key:
+    social_attention_radar uses ``leads``, older sidecars used ``candidates``,
+    and social_arb_radar stores its picks under ``items`` (which no reader
+    matched before — the arb radar's tickers never reached the scanner)."""
+    for key in ("candidates", "leads", "items"):
+        rows = data.get(key)
+        if isinstance(rows, list) and rows:
+            return rows
+    return []
 
 
 def _social_score_from_item(item: Dict[str, Any]) -> float:
@@ -498,10 +510,16 @@ def _social_score_from_item(item: Dict[str, Any]) -> float:
     → attention_velocity_score + attention_novelty_score composite (new radar).
     Output is always in [0.0, 1.0] for use in the 50+score*40 formula.
     """
-    # Legacy explicit score field (old social_arb sidecars)
+    # Explicit score field (social_arb sidecars).  Old sidecars published
+    # 0-1; the current social_arb_radar publishes deterministic_score /
+    # confidence_score on a 0-100 scale — normalize instead of clamping
+    # (clamping mapped every arb item to 1.0 regardless of confidence).
     legacy = item.get("score") or item.get("deterministic_score")
     if legacy is not None:
-        return float(min(1.0, max(0.0, float(legacy))))
+        val = float(legacy)
+        if val > 1.0:
+            val /= 100.0
+        return float(min(1.0, max(0.0, val)))
 
     # New social_attention_radar fields
     velocity = float(item.get("attention_velocity_score") or 0.0)  # 0-100
@@ -534,7 +552,7 @@ def _load_social_data() -> Dict[str, Any]:
             continue
         try:
             data = json.loads(path.read_text())
-            for item in data.get("candidates", data.get("leads", [])):
+            for item in _social_items(data):
                 t = (item.get("ticker") or item.get("symbol") or "").upper()
                 if not t:
                     continue
@@ -544,6 +562,20 @@ def _load_social_data() -> Dict[str, Any]:
                     or crowd_stage in _CROWDED_CROWD_STAGES
                 )
                 score = _social_score_from_item(item)
+                # A ticker can appear in more than one sidecar (arb radar +
+                # attention radar); keep the strongest signal rather than
+                # letting whichever file loads last win.
+                prev = social.get(t)
+                if prev is not None:
+                    # CROWDED is a risk flag — once any sidecar says a name
+                    # is already viral, no other entry may clear it,
+                    # regardless of which one wins on score.
+                    if prev["score"] >= score:
+                        if crowded and not prev.get("crowded"):
+                            prev["crowded"] = True
+                            prev["crowd_stage"] = prev.get("crowd_stage") or (crowd_stage or None)
+                        continue
+                    crowded = crowded or bool(prev.get("crowded"))
                 social[t] = {
                     "source": name.replace("_latest.json", ""),
                     "trust_level": TRUST_MEDIUM,

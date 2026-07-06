@@ -29,7 +29,7 @@ For current project truth, read **in this order** (stop at the first contradicti
 
 `gem-trader` is a **research-only stock intelligence engine**. It runs a daily research cycle via systemd timers, producing a six-category research watchlist, per-ticker research cards, forward-evidence tracking, and a nightly operator summary. The goal is to surface the best candidate stocks for human review — not to trade them automatically.
 
-**Alpaca is not required and not used for execution.** FMP is the primary data provider (fundamentals, events, macro, price history). Tradier provides options chain data for research. The daemon (`gem-trader.service`) runs the research heartbeat only.
+**Alpaca is not required and not used for execution.** FMP is the primary data provider (fundamentals, events, macro, price history). Tradier provides options chain data for research. The daemon (`gem-trader.service`) is stopped and disabled (2026-06-13); all research runs via systemd timers + cron, not a resident process.
 
 ## Credentials and environment
 
@@ -90,8 +90,11 @@ SNIPER_ENV_PATH=/home/gem/secure/trading.env .venv/bin/python scripts/run_paper_
 
 ### Runtime layout (research-only)
 
-`main.py` is the entry point for the research heartbeat daemon. It no longer runs any trading
-loop — it boots the research-mode health reporter and writes `logs/trader_heartbeat.json`.
+`main.py` was the entry point for the trading daemon. **`gem-trader.service` is stopped and
+disabled since 2026-06-13 (ROADMAP Phase 3A-2 "Services stopped")** — it is not expected to
+run. `logs/trader_heartbeat.json` is frozen at the shutdown timestamp; the live "market
+heartbeat" is `cache/research/market_heartbeat_latest.json`, written by the research cycle
+(`research/market_heartbeat.py`), not by the daemon.
 
 The actual daily research work happens via systemd timers calling `scripts/run_research_cycle.sh`:
 1. **Nightly (20:30 ET):** forecast + alpha radar + delta + lenses + gatekeeper refresh + risk-telemetry + nightly operator summary + targeted backfill dry-run
@@ -132,10 +135,12 @@ When operating-truth questions arise, read in this order (per `docs/INDEX.md` an
 Only `Alpaca` (market data + execution) and `FMP` (fundamentals/events/macro/VIX/news) are in the primary execution path. `yfinance` is **debug-only fallback** — never primary. `core/data_gatekeeper.py` is a SQLite+Parquet cache layer that fronts every FMP call; FMP budget is tracked monthly via `fmp_budget_monthly`. The cache is shared by the daemon, the dashboard, and research scripts.
 
 The dashboard is **cache-only** — it never calls providers and never invokes `run_research_cycle.sh`. Provider calls for the daily cycle happen only in:
-- the daemon (`main.py`),
 - `scripts/run_research_cycle.sh` (nightly + premarket timers),
-- `scripts/run_paper_evidence.py` (paper-evidence timer),
-- `scripts/nightly_refresh.py` (cache pre-warm + cleanup).
+- `scripts/social_attention_nightly.sh` (user cron, 21:30 UTC Mon-Fri),
+- `scripts/nightly_refresh.py` (cache pre-warm + cleanup),
+- the options snapshot collector (user timer, 15:45 ET Mon-Fri).
+
+(The daemon `main.py` and `scripts/run_paper_evidence.py` are decommissioned and no longer run.)
 
 ### Live-capital gate
 
@@ -161,7 +166,7 @@ Optionally a `LIVE_CONFIRM_FILE` path must also exist on disk. The check lives i
 
 | Unit | Schedule | Purpose |
 |------|----------|---------|
-| `gem-trader.service` | always-on | Core trading loop (`main.py`) |
+| `gem-trader.service` | **stopped + disabled** (2026-06-13) | Former trading daemon (`main.py`) — decommissioned; do not restart |
 | `gem-trader-nightly.timer` | 03:30 ET Mon-Fri | Cache cleanup + pre-warm (`scripts/nightly_refresh.py`); now also refreshes the regime-forecast parquet universe via Alpaca SIP so the premarket / nightly forecast anchors on the most recent completed session. |
 | `gem-trader-premarket.timer` | 08:00 ET Mon-Fri | Premarket research (`run_research_cycle.sh premarket`): forecast + alpha + alpha-overlay + delta |
 | `gem-trader-midday.timer` | 12:30 ET Mon-Fri | Midday cache-only refresh (`run_research_cycle.sh midday`): resolve + reports + delta + risk-telemetry. No provider calls. |

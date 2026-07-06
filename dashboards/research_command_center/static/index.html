@@ -945,19 +945,26 @@ function renderSocial(){
     const lane=(d.current_lane||[]).map(x=>`<tr>
       <td class="tick">${esc(x.ticker)}</td><td>${x.research_score??"—"}</td>
       <td><span class="tag">${esc(x.watchlist_label)||"—"}</span></td></tr>`).join("");
+    // The verdict block and the lane come from two different pipelines on
+    // different cadences — show each source's age so they never read as one
+    // synchronized snapshot.  >30h = past its daily cadence, flag it.
+    const fmtAge=h=>h==null?"—":(h<48?`${Math.round(h)}h`:`${Math.round(h/24)}d`);
+    const ageCls=h=>h!=null&&h>30?"warn":"";
     $("#workspace").innerHTML=`
       <h2 class="pg">Social Arb — attention cohorts</h2>
       <div class="hrow" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
         <span class="chip">VALIDATOR VERDICT: ${badge(d.verdict)}</span>
+        ${chip("VALIDATOR AGE",fmtAge(d.validator_age_hours),ageCls(d.validator_age_hours))}
         <span class="chip">MATURED SOCIAL-LED: <b>${d.matured_social_led??"—"}</b></span>
         <span class="chip">HISTORY DAYS: <b>${d.history_days??"—"}</b></span>
+        ${chip("LANE AGE (scanner)",fmtAge(d.lane_age_hours),ageCls(d.lane_age_hours))}
       </div>
       <div class="note">${esc(d.verdict_reason||"")}</div>
       <div class="cards" style="margin-top:10px">
         ${card("Forward cohorts (validator-published)",cohortRows?`<table>
           <tr><th>Cohort</th><th>n</th><th>avg 5d</th><th>vs SPY 5d</th></tr>${cohortRows}</table>`
           :`<div style="color:var(--dim);font-size:11px">no matured cohorts published yet</div>`)}
-        ${card(`Current social lane (${(d.current_lane||[]).length})`,lane?`<table>
+        ${card(`Current social lane (${(d.current_lane||[]).length}) — from scanner`,lane?`<table>
           <tr><th>Ticker</th><th>Score</th><th>Label</th></tr>${lane}</table>`
           :`<div style="color:var(--dim);font-size:11px">no live social candidates</div>`)}
       </div>`;

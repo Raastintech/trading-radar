@@ -50,6 +50,7 @@ from research.research_scanner import (
     _ranked_cache_fill,
     _build_universe,
     _load_social_data,
+    _social_arb_tickers,
     _social_score_from_item,
     _enrich_item,
     _FMP_SECTOR_TO_ETF,
@@ -538,6 +539,52 @@ def test_social_score_zero_for_no_attention():
     }
     score = _social_score_from_item(item)
     assert score == 0.0, f"Zero-attention item should score 0.0, got {score}"
+
+
+def test_social_score_normalizes_0_100_deterministic_score():
+    """social_arb_radar publishes deterministic_score on a 0-100 scale — it
+    must normalize to 0-1, not clamp every item to 1.0."""
+    assert _social_score_from_item({"deterministic_score": 88.3}) == pytest.approx(0.883)
+    assert _social_score_from_item({"deterministic_score": 63.7}) == pytest.approx(0.637)
+    # Old 0-1 sidecars keep their value untouched
+    assert _social_score_from_item({"score": 0.7}) == pytest.approx(0.7)
+
+
+def test_load_social_data_reads_social_arb_items_key(tmp_path):
+    """social_arb_latest.json stores picks under 'items' — the loader must
+    ingest them (previously only 'candidates'/'leads' matched, so the arb
+    radar's tickers never reached the scanner's social lane)."""
+    (tmp_path / "social_arb_latest.json").write_text(json.dumps({
+        "items": [{"ticker": "AAPL", "deterministic_score": 88.3,
+                   "news_label": "whale accumulation"}],
+    }))
+    with patch("research.research_scanner.RESEARCH_DIR", tmp_path):
+        social = _load_social_data()
+        tickers = _social_arb_tickers()
+    assert "AAPL" in social
+    assert social["AAPL"]["source"] == "social_arb"
+    assert social["AAPL"]["score"] == pytest.approx(0.883)
+    assert social["AAPL"]["label"] == "whale accumulation"
+    assert "AAPL" in tickers
+
+
+def test_load_social_data_merges_keeping_stronger_entry(tmp_path):
+    """Same ticker in the arb radar and the attention radar: the stronger
+    score wins, but a CROWDED flag from either sidecar must survive."""
+    (tmp_path / "social_arb_latest.json").write_text(json.dumps({
+        "items": [{"ticker": "NVDA", "deterministic_score": 90.0,
+                   "news_label": "arb lead"}],
+    }))
+    (tmp_path / "social_attention_radar_latest.json").write_text(json.dumps({
+        "leads": [{"ticker": "NVDA", "attention_velocity_score": 10.0,
+                   "attention_novelty_score": 5.0, "best_confidence": 0.9,
+                   "crowd_stage": "PEAK_ATTENTION"}],
+    }))
+    with patch("research.research_scanner.RESEARCH_DIR", tmp_path):
+        social = _load_social_data()
+    assert social["NVDA"]["score"] == pytest.approx(0.9)   # arb entry wins
+    assert social["NVDA"]["source"] == "social_arb"
+    assert social["NVDA"]["crowded"] is True               # radar risk flag kept
 
 
 def test_social_score_low_confidence_discounts():

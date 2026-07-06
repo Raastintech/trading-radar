@@ -383,9 +383,13 @@ require_env() {
 }
 
 is_social_cadence_day() {
-    # ISO weekday: 1=Mon … 7=Sun
+    # ISO weekday: 1=Mon … 7=Sun, evaluated in MARKET time (America/New_York),
+    # not server-local time.  The server clock is UTC and the nightly timer
+    # fires 00:30 UTC = 20:30 ET the previous day, so a UTC weekday check
+    # shifts every nightly one day forward — Friday's nightly evaluated as
+    # "Saturday" and silently skipped Social Arb every week.
     local today_dow
-    today_dow="$(date +%u)"
+    today_dow="$(TZ=America/New_York date +%u)"
     IFS=',' read -ra days <<< "$SOCIAL_CADENCE_DAYS"
     for d in "${days[@]}"; do
         if [[ "$d" == "$today_dow" ]]; then
@@ -396,8 +400,9 @@ is_social_cadence_day() {
 }
 
 cadence_label() {
+    # Market-time weekday label (see is_social_cadence_day for why not UTC).
     local today_dow
-    today_dow="$(date +%u)"
+    today_dow="$(TZ=America/New_York date +%u)"
     case "$today_dow" in
         1) echo "Mon" ;; 2) echo "Tue" ;; 3) echo "Wed" ;; 4) echo "Thu" ;;
         5) echo "Fri" ;; 6) echo "Sat" ;; 7) echo "Sun" ;;
@@ -486,8 +491,12 @@ cmd_social_inner() {
         return 0
     fi
     log "[PROVIDER] social arb radar"
+    # --mode daily: the day-of-week gate above is the cadence; the radar's
+    # internal twice_weekly guard (10h min interval) otherwise silently
+    # reuses the cached artifact and reprints its old built_at, which made
+    # nightly logs look like fresh runs while the sidecar rotted.
     run_or_warn "social arb radar" \
-        "$PY" research/social_arb_radar.py
+        "$PY" research/social_arb_radar.py --mode daily
 }
 
 cmd_social_with_cadence() {
@@ -612,6 +621,11 @@ cmd_lenses_liquid() {
     log "[PROVIDER] stock lens prebuild (top-${n} liquid coverage tier · curated unions in)"
     run_or_warn "stock lens prebuild (liquid)" \
         "$PY" research/prebuild_stock_lenses.py --liquid-top="$n" --max="$n" "$@"
+    # Weekly review rides the Saturday liquid-tier timer — it had a runner
+    # command but no cadence, so weekly_review_latest.json rotted while the
+    # dashboard's Mode-3 WEEKLY REVIEW strip kept rendering it as current.
+    # Cache-only; runs in seconds.
+    cmd_weekly_review
 }
 
 cmd_alpha_lens_refresh() {
@@ -1391,6 +1405,13 @@ cmd_nightly() {
     # provider calls); the operator can run the actual backfill manually
     # after reviewing the plan and provider budget.
     cmd_targeted_backfill --dry-run --limit 50 --min-bars 300
+    # Provider health (FMP cache-state check + one tiny Tradier clock probe)
+    # then the data-freshness audit — both previously had runner commands but
+    # no cadence, so their sidecars went weeks stale (the freshness auditor
+    # rotting is exactly the failure mode it exists to catch).  Freshness runs
+    # near the end so it sees the ages of everything this cycle just wrote.
+    cmd_provider_health
+    cmd_data_freshness
     # Nightly Operator Summary — runs LAST so it reads every sidecar the
     # nightly cycle just refreshed.  Cache-only; no provider calls.
     # No strategy abbreviations or trade language in output.

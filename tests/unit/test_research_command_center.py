@@ -727,6 +727,14 @@ def test_social_overview(tmp_path):
     assert d["verdict"] == "NEED_MORE_DATA"      # validator verdict unmodified
     assert d["matured_social_led"] == 3
     assert d["research_only_footer"] == RESEARCH_ONLY_FOOTER
+    # Freshness fields: the verdict block (validator) and the lane (scanner)
+    # come from different pipelines on different cadences — both ages must be
+    # published so the UI never renders them as one synchronized snapshot.
+    assert isinstance(d["validator_age_hours"], float)
+    assert d["validator_age_hours"] > 0
+    assert d["lane_generated_at"] == "2026-07-02T17:00:00+00:00"
+    assert isinstance(d["lane_age_hours"], float)
+    assert d["lane_age_hours"] > 0
 
 
 def test_phase3_pages_render_in_ui():

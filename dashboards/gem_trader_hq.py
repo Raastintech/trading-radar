@@ -4103,9 +4103,23 @@ class PB:  # PanelBuilder — all static
             ordered = [m for m in ("ALPHA+", "POSTURE+", "SCANNER+", "TRENDS+") if m in marks]
             return " ".join(ordered) if ordered else "—"
 
+        def _age_and_stale() -> Tuple[str, bool]:
+            """Artifact age string + stale flag (>30h = missed its nightly
+            rebuild).  The radar builds Mon-Fri post-close, so anything past
+            ~a day means the panel is showing yesterday's (or older) leads."""
+            age = board.get("_age_short") or _age_from_iso_short(
+                board.get("built_at") or board.get("_mtime_iso"))
+            stale = False
+            try:
+                built = _parse_iso_utc(board.get("built_at") or board.get("_mtime_iso"))
+                stale = (_utc_now() - built).total_seconds() > 30 * 3600
+            except Exception:
+                pass
+            return age, stale
+
         t = Text()
         if compact:
-            age = board.get("_age_short") or _age_from_iso_short(board.get("built_at") or board.get("_mtime_iso"))
+            age, is_stale = _age_and_stale()
             dropped = (board.get("dropped_noise") or {}).get("total", 0)
             status_tags = []
             if board.get("sample_data"):
@@ -4144,14 +4158,16 @@ class PB:  # PanelBuilder — all static
                     )
                     if idx < min(line_cap, len(items)):
                         t.append("\n")
+            stale_tag = " [bold yellow]STALE[/]" if is_stale else ""
             return Panel(
                 t,
-                title="[bold]SOCIAL ARB RADAR[/] [dim]research-only · cache only[/]",
-                border_style="cyan",
+                title=(f"[bold]SOCIAL ARB RADAR[/] [dim]research-only · cache only"
+                       f" · age {age}[/]{stale_tag}"),
+                border_style="yellow" if is_stale else "cyan",
                 padding=(0, 1),
             )
 
-        t.append("research-only · twice-weekly\n", style="bold yellow")
+        t.append("research-only · daily post-close\n", style="bold yellow")
         if not board:
             t.append("\nNo Social Arb artifact loaded\n", style="dim")
             t.append("Run research/social_arb_radar.py after market close.\n", style="dim")
@@ -4162,12 +4178,16 @@ class PB:  # PanelBuilder — all static
                 padding=(0, 1),
             )
 
-        age = board.get("_age_short") or _age_from_iso_short(board.get("built_at") or board.get("_mtime_iso"))
+        age, is_stale = _age_and_stale()
         dropped = (board.get("dropped_noise") or {}).get("total", 0)
         raw_count = board.get("raw_item_count", 0)
-        t.append(f"artifact age {age}  raw {raw_count}  dropped/noise {dropped}\n", style="dim")
+        t.append(f"artifact age {age}  raw {raw_count}  dropped/noise {dropped}\n",
+                 style="yellow" if is_stale else "dim")
+        if is_stale:
+            t.append("STALE — missed nightly rebuild · rerun: ./scripts/run_research_cycle.sh social\n",
+                     style="bold yellow")
         if board.get("sample_data"):
-            t.append("offline sample artifact · rerun real twice-weekly radar for live research\n", style="yellow")
+            t.append("offline sample artifact · rerun the daily radar for live research\n", style="yellow")
         if board.get("source_errors"):
             t.append("missing-source fallback active\n", style="yellow")
 

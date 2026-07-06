@@ -57,18 +57,23 @@ PRICE_DIR = cfg.CACHE_DIR / "prices"
 OUT_JSON = RESEARCH_DIR / "data_freshness_latest.json"
 OUT_TXT = cfg.LOG_DIR / "data_freshness_latest.txt"
 
-# Research sidecars to audit
+# Research sidecars to audit.  Names must match what the pipelines actually
+# write today — auditing legacy filenames (alpha_discovery_latest,
+# social_attention_latest, risk_telemetry_latest) reported permanent MISSING
+# noise while the real artifacts went unwatched.
 SIDECARS: List[str] = [
     "market_heartbeat_latest.json",
     "research_scanner_latest.json",
     "regime_forecast_latest.json",
-    "alpha_discovery_latest.json",
+    "alpha_discovery_board_latest.json",
     "social_arb_latest.json",
-    "social_attention_latest.json",
+    "social_attention_radar_latest.json",
+    "social_attention_forward_latest.json",
     "mcp_analysis_latest.json",
-    "risk_telemetry_latest.json",
     "slippage_telemetry_latest.json",
     "portfolio_concentration_latest.json",
+    "shadow_sizing_latest.json",
+    "paper_state_hygiene_latest.json",
     "fmp_provider_health_latest.json",
     "tradier_research_health_latest.json",
 ]
@@ -93,22 +98,39 @@ def _mtime_info(path: Path) -> Dict[str, Any]:
     }
 
 
+def _universe_tickers() -> set:
+    """Current scan-universe tickers from the universe build sidecar, or an
+    empty set when the sidecar is unavailable."""
+    try:
+        data = json.loads(
+            (RESEARCH_DIR / "research_universe_build_latest.json").read_text())
+        return {str(r.get("ticker") or "").upper()
+                for r in (data.get("universe_full") or []) if r.get("ticker")}
+    except Exception:
+        return set()
+
+
 def _price_cache_audit() -> Dict[str, Any]:
     if not PRICE_DIR.exists():
         return {"status": "PRICE_DIR_MISSING", "files": 0}
     parquets = list(PRICE_DIR.glob("*.parquet"))
     now_ts = datetime.now(timezone.utc).timestamp()
+    universe = _universe_tickers()
     buckets: Dict[str, List[str]] = {"fresh_24h": [], "fresh_48h": [], "stale": [], "very_stale": []}
+    uni_buckets: Dict[str, List[str]] = {"fresh_24h": [], "fresh_48h": [], "stale": [], "very_stale": []}
     for p in parquets:
         age_h = (now_ts - p.stat().st_mtime) / 3600.0
         if age_h < 24:
-            buckets["fresh_24h"].append(p.stem)
+            key = "fresh_24h"
         elif age_h < 48:
-            buckets["fresh_48h"].append(p.stem)
+            key = "fresh_48h"
         elif age_h < 168:
-            buckets["stale"].append(p.stem)
+            key = "stale"
         else:
-            buckets["very_stale"].append(p.stem)
+            key = "very_stale"
+        buckets[key].append(p.stem)
+        if p.stem.upper() in universe:
+            uni_buckets[key].append(p.stem)
     spy_info = _mtime_info(PRICE_DIR / "SPY.parquet")
     return {
         "total_files": len(parquets),
@@ -116,6 +138,15 @@ def _price_cache_audit() -> Dict[str, Any]:
         "fresh_48h": len(buckets["fresh_48h"]),
         "stale_2_7d": len(buckets["stale"]),
         "very_stale_over_7d": len(buckets["very_stale"]),
+        # Universe-scoped view: only the current scan universe is refreshed
+        # daily (refresh-universe-prices); thousands of off-universe parquets
+        # are permanently old by design post-decommission and must not drive
+        # the overall verdict.
+        "universe_tickers": len(universe),
+        "universe_fresh_24h": len(uni_buckets["fresh_24h"]),
+        "universe_stale_2_7d": len(uni_buckets["stale"]),
+        "universe_very_stale_over_7d": len(uni_buckets["very_stale"]),
+        "universe_very_stale_tickers": sorted(uni_buckets["very_stale"])[:10],
         "spy_parquet": spy_info,
         "very_stale_tickers": sorted(buckets["very_stale"])[:10],
     }
@@ -138,10 +169,17 @@ def build_report() -> Dict[str, Any]:
 
     price_audit = _price_cache_audit()
 
+    # Overall verdict keys on the sidecars + the universe-scoped price view.
+    # When the universe sidecar is unavailable, fall back to the whole-cache
+    # count (pre-fix behavior).
+    if price_audit.get("universe_tickers"):
+        very_stale_signal = price_audit.get("universe_very_stale_over_7d", 0)
+    else:
+        very_stale_signal = price_audit.get("very_stale_over_7d", 0)
     overall = "FRESH"
     if missing or stale:
         overall = "DEGRADED"
-    if len(missing) > 5 or price_audit.get("very_stale_over_7d", 0) > 20:
+    if len(missing) > 5 or very_stale_signal > 20:
         overall = "STALE"
 
     return {
@@ -209,8 +247,11 @@ def main() -> None:
     logger.info("wrote %s  %s", OUT_JSON, OUT_TXT)
     print(f"\nData freshness: {report['overall_status']}")
     print(f"Missing sidecars: {len(report['missing_sidecars'])}  |  Stale: {len(report['stale_sidecars'])}")
-    print(f"Price cache: {report['price_cache'].get('total_files', 0)} parquets, "
-          f"{report['price_cache'].get('fresh_24h', 0)} fresh <24h")
+    pc = report["price_cache"]
+    print(f"Price cache: {pc.get('total_files', 0)} parquets, "
+          f"{pc.get('fresh_24h', 0)} fresh <24h  |  universe: "
+          f"{pc.get('universe_fresh_24h', 0)}/{pc.get('universe_tickers', 0)} fresh <24h, "
+          f"{pc.get('universe_very_stale_over_7d', 0)} very stale")
 
 
 if __name__ == "__main__":

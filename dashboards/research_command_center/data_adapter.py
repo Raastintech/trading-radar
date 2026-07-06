@@ -895,6 +895,9 @@ def build_social_overview(store: Optional[ArtifactStore] = None) -> Dict[str, An
         return {"fallback": MISSING_ARTIFACT,
                 "research_only_footer": RESEARCH_ONLY_FOOTER}
 
+    validator_age_h = _age_hours((social or {}).get("generated_at"))
+    lane_generated_at = (scanner or {}).get("generated_at")
+    lane_age_h = _age_hours(lane_generated_at)
     return {
         "generated_at": (social or {}).get("generated_at"),
         "verdict": (social or {}).get("verdict"),
@@ -904,6 +907,14 @@ def build_social_overview(store: Optional[ArtifactStore] = None) -> Dict[str, An
         "comparisons": (social or {}).get("comparisons") or {},
         "history_days": (social or {}).get("history_days"),
         "current_lane": lane,
+        # Freshness: the verdict block and the lane come from two different
+        # pipelines on different cadences (validator: 21:30 UTC cron; lane:
+        # scanner premarket+nightly).  Publish both ages so the UI never
+        # presents them as one synchronized snapshot.
+        "validator_age_hours": (round(validator_age_h, 1)
+                                if validator_age_h is not None else None),
+        "lane_generated_at": lane_generated_at,
+        "lane_age_hours": round(lane_age_h, 1) if lane_age_h is not None else None,
         "fallback": None,
         "research_only_footer": RESEARCH_ONLY_FOOTER,
     }
