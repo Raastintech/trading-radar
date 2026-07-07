@@ -13,8 +13,15 @@ Doctrine:
     no trade language.
   - READ-ONLY on the engine.  Never mutates scanner scores, rankings,
     gates, watchlists, artifacts, or execution logic.  The only writes are
-    the audit sidecar (cache/research/journal_audit_latest.json) and the
-    feedback queue (logs/research_engine_feedback_queue.jsonl).
+    the audit sidecar (cache/research/journal_audit_latest.json), the
+    feedback queue (logs/research_engine_feedback_queue.jsonl), and the
+    audit-trend history (data/research/journal_audit_history.jsonl).
+  - REPAIR TASKS ARE EXPERIMENTS, NOT CHANGES.  ``next_system_actions``
+    recommends diagnostics and forward-evidence experiments a human (or a
+    coding assistant, under review) can run later.  It never loosens a
+    filter, never changes a threshold, and never promotes a ticker —
+    a looser configuration may only be *proposed* after its own forward
+    evidence proves it works.
   - CRED-FREE.  No dependency on core.config; the Anthropic key is
     optional.  If the LLM call fails, times out, has no API key, or
     returns invalid JSON, a deterministic rule-based fallback audit is
@@ -46,6 +53,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 AUDIT_SIDECAR_REL = Path("cache") / "research" / "journal_audit_latest.json"
 FEEDBACK_QUEUE_REL = Path("logs") / "research_engine_feedback_queue.jsonl"
 JOURNAL_JSONL_REL = Path("data") / "research" / "journal.jsonl"
+AUDIT_HISTORY_REL = Path("data") / "research" / "journal_audit_history.jsonl"
 
 # Env override, mirroring the social-arb reviewer convention.
 DEFAULT_MODEL = "claude-opus-4-8"
@@ -64,11 +72,36 @@ FLAW_AREAS = ("scanner_recall", "data_quality", "forward_evidence",
 
 # Tracker verdicts that mean the forward evidence is not yet trustworthy.
 IMMATURE_FORWARD_VERDICTS = {"MIXED", "INCONCLUSIVE", "NEED_MORE_DATA"}
+# Tracker verdicts that mean the forward evidence is actively negative.
+NEGATIVE_FORWARD_VERDICTS = {"NO_FORWARD_EDGE", "NO_VALUE", "FAIL"}
 
 SCANNER_RECALL_FLOOR_PCT = 5.0
 
+# next_system_actions schema
+PRIORITIES = ("P0", "P1", "P2")
+ACTION_AREAS = ("scanner_recall", "forward_evidence", "options_overlay",
+                "data_quality", "fundamental_overlay")
+MAX_SYSTEM_ACTIONS = 8
+
+# audit_trend
+TREND_WINDOW = 5
+TREND_DIRECTIONS = ("IMPROVING", "WORSENING", "UNCHANGED", "NEW",
+                    "RESOLVED", "INSUFFICIENT_HISTORY")
+SEVERITY_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+# Higher rank = healthier forward evidence.  Unknown verdicts fall back to
+# severity comparison.
+TRACKER_VERDICT_RANK = {
+    "NO_FORWARD_EDGE": 0, "NO_VALUE": 0, "FAIL": 0,
+    "MIXED": 1, "INCONCLUSIVE": 1, "NEED_MORE_DATA": 1, "TOO_EARLY": 1,
+    "PROMISING": 2,
+}
+
 _RECALL_RE = re.compile(
     r"recall[^0-9%\n]{0,40}?([0-9]+(?:\.[0-9]+)?)\s*%", re.IGNORECASE)
+_RECALL_BASELINE_RE = re.compile(
+    r"baseline[:\s]+([0-9]+(?:\.[0-9]+)?)\s*%", re.IGNORECASE)
+_RECALL_MAIN_MISS_RE = re.compile(
+    r"main miss[:\s]+([A-Z_]+)", re.IGNORECASE)
 _TRACKER_VERDICT_RE = re.compile(
     r"tracker verdict:\s*([A-Z_]+)", re.IGNORECASE)
 _QUARANTINED_RE = re.compile(r"quarantined:\s*(\d+)", re.IGNORECASE)
@@ -96,6 +129,19 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         except ValueError:
             recall_pct = None
 
+    recall_baseline_pct = None
+    m = _RECALL_BASELINE_RE.search(text)
+    if m:
+        try:
+            recall_baseline_pct = float(m.group(1))
+        except ValueError:
+            recall_baseline_pct = None
+
+    recall_main_miss = None
+    m = _RECALL_MAIN_MISS_RE.search(text)
+    if m:
+        recall_main_miss = m.group(1).upper()
+
     quarantine_count = None
     m = _QUARANTINED_RE.search(text)
     if m:
@@ -117,11 +163,15 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
 
     return {
         "empty": len(text.strip()) < 40,
-        "phase4b_blocked": bool(re.search(r"phase\s*4b[^\n]{0,40}blocked",
+        # \b keeps "UNBLOCKED" from matching
+        "phase4b_blocked": bool(re.search(r"phase\s*4b[^\n]{0,40}?\bblocked",
                                           lower)),
         "tracker_verdict": tracker_verdict,
         "forward_immature": tracker_verdict in IMMATURE_FORWARD_VERDICTS,
+        "forward_negative": tracker_verdict in NEGATIVE_FORWARD_VERDICTS,
         "scanner_recall_pct": recall_pct,
+        "recall_baseline_pct": recall_baseline_pct,
+        "recall_main_miss": recall_main_miss,
         "options_overlay_disabled": bool(
             re.search(r"options\s+overlay[^\n]{0,60}disabled", lower)),
         "quarantine_count": quarantine_count,
@@ -193,7 +243,17 @@ def build_fallback_audit(digest_text: str,
             "human review time gets spent on uninvestable candidates.",
             "Surface the red flags earlier in ranking context (display "
             "only) so review order accounts for fundamental quality."))
-    if sig["forward_immature"]:
+    if sig["forward_negative"]:
+        flaws.append(_flaw(
+            "CRITICAL", "forward_evidence",
+            f"Tracker verdict is {sig['tracker_verdict']} — matured forward "
+            "evidence shows no selection edge.",
+            "Without demonstrated forward edge no candidate is validated; "
+            "Phase 4B stays blocked and any promotion would be unsupported.",
+            "Keep collecting matured 5d/10d/20d samples and review whether "
+            "the post-repair cohort needs its own epoch-split verdict; do "
+            "not unblock anything automatically."))
+    elif sig["forward_immature"]:
         flaws.append(_flaw(
             "LOW", "forward_evidence",
             f"Forward evidence is still "
@@ -280,6 +340,317 @@ def build_fallback_audit(digest_text: str,
     }
 
 
+# ── next_system_actions (deterministic repair-task generator) ────────────────
+#
+# Actions are generated in code from the digest signals so the schema and the
+# safety language are guaranteed on every path (LLM or fallback).  Sanitized
+# LLM-proposed actions are merged in afterwards for areas not already covered.
+# Every action recommends a DIAGNOSTIC or a forward-evidence EXPERIMENT —
+# never a direct change to filters, thresholds, scores, or gates.
+
+
+def _action(priority: str, area: str, task: str, why: str,
+            success_metric: str) -> Dict[str, str]:
+    return {"priority": priority, "area": area, "task": task, "why": why,
+            "success_metric": success_metric}
+
+
+def build_next_system_actions(
+        signals: Dict[str, Any],
+        flaws: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Map detected blockers to structured, research-only repair tasks."""
+    actions: List[Dict[str, str]] = []
+    flaw_areas = {f.get("area") for f in flaws}
+
+    # P0 — scanner recall diagnostics (never auto-loosen)
+    recall = signals.get("scanner_recall_pct")
+    recall_low = (recall is not None
+                  and recall < SCANNER_RECALL_FLOOR_PCT) \
+        or "scanner_recall" in flaw_areas
+    if recall_low:
+        baseline = signals.get("recall_baseline_pct")
+        main_miss = signals.get("recall_main_miss")
+        why_bits = []
+        if recall is not None:
+            why_bits.append(f"scanner recall is {recall:.1f}%")
+        if baseline is not None:
+            why_bits.append(f"vs a {baseline:.1f}% simple-RS baseline")
+        if main_miss:
+            why_bits.append(f"(main miss: {main_miss})")
+        why = (" ".join(why_bits) if why_bits
+               else "scanner recall is far below the simple-RS baseline")
+        why = why[0].upper() + why[1:]
+        actions.append(_action(
+            "P0", "scanner_recall",
+            "Build scanner recall diagnostics: report reject counts by "
+            "filter, list the top 25 rejected names from the simple-RS "
+            "baseline, and compare the strict scanner vs the simple-RS "
+            "baseline vs a looser scanner variant, tracking 5d, 10d, and "
+            "20d forward performance for all three groups. Do not loosen "
+            "any filter automatically — a looser configuration may only be "
+            "proposed after its forward evidence proves it works.",
+            why + " — the funnel discards most eventual "
+            "winners before human review.",
+            "Recall-diagnostics sidecar exists with per-filter reject "
+            "counts and the top-25 rejected baseline names; strict, "
+            "simple-RS, and looser cohorts each accrue matured 5d/10d/20d "
+            "forward returns; any filter-change proposal cites that cohort "
+            "forward evidence."))
+
+    # P0 — forward-evidence tracking depth
+    if signals.get("forward_negative") or signals.get("forward_immature") \
+            or signals.get("phase4b_blocked") \
+            or "forward_evidence" in flaw_areas:
+        verdict = signals.get("tracker_verdict") or "immature"
+        actions.append(_action(
+            "P0", "forward_evidence",
+            "Improve forward-evidence tracking: report hit rate vs SPY, "
+            "median forward return, average forward return, and max "
+            "drawdown after selection, each at 5d, 10d, and 20d horizons, "
+            "with high-priority names separated from watch-only names.",
+            f"Tracker verdict is {verdict} — without benchmarked "
+            "per-cohort forward statistics the engine cannot demonstrate "
+            "(or falsify) a selection edge.",
+            "Forward tracker sidecar reports hit-rate vs SPY, "
+            "median/average forward return, and post-selection max "
+            "drawdown at 5d/10d/20d, split into high-priority vs "
+            "watch-only cohorts."))
+
+    # P1 — data quality (backfill / quarantine / missing artifacts)
+    if (signals.get("quarantine_count") or 0) > 0 \
+            or signals.get("backfill_warning") \
+            or signals.get("missing_artifacts") \
+            or "data_quality" in flaw_areas:
+        detail = []
+        if (signals.get("quarantine_count") or 0) > 0:
+            detail.append(f"{signals['quarantine_count']} ticker(s) "
+                          "quarantined")
+        if signals.get("backfill_warning"):
+            detail.append("targeted-backfill warnings present")
+        if signals.get("missing_artifacts"):
+            detail.append("missing artifacts reported")
+        actions.append(_action(
+            "P1", "data_quality",
+            "Run the targeted price-cache backfill plan (dry-run first, "
+            "then --execute) and produce a quarantine-cause report giving "
+            "each quarantined ticker an explicit reason and clearance "
+            "condition.",
+            ("Data-quality issues in the digest: " + "; ".join(detail) + "."
+             if detail else "Data-quality issues flagged in the digest.")
+            + " Thin or quarantined history distorts RS and MA fields.",
+            "Backfill run is logged with the tickers that now meet the "
+            "bar-depth floor; quarantine report shows a reason and "
+            "clearance condition for every quarantined ticker."))
+
+    # P2 — options coverage health
+    if signals.get("options_overlay_disabled") \
+            or "options_overlay" in flaw_areas:
+        actions.append(_action(
+            "P2", "options_overlay",
+            "Report options coverage health: number of tickers with valid "
+            "options data, number skipped, the reason coverage is "
+            "insufficient for each, and whether the options overlay is "
+            "required or optional for each consuming strategy or report.",
+            "The options overlay is DISABLED for insufficient coverage; "
+            "without a coverage report it is unclear what data is missing "
+            "and which consumers are degraded.",
+            "Coverage-health sidecar lists valid/skipped ticker counts, "
+            "per-ticker insufficiency reasons, and a required-vs-optional "
+            "flag for every overlay consumer."))
+
+    # P2 — fundamental red flags in review ordering (display only)
+    if signals.get("dilution_red_flag") \
+            or "fundamental_overlay" in flaw_areas:
+        actions.append(_action(
+            "P2", "fundamental_overlay",
+            "Surface fundamental red flags (severe dilution, negative "
+            "margins, UNPROFITABLE_FUNDED status) directly in the journal "
+            "review-queue context — display only, no score or ranking "
+            "changes.",
+            "High-priority names carrying fundamental red flags consume "
+            "human review time and raise false-positive risk when "
+            "technicals alone drive prioritization.",
+            "Review-queue rows show fundamental red-flag annotations; no "
+            "scanner score or ranking logic changed."))
+
+    return actions
+
+
+def _sanitize_actions(value: Any) -> List[Dict[str, str]]:
+    """Coerce LLM-proposed next_system_actions into the strict schema;
+    anything outside the allowed areas/priorities is dropped or defaulted."""
+    out: List[Dict[str, str]] = []
+    if not isinstance(value, list):
+        return out
+    for a in value[:MAX_SYSTEM_ACTIONS]:
+        if not isinstance(a, dict):
+            continue
+        area = str(a.get("area") or "").strip().lower()
+        if area not in ACTION_AREAS:
+            continue
+        priority = str(a.get("priority") or "").strip().upper()
+        if priority not in PRIORITIES:
+            priority = "P2"
+        task = str(a.get("task") or "").strip()
+        if not task:
+            continue
+        out.append(_action(
+            priority, area, task,
+            str(a.get("why") or "").strip(),
+            str(a.get("success_metric") or "").strip()))
+    return out
+
+
+def merge_system_actions(
+        deterministic: List[Dict[str, str]],
+        llm_proposed: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Deterministic actions win; LLM extras only fill uncovered areas."""
+    covered = {a["area"] for a in deterministic}
+    merged = deterministic + [a for a in llm_proposed
+                              if a["area"] not in covered]
+    merged.sort(key=lambda a: a["priority"])  # P0 < P1 < P2 lexically
+    return merged[:MAX_SYSTEM_ACTIONS]
+
+
+# ── audit_trend (blocker trajectory vs prior audits) ─────────────────────────
+
+
+def build_blocker_snapshot(audit: Dict[str, Any],
+                           signals: Dict[str, Any]) -> Dict[str, Dict]:
+    """Compact per-area blocker state used for trend comparison: worst
+    severity per flaw area plus the comparable metric when one exists."""
+    snap: Dict[str, Dict[str, Any]] = {}
+    for f in audit.get("flaws_detected") or []:
+        area = f.get("area") or "other"
+        sev = f.get("severity") or "LOW"
+        cur = snap.get(area)
+        if cur is None or SEVERITY_RANK.get(sev, 0) \
+                > SEVERITY_RANK.get(cur["severity"], 0):
+            snap[area] = {"severity": sev}
+    if "scanner_recall" in snap \
+            and signals.get("scanner_recall_pct") is not None:
+        snap["scanner_recall"]["recall_pct"] = signals["scanner_recall_pct"]
+    if "forward_evidence" in snap and signals.get("tracker_verdict"):
+        snap["forward_evidence"]["tracker_verdict"] = \
+            signals["tracker_verdict"]
+    if "options_overlay" in snap:
+        snap["options_overlay"]["disabled"] = \
+            bool(signals.get("options_overlay_disabled"))
+    if "data_quality" in snap \
+            and signals.get("quarantine_count") is not None:
+        snap["data_quality"]["quarantine_count"] = \
+            signals["quarantine_count"]
+    return snap
+
+
+def _blocker_direction(area: str, latest: Dict[str, Any],
+                       prev: Dict[str, Any]) -> str:
+    """Metric-based comparison when the area has one; severity otherwise."""
+    if area == "scanner_recall":
+        a, b = latest.get("recall_pct"), prev.get("recall_pct")
+        if a is not None and b is not None:
+            if a > b + 0.05:
+                return "IMPROVING"
+            if a < b - 0.05:
+                return "WORSENING"
+            return "UNCHANGED"
+    if area == "forward_evidence":
+        a = TRACKER_VERDICT_RANK.get(latest.get("tracker_verdict") or "")
+        b = TRACKER_VERDICT_RANK.get(prev.get("tracker_verdict") or "")
+        if a is not None and b is not None:
+            if a > b:
+                return "IMPROVING"
+            if a < b:
+                return "WORSENING"
+            return "UNCHANGED"
+    if area == "data_quality":
+        a, b = latest.get("quarantine_count"), prev.get("quarantine_count")
+        if a is not None and b is not None:
+            if a < b:
+                return "IMPROVING"
+            if a > b:
+                return "WORSENING"
+            return "UNCHANGED"
+    a = SEVERITY_RANK.get(latest.get("severity") or "", 0)
+    b = SEVERITY_RANK.get(prev.get("severity") or "", 0)
+    if a < b:
+        return "IMPROVING"
+    if a > b:
+        return "WORSENING"
+    return "UNCHANGED"
+
+
+def compute_audit_trend(snapshot: Dict[str, Dict],
+                        history: List[Dict[str, Any]],
+                        window: int = TREND_WINDOW) -> Dict[str, Any]:
+    """Compare the latest blocker snapshot with up to ``window`` prior
+    audits.  Direction is measured against the most recent prior audit;
+    the window provides context (how many priors the area appeared in)."""
+    priors = [h for h in history
+              if isinstance(h.get("blockers"), dict)][-window:]
+    prev = priors[-1]["blockers"] if priors else None
+
+    areas = list(snapshot.keys())
+    if prev:
+        areas += [a for a in prev if a not in snapshot]
+
+    blockers: List[Dict[str, Any]] = []
+    for area in areas:
+        latest = snapshot.get(area)
+        prior = (prev or {}).get(area)
+        if latest is None:  # present before, gone now
+            blockers.append({
+                "area": area, "severity": None, "direction": "RESOLVED",
+                "latest": None, "previous": prior,
+                "seen_in_prior_audits": sum(
+                    1 for h in priors if area in h["blockers"]),
+            })
+            continue
+        if not priors:
+            direction = "INSUFFICIENT_HISTORY"
+        elif prior is None:
+            direction = "NEW"
+        else:
+            direction = _blocker_direction(area, latest, prior)
+        blockers.append({
+            "area": area, "severity": latest.get("severity"),
+            "direction": direction, "latest": latest, "previous": prior,
+            "seen_in_prior_audits": sum(
+                1 for h in priors if area in h["blockers"]),
+        })
+    blockers.sort(
+        key=lambda b: -SEVERITY_RANK.get(b.get("severity") or "", -1))
+    return {
+        "n_prior_audits": len(priors),
+        "window": window,
+        "prior_generated_at": [h.get("generated_at") for h in priors],
+        "blockers": blockers,
+    }
+
+
+def load_audit_history(root: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Prior audit-history records, oldest first (read-only, tolerant)."""
+    root = Path(root) if root else REPO_ROOT
+    path = root / AUDIT_HISTORY_REL
+    records: List[Dict[str, Any]] = []
+    if not path.exists():
+        return records
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(entry, dict):
+                records.append(entry)
+    except Exception:
+        return records
+    return records
+
+
 # ── LLM path ─────────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = (
@@ -317,7 +688,16 @@ exactly this JSON schema:
       "suggested_fix": "..."
     }}
   ],
-  "recommended_claude_code_tasks": ["..."]
+  "recommended_claude_code_tasks": ["..."],
+  "next_system_actions": [
+    {{
+      "priority": "P0" | "P1" | "P2",
+      "area": "scanner_recall" | "forward_evidence" | "options_overlay" | "data_quality" | "fundamental_overlay",
+      "task": "...",
+      "why": "...",
+      "success_metric": "..."
+    }}
+  ]
 }}
 
 Grading rules:
@@ -331,6 +711,11 @@ Grading rules:
 - recommended_claude_code_tasks are short, concrete engineering follow-ups
   a coding assistant could execute later (audits, report fixes, data
   repairs) — never trades.
+- next_system_actions are structured repair tasks: diagnostics and
+  forward-evidence experiments only.  Never propose loosening a filter,
+  changing a threshold, or promoting a ticker — a looser configuration may
+  only be proposed as an experiment whose forward evidence must prove it
+  works first.  Each action needs a measurable success_metric.
 
 Digest:
 ---
@@ -461,6 +846,8 @@ def sanitize_audit(audit: Dict[str, Any],
         "flaws_detected": _sanitize_flaws(audit.get("flaws_detected")),
         "recommended_claude_code_tasks": _coerce_str_list(
             audit.get("recommended_claude_code_tasks")),
+        "next_system_actions": _sanitize_actions(
+            audit.get("next_system_actions")),
         "audit_source": audit.get("audit_source") or "rule_based_fallback",
         "fallback_reason": audit.get("fallback_reason"),
         "model": audit.get("model"),
@@ -471,6 +858,11 @@ def sanitize_audit(audit: Dict[str, Any],
     if signals.get("forward_immature") \
             and clean["alpha_discovery_quality"] == "STRONG":
         clean["alpha_discovery_quality"] = "MIXED"
+    # Repair tasks: deterministic actions from the digest signals are the
+    # contract; sanitized LLM proposals only fill areas not already covered.
+    clean["next_system_actions"] = merge_system_actions(
+        build_next_system_actions(signals, clean["flaws_detected"]),
+        clean["next_system_actions"])
     return clean
 
 
@@ -506,15 +898,15 @@ def audit_daily_digest(digest_text: str, *,
     return clean
 
 
-def _queue_has_digest(queue_path: Path, digest_sha: str,
+def _jsonl_has_digest(path: Path, digest_sha: str,
                       audit_source: str) -> bool:
-    """True when this digest was already queued by the same audit source.
-    An LLM re-audit of a digest a fallback already covered still queues —
-    its tasks are strictly richer; identical re-runs stay deduped."""
-    if not queue_path.exists():
+    """True when this digest was already appended by the same audit source.
+    An LLM re-audit of a digest a fallback already covered still appends —
+    its output is strictly richer; identical re-runs stay deduped."""
+    if not path.exists():
         return False
     try:
-        for line in queue_path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -531,13 +923,17 @@ def _queue_has_digest(queue_path: Path, digest_sha: str,
 
 
 def write_audit_outputs(audit: Dict[str, Any],
-                        root: Optional[Path] = None) -> Dict[str, Path]:
-    """Persist the audit: full JSON sidecar + recommended tasks appended to
-    the feedback queue (deduped per digest hash).  These are the module's
-    only writes."""
+                        root: Optional[Path] = None,
+                        blocker_snapshot: Optional[Dict[str, Dict]] = None,
+                        ) -> Dict[str, Path]:
+    """Persist the audit: full JSON sidecar, repair tasks + recommended
+    tasks appended to the feedback queue, and a compact trend record
+    appended to the audit history (both deduped per digest hash).  These
+    are the module's only writes."""
     root = Path(root) if root else REPO_ROOT
     sidecar = root / AUDIT_SIDECAR_REL
     queue = root / FEEDBACK_QUEUE_REL
+    history = root / AUDIT_HISTORY_REL
 
     sidecar.parent.mkdir(parents=True, exist_ok=True)
     sidecar.write_text(
@@ -546,30 +942,68 @@ def write_audit_outputs(audit: Dict[str, Any],
 
     digest_sha = audit.get("digest_sha256") or ""
     audit_source = audit.get("audit_source") or "rule_based_fallback"
-    if audit.get("recommended_claude_code_tasks") \
-            and not _queue_has_digest(queue, digest_sha, audit_source):
+    common = {
+        "queued_at": audit.get("generated_at"),
+        "source": "journal_audit_reviewer",
+        "audit_source": audit_source,
+        "digest_sha256": digest_sha,
+        "engine_health": audit.get("engine_health"),
+        "research_verdict": audit.get("research_verdict"),
+    }
+    actions = audit.get("next_system_actions") or []
+    tasks = audit.get("recommended_claude_code_tasks") or []
+    if (actions or tasks) \
+            and not _jsonl_has_digest(queue, digest_sha, audit_source):
         queue.parent.mkdir(parents=True, exist_ok=True)
         with queue.open("a", encoding="utf-8") as fh:
-            for task in audit["recommended_claude_code_tasks"]:
+            for action in actions:
                 fh.write(json.dumps({
-                    "queued_at": audit.get("generated_at"),
-                    "source": "journal_audit_reviewer",
-                    "audit_source": audit_source,
-                    "digest_sha256": digest_sha,
-                    "engine_health": audit.get("engine_health"),
-                    "research_verdict": audit.get("research_verdict"),
+                    **common,
+                    "kind": "system_repair_task",
+                    "priority": action["priority"],
+                    "area": action["area"],
+                    "task": action["task"],
+                    "why": action["why"],
+                    "success_metric": action["success_metric"],
+                }, ensure_ascii=False) + "\n")
+            for task in tasks:
+                fh.write(json.dumps({
+                    **common,
+                    "kind": "recommended_task",
                     "task": task,
                 }, ensure_ascii=False) + "\n")
-    return {"sidecar": sidecar, "queue": queue}
+
+    if blocker_snapshot is not None \
+            and not _jsonl_has_digest(history, digest_sha, audit_source):
+        history.parent.mkdir(parents=True, exist_ok=True)
+        with history.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "generated_at": audit.get("generated_at"),
+                "digest_sha256": digest_sha,
+                "audit_source": audit_source,
+                "engine_health": audit.get("engine_health"),
+                "alpha_discovery_quality": audit.get(
+                    "alpha_discovery_quality"),
+                "research_verdict": audit.get("research_verdict"),
+                "blockers": blocker_snapshot,
+            }, ensure_ascii=False) + "\n")
+    return {"sidecar": sidecar, "queue": queue, "history": history}
 
 
 def run_audit(digest_text: str, *, root: Optional[Path] = None,
               write: bool = True,
               use_llm: Optional[bool] = None) -> Dict[str, Any]:
-    """Audit the digest and (by default) persist sidecar + feedback queue."""
+    """Audit the digest, attach the blocker trend vs prior audits, and (by
+    default) persist sidecar + feedback queue + audit history."""
+    root_path = Path(root) if root else REPO_ROOT
     audit = audit_daily_digest(digest_text, use_llm=use_llm)
+    signals = extract_digest_signals(digest_text or "")
+    snapshot = build_blocker_snapshot(audit, signals)
+    audit["audit_trend"] = compute_audit_trend(
+        snapshot, load_audit_history(root_path))
     if write:
-        write_audit_outputs(audit, root=root)
+        write_audit_outputs(audit, root=root_path,
+                            blocker_snapshot=snapshot)
     return audit
 
 

@@ -284,8 +284,17 @@ def test_run_audit_writes_sidecar_and_feedback_queue(tmp_path):
                queue.read_text(encoding="utf-8").splitlines() if ln.strip()]
     assert entries
     assert all(e["source"] == "journal_audit_reviewer" for e in entries)
-    assert {e["task"] for e in entries} == \
+    recommended = [e for e in entries if e["kind"] == "recommended_task"]
+    repairs = [e for e in entries if e["kind"] == "system_repair_task"]
+    assert {e["task"] for e in recommended} == \
         set(audit["recommended_claude_code_tasks"])
+    assert {(r["priority"], r["area"], r["task"]) for r in repairs} == \
+        {(a["priority"], a["area"], a["task"])
+         for a in audit["next_system_actions"]}
+    for r in repairs:
+        assert r["priority"] in jar.PRIORITIES
+        assert r["area"] in jar.ACTION_AREAS
+        assert r["why"] and r["success_metric"]
 
 
 def test_feedback_queue_dedupes_same_digest(tmp_path):
@@ -295,9 +304,11 @@ def test_feedback_queue_dedupes_same_digest(tmp_path):
     queue = tmp_path / "logs" / "research_engine_feedback_queue.jsonl"
     entries = [ln for ln in queue.read_text(encoding="utf-8").splitlines()
                if ln.strip()]
-    n_tasks = len(jar.run_audit(digest, root=tmp_path, use_llm=False,
-                                write=False)["recommended_claude_code_tasks"])
-    assert len(entries) == n_tasks  # not doubled
+    reference = jar.run_audit(digest, root=tmp_path, use_llm=False,
+                              write=False)
+    n_expected = len(reference["recommended_claude_code_tasks"]) \
+        + len(reference["next_system_actions"])
+    assert len(entries) == n_expected  # not doubled
 
 
 def test_llm_reaudit_of_same_digest_still_queues(tmp_path, monkeypatch):
@@ -321,7 +332,8 @@ def test_llm_reaudit_of_same_digest_still_queues(tmp_path, monkeypatch):
             queue.read_text(encoding="utf-8").splitlines() if ln.strip()]
     sources = {r["audit_source"] for r in rows}
     assert sources == {"rule_based_fallback", "llm"}
-    assert {r["task"] for r in rows if r["audit_source"] == "llm"} == \
+    assert {r["task"] for r in rows if r["audit_source"] == "llm"
+            and r["kind"] == "recommended_task"} == \
         {"llm task A", "llm task B"}
 
 
@@ -377,3 +389,235 @@ def test_cli_reads_latest_digest_from_journal(tmp_path):
 
 def test_cli_errors_cleanly_without_digest(tmp_path):
     assert jar.main(["--skip-llm", "--root", str(tmp_path)]) == 1
+
+
+# ── 9. next_system_actions (structured repair tasks) ─────────────────────────
+
+
+def test_low_recall_generates_p0_scanner_action():
+    digest = make_digest(
+        recall_line="- Warning: Scanner recall low at 2.3% — main miss: "
+                    "FILTER_TOO_STRICT (simple-RS baseline: 34.0%)")
+    audit = jar.audit_daily_digest(digest)
+    acts = [a for a in audit["next_system_actions"]
+            if a["area"] == "scanner_recall"]
+    assert acts and acts[0]["priority"] == "P0"
+    task = acts[0]["task"]
+    assert "reject counts by filter" in task
+    assert "top 25" in task
+    assert "5d, 10d, and 20d" in task
+    assert "Do not loosen any filter automatically" in task
+    # digest numbers land in the why
+    assert "2.3%" in acts[0]["why"]
+    assert "34.0%" in acts[0]["why"]
+    assert "FILTER_TOO_STRICT" in acts[0]["why"]
+    assert acts[0]["success_metric"]
+
+
+def test_no_forward_edge_generates_p0_forward_action():
+    digest = make_digest(verdict="NO_FORWARD_EDGE")
+    audit = jar.audit_daily_digest(digest)
+    acts = [a for a in audit["next_system_actions"]
+            if a["area"] == "forward_evidence"]
+    assert acts and acts[0]["priority"] == "P0"
+    task = acts[0]["task"]
+    assert "hit rate vs SPY" in task
+    assert "median forward return" in task
+    assert "average forward return" in task
+    assert "max drawdown after selection" in task
+    assert "5d, 10d, and 20d" in task
+    assert "high-priority names separated from watch-only names" in task
+    assert "NO_FORWARD_EDGE" in acts[0]["why"]
+    # negative verdict also lands as a CRITICAL flaw in the fallback
+    fe = [f for f in audit["flaws_detected"]
+          if f["area"] == "forward_evidence"]
+    assert fe and fe[0]["severity"] == "CRITICAL"
+
+
+def test_options_disabled_generates_p2_action():
+    digest = make_digest(
+        options_line="- Options overlay: DISABLED — insufficient coverage")
+    audit = jar.audit_daily_digest(digest)
+    acts = [a for a in audit["next_system_actions"]
+            if a["area"] == "options_overlay"]
+    assert acts and acts[0]["priority"] == "P2"
+    task = acts[0]["task"]
+    assert "valid options data" in task
+    assert "skipped" in task
+    assert "required or optional" in task
+
+
+def test_quarantine_generates_p1_data_quality_action():
+    audit = jar.audit_daily_digest(make_digest(quarantined=8))
+    acts = [a for a in audit["next_system_actions"]
+            if a["area"] == "data_quality"]
+    assert acts and acts[0]["priority"] == "P1"
+    assert "8 ticker(s) quarantined" in acts[0]["why"]
+
+
+def test_healthy_digest_has_no_p0_actions():
+    audit = jar.audit_daily_digest(
+        make_digest(phase4b="UNBLOCKED", verdict="PROMISING"))
+    assert not [a for a in audit["next_system_actions"]
+                if a["priority"] == "P0"]
+
+
+def test_actions_sorted_p0_first_and_schema_clean():
+    digest = make_digest(
+        verdict="NO_FORWARD_EDGE",
+        recall_line="- Warning: Scanner recall low at 2.3% (simple-RS "
+                    "baseline: 34.0%)",
+        options_line="- Options overlay: DISABLED — insufficient coverage",
+        quarantined=8)
+    audit = jar.audit_daily_digest(digest)
+    acts = audit["next_system_actions"]
+    priorities = [a["priority"] for a in acts]
+    assert priorities == sorted(priorities)
+    assert priorities[0] == "P0"
+    for a in acts:
+        assert set(a) == {"priority", "area", "task", "why",
+                          "success_metric"}
+        assert a["priority"] in jar.PRIORITIES
+        assert a["area"] in jar.ACTION_AREAS
+    assert not FORBIDDEN.search(json.dumps(acts))
+
+
+def test_llm_actions_sanitized_and_deterministic_actions_win(monkeypatch):
+    monkeypatch.setattr(jar, "_llm_audit", lambda text: {
+        "research_verdict": "CAUTION",
+        "alpha_discovery_quality": "MIXED",
+        "engine_health": "OPERATIONAL_WITH_BLOCKERS",
+        "promote_to_signal": False,
+        "one_line_summary": "s", "what_is_working": [],
+        "flaws_detected": [], "recommended_claude_code_tasks": [],
+        "next_system_actions": [
+            {"priority": "P9", "area": "fundamental_overlay",
+             "task": "llm fundamental task", "why": "w",
+             "success_metric": "m"},
+            {"priority": "P0", "area": "not_an_area",
+             "task": "must be dropped", "why": "w", "success_metric": "m"},
+            {"priority": "P0", "area": "forward_evidence",
+             "task": "llm forward task that must lose to deterministic",
+             "why": "w", "success_metric": "m"},
+        ],
+        "audit_source": "llm", "model": "test",
+    })
+    audit = jar.audit_daily_digest(make_digest(verdict="NO_FORWARD_EDGE"))
+    acts = audit["next_system_actions"]
+    # bad area dropped
+    assert "must be dropped" not in json.dumps(acts)
+    # bad priority coerced to P2
+    fund = [a for a in acts if a["area"] == "fundamental_overlay"]
+    assert fund and fund[0]["priority"] == "P2"
+    # deterministic forward action wins over the LLM's
+    fwd = [a for a in acts if a["area"] == "forward_evidence"]
+    assert len(fwd) == 1 and "hit rate vs SPY" in fwd[0]["task"]
+
+
+# ── 10. audit_trend (vs previous audits) ─────────────────────────────────────
+
+
+def test_first_audit_trend_has_no_priors(tmp_path):
+    audit = jar.run_audit(make_digest(), root=tmp_path, use_llm=False)
+    trend = audit["audit_trend"]
+    assert trend["n_prior_audits"] == 0
+    assert all(b["direction"] == "INSUFFICIENT_HISTORY"
+               for b in trend["blockers"])
+
+
+def test_trend_recall_improving_and_worsening(tmp_path):
+    jar.run_audit(make_digest(
+        recall_line="- Warning: scanner recall 1.1% vs 18% baseline"),
+        root=tmp_path, use_llm=False)
+    audit = jar.run_audit(make_digest(
+        recall_line="- Warning: scanner recall 2.3% vs 18% baseline"),
+        root=tmp_path, use_llm=False)
+    rec = [b for b in audit["audit_trend"]["blockers"]
+           if b["area"] == "scanner_recall"]
+    assert rec and rec[0]["direction"] == "IMPROVING"
+    assert audit["audit_trend"]["n_prior_audits"] == 1
+
+    audit = jar.run_audit(make_digest(
+        recall_line="- Warning: scanner recall 0.5% vs 18% baseline"),
+        root=tmp_path, use_llm=False)
+    rec = [b for b in audit["audit_trend"]["blockers"]
+           if b["area"] == "scanner_recall"]
+    assert rec and rec[0]["direction"] == "WORSENING"
+
+
+def test_trend_forward_verdict_unchanged(tmp_path):
+    jar.run_audit(make_digest(verdict="NO_FORWARD_EDGE", quarantined=1),
+                  root=tmp_path, use_llm=False)
+    audit = jar.run_audit(
+        make_digest(verdict="NO_FORWARD_EDGE", quarantined=2),
+        root=tmp_path, use_llm=False)
+    fwd = [b for b in audit["audit_trend"]["blockers"]
+           if b["area"] == "forward_evidence"]
+    assert fwd and fwd[0]["direction"] == "UNCHANGED"
+
+
+def test_trend_forward_verdict_improving(tmp_path):
+    jar.run_audit(make_digest(verdict="NO_FORWARD_EDGE", quarantined=1),
+                  root=tmp_path, use_llm=False)
+    audit = jar.run_audit(
+        make_digest(verdict="NEED_MORE_DATA", quarantined=1),
+        root=tmp_path, use_llm=False)
+    fwd = [b for b in audit["audit_trend"]["blockers"]
+           if b["area"] == "forward_evidence"]
+    assert fwd and fwd[0]["direction"] == "IMPROVING"
+
+
+def test_trend_resolved_blocker(tmp_path):
+    jar.run_audit(make_digest(
+        options_line="- Options overlay: DISABLED — insufficient coverage"),
+        root=tmp_path, use_llm=False)
+    audit = jar.run_audit(make_digest(quarantined=1),
+                          root=tmp_path, use_llm=False)
+    opt = [b for b in audit["audit_trend"]["blockers"]
+           if b["area"] == "options_overlay"]
+    assert opt and opt[0]["direction"] == "RESOLVED"
+    new = [b for b in audit["audit_trend"]["blockers"]
+           if b["area"] == "data_quality"]
+    assert new and new[0]["direction"] == "NEW"
+
+
+def test_trend_window_caps_at_five_priors(tmp_path):
+    for q in range(1, 8):  # 7 distinct digests
+        jar.run_audit(make_digest(quarantined=q), root=tmp_path,
+                      use_llm=False)
+    audit = jar.run_audit(make_digest(quarantined=9), root=tmp_path,
+                          use_llm=False)
+    assert audit["audit_trend"]["n_prior_audits"] == 5
+    assert len(audit["audit_trend"]["prior_generated_at"]) == 5
+
+
+def test_history_file_appended_and_deduped(tmp_path):
+    digest = make_digest(quarantined=4)
+    jar.run_audit(digest, root=tmp_path, use_llm=False)
+    jar.run_audit(digest, root=tmp_path, use_llm=False)  # same digest
+    history = tmp_path / "data" / "research" / "journal_audit_history.jsonl"
+    rows = [json.loads(ln) for ln in
+            history.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(rows) == 1
+    assert rows[0]["blockers"]["data_quality"]["quarantine_count"] == 4
+    assert rows[0]["audit_source"] == "rule_based_fallback"
+
+
+def test_dry_run_writes_no_history(tmp_path):
+    audit = jar.run_audit(make_digest(), root=tmp_path, use_llm=False,
+                          write=False)
+    assert "audit_trend" in audit  # trend still computed read-only
+    assert not (tmp_path / "data" / "research"
+                / "journal_audit_history.jsonl").exists()
+    assert not (tmp_path / "cache" / "research"
+                / "journal_audit_latest.json").exists()
+
+
+def test_sidecar_carries_actions_and_trend(tmp_path):
+    jar.run_audit(make_digest(quarantined=2), root=tmp_path, use_llm=False)
+    sidecar = tmp_path / "cache" / "research" / "journal_audit_latest.json"
+    saved = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert "next_system_actions" in saved
+    assert "audit_trend" in saved
+    assert saved["promote_to_signal"] is False
+    assert not FORBIDDEN.search(json.dumps(saved))

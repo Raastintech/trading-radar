@@ -1235,10 +1235,15 @@ cmd_journal_audit() {
     # blocks the nightly).  RESEARCH-ONLY: audits internal consistency,
     # evidence quality, blockers, and false-positive risk; never changes
     # scanner scores, rankings, gates, watchlists, or artifacts;
-    # promote_to_signal is always false.  Writes
-    # cache/research/journal_audit_latest.json and appends recommended
-    # tasks to logs/research_engine_feedback_queue.jsonl (deduped per
-    # digest).  Flags: --skip-llm, --dry-run, --digest-file PATH.
+    # promote_to_signal is always false.  Emits next_system_actions
+    # (P0/P1/P2 structured repair tasks — diagnostics and forward-evidence
+    # experiments only, never auto-loosened filters) and audit_trend
+    # (blocker direction vs the previous 5 audits).  Writes
+    # cache/research/journal_audit_latest.json, appends repair +
+    # recommended tasks to logs/research_engine_feedback_queue.jsonl, and
+    # appends a trend record to data/research/journal_audit_history.jsonl
+    # (all deduped per digest).  Flags: --skip-llm, --dry-run,
+    # --digest-file PATH.
     log "[AUDIT] journal digest audit (LLM with rule-based fallback)"
     run_or_warn "journal digest audit" \
         "$PY" research/journal_audit_reviewer.py "$@"
