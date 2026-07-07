@@ -224,6 +224,15 @@
 #                  sub-report's own sidecar).  Research-only; no provider calls,
 #                  no DB writes, no signals.  NOT wired into any timer.
 #
+#   scanner-recall-diagnostics — cache-only.  Point-in-time comparison of the
+#                  strict scanner (production-mirror gates) vs a simple-RS
+#                  baseline vs a loosened scanner variant at ~21 trading days
+#                  back, with reject counts by filter, top rejected names, and
+#                  5/10/20d forward results per cohort.  Outputs
+#                  cache/research/scanner_recall_diagnostics_latest.json +
+#                  logs/scanner_recall_diagnostics_latest.txt.  Research-only;
+#                  no provider calls, no DB writes, no gate changes.
+#
 #   rs-theme-triage — cache-only.  Phase 1G.9: routes RS-lane + LEADING-theme +
 #                  proposed-dynamic early leaders to the Stock Lens/Gatekeeper as
 #                  a research-only triage surface (bypasses the Voyager/Sniper
@@ -841,6 +850,20 @@ cmd_scanner_recall() {
     # writes, no signals.  NOT wired into any timer; operator-invoked only.
     log "[CACHE] Phase 1G.6 scanner recall repair (research-only)"
     run_or_warn "scanner recall repair" "$PY" -m research.scanner_recall_repair
+}
+
+cmd_scanner_recall_diagnostics() {
+    # Scanner recall diagnostics.  CACHE-ONLY / RESEARCH-ONLY: point-in-time
+    # comparison of strict scanner vs simple-RS baseline vs loosened scanner
+    # on the same liquid universe (~21 trading days back so 5/10/20d forward
+    # returns resolve), with reject counts by filter and top rejected names.
+    # Writes cache/research/scanner_recall_diagnostics_latest.json +
+    # logs/scanner_recall_diagnostics_latest.txt.  No provider calls, no DB
+    # writes, no gate changes.  Flags: --lookback-td N, --winner-thresh X,
+    # --rs-cap N, --top-rejected N.  Operator-invoked only.
+    log "[CACHE] scanner recall diagnostics (research-only)"
+    run_or_warn "scanner recall diagnostics" \
+        "$PY" -m research.scanner_recall_diagnostics "$@"
 }
 
 cmd_rs_theme_triage() {
@@ -1518,6 +1541,7 @@ case "$SUB" in
     voyager-audit)      cmd_voyager_audit      "${POS[@]}" ;;
     strategy-tournament) cmd_strategy_tournament "${POS[@]}" ;;
     scanner-recall)     cmd_scanner_recall     "${POS[@]}" ;;
+    scanner-recall-diagnostics) cmd_scanner_recall_diagnostics "${POS[@]}" ;;
     rs-theme-triage)    cmd_rs_theme_triage    "${POS[@]}" ;;
     rs-theme-forward)   cmd_rs_theme_forward   "${POS[@]}" ;;
     gatekeeper-precision) cmd_gatekeeper_precision "${POS[@]}" ;;
