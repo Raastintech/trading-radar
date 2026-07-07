@@ -166,6 +166,57 @@ def _fwd_return(c: pd.Series, i: int, h: int) -> Optional[float]:
     return float(p1 / p0 - 1.0)
 
 
+def _mae20(c: pd.Series, i: int) -> Optional[float]:
+    """Max adverse excursion: worst return vs entry over the next 20 bars."""
+    p0 = c.iloc[i]
+    if pd.isna(p0) or p0 <= 0:
+        return None
+    seg = c.iloc[i + 1:min(i + 20, len(c) - 1) + 1].dropna()
+    return float(seg.min() / p0 - 1.0) if len(seg) else None
+
+
+def _winsor_mean(vals: List[float], p: float = 0.05) -> Optional[float]:
+    """Mean after clipping at the p / 1-p quantiles — outlier-robust."""
+    if not vals:
+        return None
+    a = np.asarray(vals, dtype=float)
+    lo, hi = np.quantile(a, [p, 1.0 - p])
+    return float(np.clip(a, lo, hi).mean())
+
+
+def _eval_ticker(df: pd.DataFrame, c: pd.Series, cal, i: int,
+                 spy20: Optional[float],
+                 last_needed: pd.Timestamp) -> Tuple[str, Optional[Dict]]:
+    """Evaluate one ticker at as-of index ``i`` (selection uses bars ≤ as-of
+    only; forward bars are outcome measurement). ``c`` is the calendar-aligned
+    close (caller-provided so multi-date callers align once per ticker).
+    Returns (status, record): status ∈ {ok, stale, suspect, skip}."""
+    asof = cal[i]
+    if not liquidity_gate(df, asof).passed:
+        return "skip", None
+    if df.index.max() < last_needed:
+        return "stale", None
+    if i < 60 or pd.isna(c.iloc[i]):
+        return "skip", None
+    r20 = (float(c.iloc[i] / c.iloc[i - 20] - 1.0)
+           if not pd.isna(c.iloc[i - 20]) and c.iloc[i - 20] > 0 else None)
+    if r20 is not None and r20 > MAX_SANE_R20:
+        return "suspect", None
+    voy, sni = voyager_structural(df, asof), sniper_breakout(df, asof)
+    lvoy, lsni = loose_voyager(df, asof), loose_sniper(df, asof)
+    r40 = (float(c.iloc[i] / c.iloc[i - 40] - 1.0)
+           if i >= 40 and not pd.isna(c.iloc[i - 40]) and c.iloc[i - 40] > 0 else None)
+    return "ok", {
+        "strict_pass": voy.passed or sni.passed,
+        "loose_pass": lvoy.passed or lsni.passed,
+        "voyager_reasons": voy.reasons, "sniper_reasons": sni.reasons,
+        "rs20": (r20 - spy20) if (r20 is not None and spy20 is not None) else None,
+        "r40": r40,
+        "fwd": {h: _fwd_return(c, i, h) for h in HORIZONS},
+        "mae20": _mae20(c, i),
+    }
+
+
 def _scan_world(cal, i: int) -> Dict[str, Dict]:
     """Per liquid ticker: strict/loose gate results (bars ≤ as-of only), 20d RS
     vs SPY, and 5/10/20d forward returns (post-as-of, outcome measurement only).
@@ -175,7 +226,6 @@ def _scan_world(cal, i: int) -> Dict[str, Dict]:
     failure class): a ticker is excluded as `stale` when its last real bar
     does not cover the longest forward horizon, and as `data_suspect` when
     its 20d as-of return exceeds MAX_SANE_R20. Counts land in __meta__."""
-    asof = cal[i]
     spy = _aligned(_load_merged("SPY"), cal)
     spy20 = (float(spy.iloc[i] / spy.iloc[i - 20] - 1.0)
              if i >= 20 and not pd.isna(spy.iloc[i - 20]) else None)
@@ -190,32 +240,13 @@ def _scan_world(cal, i: int) -> Dict[str, Dict]:
         df = _load_merged(t)
         if df is None or df.empty:
             continue
-        liq = liquidity_gate(df, asof)
-        if not liq.passed:
-            continue
-        if df.index.max() < last_needed:
+        status, rec = _eval_ticker(df, _aligned(df, cal), cal, i, spy20, last_needed)
+        if status == "ok":
+            world[t] = rec
+        elif status == "stale":
             world["__meta__"]["excluded_stale"] += 1
-            continue
-        c = _aligned(df, cal)
-        if i < 60 or pd.isna(c.iloc[i]):
-            continue
-        voy, sni = voyager_structural(df, asof), sniper_breakout(df, asof)
-        lvoy, lsni = loose_voyager(df, asof), loose_sniper(df, asof)
-        r20 = (float(c.iloc[i] / c.iloc[i - 20] - 1.0)
-               if not pd.isna(c.iloc[i - 20]) and c.iloc[i - 20] > 0 else None)
-        r40 = (float(c.iloc[i] / c.iloc[i - 40] - 1.0)
-               if i >= 40 and not pd.isna(c.iloc[i - 40]) and c.iloc[i - 40] > 0 else None)
-        if r20 is not None and r20 > MAX_SANE_R20:
+        elif status == "suspect":
             world["__meta__"]["excluded_data_suspect"] += 1
-            continue
-        rs20 = (r20 - spy20) if (r20 is not None and spy20 is not None) else None
-        world[t] = {
-            "strict_pass": voy.passed or sni.passed,
-            "loose_pass": lvoy.passed or lsni.passed,
-            "voyager_reasons": voy.reasons, "sniper_reasons": sni.reasons,
-            "rs20": rs20, "r40": r40,
-            "fwd": {h: _fwd_return(c, i, h) for h in HORIZONS},
-        }
     return world
 
 
@@ -244,13 +275,17 @@ def _cohort_stats(name: str, members: Set[str], world: Dict[str, Dict],
             fwd[f"{h}d"] = {
                 "n": len(rets), "mean_pct": _pct(mean),
                 "median_pct": _pct(float(np.median(rets))),
+                "winsor_mean_pct": _pct(_winsor_mean(rets)),
                 "win_rate_pct": round(100.0 * sum(1 for r in rets if r > 0) / len(rets), 1),
                 "excess_vs_spy_pct": (_pct(mean - spy_fwd[h])
                                       if spy_fwd[h] is not None else None),
             }
         else:
             fwd[f"{h}d"] = {"n": 0, "mean_pct": None, "median_pct": None,
+                            "winsor_mean_pct": None,
                             "win_rate_pct": None, "excess_vs_spy_pct": None}
+    maes = [world[t]["mae20"] for t in members
+            if world[t].get("mae20") is not None]
     hit = members & winners
     rng = random.Random(RANDOM_SEED)
     ctrl = (set(rng.sample(sorted(liquid), min(len(members), len(liquid))))
@@ -258,6 +293,8 @@ def _cohort_stats(name: str, members: Set[str], world: Dict[str, Dict],
     ctrl20 = [world[t]["fwd"][20] for t in ctrl if world[t]["fwd"][20] is not None]
     return {
         "cohort": name, "n": len(members),
+        "mae20_mean_pct": _pct(float(np.mean(maes))) if maes else None,
+        "mae20_median_pct": _pct(float(np.median(maes))) if maes else None,
         "members_by_fwd20": sorted(
             members, key=lambda t: -(world[t]["fwd"][20] if world[t]["fwd"][20]
                                      is not None else -9))[:10],

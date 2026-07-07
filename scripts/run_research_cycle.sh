@@ -233,6 +233,14 @@
 #                  logs/scanner_recall_diagnostics_latest.txt.  Research-only;
 #                  no provider calls, no DB writes, no gate changes.
 #
+#   scanner-recall-diagnostics-batch — cache-only.  Multi-date aggregate of
+#                  scanner-recall-diagnostics across a lookback grid (default
+#                  20..75 td): cohort scoreboard vs random controls, filter
+#                  stability w/ ex-healthcare split, named reject combos,
+#                  repeat rejected winners, rule-based decision section.
+#                  Outputs cache/research/scanner_recall_diagnostics_batch
+#                  _latest.json + logs/..._latest.txt.  Research-only.
+#
 #   rs-theme-triage — cache-only.  Phase 1G.9: routes RS-lane + LEADING-theme +
 #                  proposed-dynamic early leaders to the Stock Lens/Gatekeeper as
 #                  a research-only triage surface (bypasses the Voyager/Sniper
@@ -864,6 +872,23 @@ cmd_scanner_recall_diagnostics() {
     log "[CACHE] scanner recall diagnostics (research-only)"
     run_or_warn "scanner recall diagnostics" \
         "$PY" -m research.scanner_recall_diagnostics "$@"
+}
+
+cmd_scanner_recall_diagnostics_batch() {
+    # Multi-date aggregate of scanner-recall-diagnostics.  CACHE-ONLY /
+    # RESEARCH-ONLY: runs the three-cohort comparison across a grid of as-of
+    # dates (default --grid 20,25,...,75 trading days back) in one pass over
+    # the price cache, then aggregates: cohort scoreboard vs random controls,
+    # filter-level stability w/ ex-healthcare split, named reject combos,
+    # repeat rejected winners, and a rule-based decision section
+    # (keep/investigate/test-loose/not-safe + evidence_strength).  Writes
+    # cache/research/scanner_recall_diagnostics_batch_latest.json +
+    # logs/scanner_recall_diagnostics_batch_latest.txt.  No provider calls,
+    # no DB writes, no gate changes.  Flags: --grid CSV, --winner-thresh X,
+    # --rs-cap N.  Operator-invoked only.
+    log "[CACHE] scanner recall diagnostics batch (research-only)"
+    run_or_warn "scanner recall diagnostics batch" \
+        "$PY" -m research.scanner_recall_diagnostics_batch "$@"
 }
 
 cmd_rs_theme_triage() {
@@ -1542,6 +1567,7 @@ case "$SUB" in
     strategy-tournament) cmd_strategy_tournament "${POS[@]}" ;;
     scanner-recall)     cmd_scanner_recall     "${POS[@]}" ;;
     scanner-recall-diagnostics) cmd_scanner_recall_diagnostics "${POS[@]}" ;;
+    scanner-recall-diagnostics-batch) cmd_scanner_recall_diagnostics_batch "${POS[@]}" ;;
     rs-theme-triage)    cmd_rs_theme_triage    "${POS[@]}" ;;
     rs-theme-forward)   cmd_rs_theme_forward   "${POS[@]}" ;;
     gatekeeper-precision) cmd_gatekeeper_precision "${POS[@]}" ;;
