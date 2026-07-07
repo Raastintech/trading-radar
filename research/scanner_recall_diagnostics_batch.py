@@ -69,7 +69,7 @@ def _is_healthcare(profiles: Dict, t: str) -> bool:
 
 
 def _median(vals: List[float]) -> Optional[float]:
-    return float(np.median(vals)) if vals else None
+    return round(float(np.median(vals)), 4) if vals else None
 
 
 # ── one-pass multi-date scan ─────────────────────────────────────────────────
