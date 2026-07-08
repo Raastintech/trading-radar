@@ -1,6 +1,6 @@
 # RS/Theme → Lens/Gatekeeper Triage — Phase 1G.9
 
-*Generated 2026-07-07T00:34:40.351902+00:00 · research-only · cache-only. Routing labels only — not buy/sell signals, not paper signals, not trade proposals. Does NOT modify the production universe, strategy gates, execution, or governance.*
+*Generated 2026-07-08T00:41:30.758188+00:00 · research-only · cache-only. Routing labels only — not buy/sell signals, not paper signals, not trade proposals. Does NOT modify the production universe, strategy gates, execution, or governance.*
 
 **Verdict:** `NEED_MORE_DATA`
 
@@ -12,27 +12,27 @@ Phase 1G.8 found 333/356 proposed-dynamic early leaders are killed by the Voyage
 | metric | value |
 |---|--:|
 | candidates evaluated | 30 |
-| needs Lens | 22 |
+| needs Lens | 23 |
 | needs Gatekeeper | 0 |
 | Lens-ready (both artifacts fresh) | 0 |
 | too extended | 1 |
 | blocked | 1 |
 | research-watch | 0 |
-| low-quality noise | 4 |
+| low-quality noise | 3 |
 | not enough data | 2 |
-| with options confirmation | 8 |
-| in leading themes | 14 |
-| killed only by Alpha-board cap | 4 |
-| killed by cache/gate artifact | 5 |
+| with options confirmation | 9 |
+| in leading themes | 15 |
+| killed only by Alpha-board cap | 2 |
+| killed by cache/gate artifact | 6 |
 
 **Key question:** Would routing RS/theme leaders to Lens/Gatekeeper reveal useful candidates, or just create noise?
 
 ## Gate rejection decomposition (Task 3)
 
-- Killed by both Voyager+Sniper gates: **26** / 30 evaluable.
-- Root causes: `{'cache_or_data_depth_artifact': 0, 'gate_design_mismatch': 5, 'real_quality_rejection': 21, 'unknown': 0}`
-- Possibly-valid early candidates (cache-depth + gate-design only): **5**
-- Bucketed reasons: `{'no_atr_contraction': 23, 'too_extended': 21, 'no_breakout': 16, 'volume_insufficient': 14, 'insufficient_history_260': 5, 'unknown': 3}`
+- Killed by both Voyager+Sniper gates: **27** / 30 evaluable.
+- Root causes: `{'cache_or_data_depth_artifact': 0, 'gate_design_mismatch': 6, 'real_quality_rejection': 21, 'unknown': 0}`
+- Possibly-valid early candidates (cache-depth + gate-design only): **6**
+- Bucketed reasons: `{'no_atr_contraction': 23, 'too_extended': 21, 'volume_insufficient': 16, 'no_breakout': 16, 'insufficient_history_260': 6, 'unknown': 4}`
 
 *cache_or_data_depth_artifact = killed only by the 260/75-bar history gate (shallow cache, not a structure failure); gate_design_mismatch = killed only by breakout/contraction/volume gates an EARLY leader is not meant to satisfy yet; real_quality_rejection = killed by a genuine structural reason (too extended, below MA200 floor). possibly_valid_early_candidates sums the first two — names a Lens/Gatekeeper second surface could legitimately surface.*
 
@@ -40,36 +40,36 @@ Phase 1G.8 found 333/356 proposed-dynamic early leaders are killed by the Voyage
 
 | ticker | source | stage | ELS | theme | ext | lens | gk | options | alpha-board | gate root | triage |
 |---|---|---|--:|---|---|---|---|---|---|---|---|
-| SATL | overlap | PULLBACK_RECLAIM | 65.3 | hardware | near_ema20 | Bearish but oversold | BLOCK | unusable | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| ASTS | overlap | PULLBACK_RECLAIM | 60.9 | space_aerospace | near_ema20 | Neutral | BLOCK | ok | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| VPG | overlap | PULLBACK_RECLAIM | 59.1 | hardware | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| ATOM | overlap | PULLBACK_RECLAIM | 56.0 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| RKLB | overlap | PULLBACK_RECLAIM | 55.6 | space_aerospace | near_ema20 | Neutral | BLOCK | poor | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| ASTS | overlap | PULLBACK_RECLAIM | 61.1 | space_aerospace | near_ema20 | Neutral | BLOCK | ok | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| VPG | overlap | PULLBACK_RECLAIM | 59.8 | hardware | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| ATOM | overlap | PULLBACK_RECLAIM | 56.5 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| SATL | overlap | PULLBACK_RECLAIM | 56.5 | hardware | near_ema20 | Bearish but oversold | BLOCK | unusable | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| RKLB | overlap | PULLBACK_RECLAIM | 55.9 | space_aerospace | near_ema20 | Neutral | BLOCK | poor | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| AMBQ | overlap | PULLBACK_RECLAIM | 55.8 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | gate_design_mismatch | **NEEDS_LENS** |
+| VSH | overlap | PULLBACK_RECLAIM | 54.4 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
 | VOYG | overlap | BROKEN | 54.0 | space_aerospace | near_ema20 | Neutral | BLOCK | poor | alpha_board_cap | passes_a_gate | **LOW_QUALITY_NOISE** |
-| VSH | overlap | PULLBACK_RECLAIM | 53.9 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| OPTX | overlap | PULLBACK_RECLAIM | 53.4 | hardware | near_ema20 | Neutral | BLOCK | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| ALAB | overlap | PULLBACK_RECLAIM | 46.2 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| OUST | overlap | PULLBACK_RECLAIM | 45.7 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| AMBQ | overlap | PULLBACK_RECLAIM | 45.5 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | gate_design_mismatch | **NEEDS_LENS** |
-| WOLF | overlap | PULLBACK_RECLAIM | 42.7 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| ENPH | overlap | PULLBACK_RECLAIM | 41.6 | other | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| NVTS | overlap | PULLBACK_RECLAIM | 40.9 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| OPTX | overlap | PULLBACK_RECLAIM | 52.9 | hardware | near_ema20 | Neutral | BLOCK | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| ALAB | overlap | PULLBACK_RECLAIM | 46.4 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| OUST | overlap | PULLBACK_RECLAIM | 45.9 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| WOLF | overlap | PULLBACK_RECLAIM | 43.7 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| ENPH | overlap | PULLBACK_RECLAIM | 42.1 | other | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| NVTS | overlap | PULLBACK_RECLAIM | 41.4 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
 | FLY | overlap | BROKEN | 38.0 | space_aerospace | constructive | Neutral | BLOCK | unusable | alpha_board_cap | gate_design_mismatch | **BLOCKED** |
-| VELO | overlap | LATE_EXTENDED | 25.3 | other | extended | — | — | — | alpha_board_cap | real_quality | **TOO_EXTENDED** |
-| LUNR | proposed_dynamic | PULLBACK_RECLAIM | 71.7 | space_aerospace | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| RAL | proposed_dynamic | PULLBACK_RECLAIM | 68.8 | space_aerospace | near_ema20 | Bullish but not buyable yet | BLOCK | unusable | alpha_board_cap | gate_design_mismatch | **NEEDS_LENS** |
+| VELO | overlap | LATE_EXTENDED | 27.0 | other | extended | — | — | — | below_mcap_floor_300M | real_quality | **TOO_EXTENDED** |
+| LUNR | proposed_dynamic | PULLBACK_RECLAIM | 71.4 | space_aerospace | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| RAL | proposed_dynamic | PULLBACK_RECLAIM | 68.2 | space_aerospace | near_ema20 | Bullish but not buyable yet | BLOCK | unusable | alpha_board_cap | gate_design_mismatch | **NEEDS_LENS** |
 | PACS | proposed_dynamic | EMERGING_MOMENTUM | 66.7 | other | — | — | — | — | alpha_board_cap | gate_design_mismatch | **NOT_ENOUGH_DATA** |
 | DRS | proposed_dynamic | EMERGING_MOMENTUM | 66.2 | space_aerospace | — | — | — | — | alpha_board_cap | gate_design_mismatch | **NOT_ENOUGH_DATA** |
+| NTAP | theme | PULLBACK_RECLAIM | 66.1 | hardware | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
 | RGTI | theme | PULLBACK_RECLAIM | 65.5 | hardware | near_ema20 | Avoid / no edge | BLOCK | unusable | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| NTAP | theme | PULLBACK_RECLAIM | 65.2 | hardware | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| LPTH | proposed_dynamic | PULLBACK_RECLAIM | 64.2 | hardware | near_ema20 | — | — | — | alpha_board_cap | passes_a_gate | **NEEDS_LENS** |
-| COHR | proposed_dynamic | PULLBACK_RECLAIM | 62.8 | hardware | near_ema20 | Neutral | BLOCK | unusable | alpha_board_cap | real_quality | **LOW_QUALITY_NOISE** |
-| VIK | proposed_dynamic | PULLBACK_RECLAIM | 60.6 | other | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| APLS | proposed_dynamic | LOW_QUALITY_NOISE | 59.6 | biotech_healthcare | near_ema20 | — | — | — | alpha_board_cap | real_quality | **LOW_QUALITY_NOISE** |
-| AMPX | proposed_dynamic | LOW_QUALITY_NOISE | 59.5 | other | near_ema20 | — | — | — | alpha_board_cap | passes_a_gate | **LOW_QUALITY_NOISE** |
-| JHX | proposed_dynamic | PULLBACK_RECLAIM | 59.0 | other | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| SMTC | RS | PULLBACK_RECLAIM | 58.3 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
-| ARMK | proposed_dynamic | BREAKOUT_CONFIRMED | 56.9 | other | near_ema20 | — | — | — | alpha_board_cap | passes_a_gate | **NEEDS_LENS** |
+| COHR | proposed_dynamic | PULLBACK_RECLAIM | 65.5 | hardware | near_ema20 | Neutral | BLOCK | unusable | alpha_board_cap | real_quality | **LOW_QUALITY_NOISE** |
+| LPTH | proposed_dynamic | PULLBACK_RECLAIM | 64.3 | hardware | near_ema20 | — | — | — | alpha_board_cap | passes_a_gate | **NEEDS_LENS** |
+| VIK | proposed_dynamic | PULLBACK_RECLAIM | 61.4 | other | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| JHX | proposed_dynamic | PULLBACK_RECLAIM | 60.2 | other | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
+| CAH | proposed_dynamic | BREAKOUT_CONFIRMED | 59.5 | biotech_healthcare | near_ema20 | — | — | — | alpha_board_cap | gate_design_mismatch | **NEEDS_LENS** |
+| APLS | proposed_dynamic | LOW_QUALITY_NOISE | 58.9 | biotech_healthcare | near_ema20 | — | — | — | alpha_board_cap | real_quality | **LOW_QUALITY_NOISE** |
+| ANET | proposed_dynamic | BREAKOUT_CONFIRMED | 58.7 | hardware | constructive | Bullish but not buyable yet | WATCH | unusable | above_mcap_ceiling_80B | passes_a_gate | **NEEDS_LENS** |
+| SMTC | RS | PULLBACK_RECLAIM | 58.4 | semiconductors | near_ema20 | — | — | — | alpha_board_cap | real_quality | **NEEDS_LENS** |
 
 ## Targeted refresh plan (Task 2 — design only, not executed)
 
@@ -77,11 +77,11 @@ DESIGN ONLY. No refresh is executed by this report. Run the commands below only 
 
 - **build/refresh Stock Lens (PROVIDER calls — operator approval required)** — ~29 stock-lens builds (Alpaca bars + FMP profile/options per ticker)
   ```
-  ./scripts/run_research_cycle.sh lens VPG ATOM VSH ALAB OUST AMBQ WOLF ENPH NVTS VELO LUNR PACS DRS NTAP LPTH VIK APLS AMPX JHX SMTC ARMK SATL ASTS RKLB VOYG OPTX FLY RAL RGTI
+  ./scripts/run_research_cycle.sh lens VPG ATOM AMBQ VSH ALAB OUST WOLF ENPH NVTS VELO LUNR PACS DRS NTAP LPTH VIK JHX CAH APLS SMTC ASTS SATL RKLB VOYG OPTX FLY RAL RGTI ANET
   ```
-- **refresh Executive Gatekeeper (cache-first; FMP earnings calendar only)** — ~8 gatekeeper rebuilds (cache-first, no per-ticker provider fan-out)
+- **refresh Executive Gatekeeper (cache-first; FMP earnings calendar only)** — ~9 gatekeeper rebuilds (cache-first, no per-ticker provider fan-out)
   ```
-  ./scripts/run_research_cycle.sh gatekeeper-refresh --watch SATL ASTS RKLB VOYG OPTX RAL RGTI COHR
+  ./scripts/run_research_cycle.sh gatekeeper-refresh --watch ASTS SATL RKLB VOYG OPTX RAL RGTI COHR ANET
   ```
 
 ## Forward maturation

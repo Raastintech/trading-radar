@@ -1,6 +1,6 @@
 # VOYAGER Conversion Audit (research-only)
 
-**Generated:** 2026-06-16T05:50:04  
+**Generated:** 2026-07-08T04:56:46  
 **Scope:** read-only (SELECT-only) DB diagnosis. No code/strategy/governance change.
 
 ## Headline numbers
@@ -46,12 +46,12 @@
 
 ## Recommendation
 
-Fold the long-leadership thesis into LEADER_RESET (research-only) rather than keep VOYAGER as a separate active sleeve. VOYAGER's failure modes — late/extended entries and logging against institutional selling — are exactly what LEADER_RESET's entry-timing + sponsorship filter target. Keep VOYAGER ACTIVE_PAPER for now (it is the favored long sleeve and its few signals are real evidence), but do NOT redesign it independently: preserve the 13F-BUYING sponsorship filter as a LEADER_RESET feature, and revisit a standalone 13F_EMERGING sleeve only after LEADER_RESET passes its event study. No code change is warranted from this audit (no logging bug found).
+HISTORICAL Phase 1G.3 recommendation (pre-decommission; ALL sleeves were permanently shut down 2026-06-13 — nothing below implies an active strategy): Fold the long-leadership thesis into LEADER_RESET (research-only) rather than keep VOYAGER as a separate active sleeve. VOYAGER's failure modes — late/extended entries and logging against institutional selling — are exactly what LEADER_RESET's entry-timing + sponsorship filter target. Keep VOYAGER ACTIVE_PAPER for now (it is the favored long sleeve and its few signals are real evidence), but do NOT redesign it independently: preserve the 13F-BUYING sponsorship filter as a LEADER_RESET feature, and revisit a standalone 13F_EMERGING sleeve only after LEADER_RESET passes its event study. No code change is warranted from this audit (no logging bug found).
 
 ### Options considered
 
 - **13F_EMERGING** — defer — overlaps LEADER_RESET; revisit after LEADER_RESET event study
 - **fold_into_LEADER_RESET** — recommended — preserve 13F-BUYING sponsorship filter as a feature
-- **keep_research_only** — VOYAGER stays ACTIVE_PAPER (favored long sleeve); do not redesign independently
+- **keep_research_only** — HISTORICAL (pre-decommission): VOYAGER stays ACTIVE_PAPER; superseded 2026-06-13 — sleeve permanently decommissioned
 
 LEADER_RESET remains research-only; Phase 2C (Trade Proposal Generator) remains not started. No VOYAGER code was changed by this audit.
