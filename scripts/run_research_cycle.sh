@@ -295,13 +295,17 @@
 #                  Writes participation_bottleneck_audit_latest.{json,txt} +
 #                  docs/research/PARTICIPATION_BOTTLENECK_AUDIT.md.
 #
-#   sniper-starvation — Phase 1G.17: cache-only SNIPER gate-confluence
-#                  autopsy + counterfactual relaxation replay. Thresholds
-#                  NOT changed.
+#   breakout-starvation — Phase 1G.17: cache-only gate-confluence autopsy of
+#                  the production breakout gates (legacy Sniper mirror,
+#                  decommissioned sleeve) + counterfactual relaxation replay.
+#                  Thresholds NOT changed.  (deprecated alias:
+#                  sniper-starvation)
 #
-#   voyager-cache-audit — Phase 1G.17: cache-only VOYAGER starvation +
-#                  cache-depth audit (true structure rejections vs
-#                  data-depth artifacts). Gates NOT loosened.
+#   structural-cache-audit — Phase 1G.17: cache-only starvation + cache-depth
+#                  audit of the production structural gates (legacy Voyager
+#                  mirror, decommissioned sleeve): true structure rejections
+#                  vs data-depth artifacts. Gates NOT loosened.  (deprecated
+#                  alias: voyager-cache-audit)
 #
 #   holdout-feasibility — Phase 1G.17: cache-only sample-rate feasibility
 #                  of the 2026H2 holdout. Never mutates the covenant.
@@ -842,8 +846,9 @@ cmd_leader_reset_study() {
 }
 
 cmd_voyager_audit() {
-    log "[CACHE] Phase 1G.3 VOYAGER conversion audit (read-only)"
-    run_or_warn "voyager conversion audit" "$PY" research/voyager_conversion_audit.py --print
+    # Internal name kept for compatibility — the sleeve is decommissioned.
+    log "[CACHE] Phase 1G.3 structural-lane conversion audit (legacy sleeve, read-only)"
+    run_or_warn "structural-lane conversion audit" "$PY" research/voyager_conversion_audit.py --print
 }
 
 cmd_strategy_tournament() {
@@ -972,19 +977,22 @@ cmd_participation_audit() {
 }
 
 cmd_sniper_starvation() {
-    # Phase 1G.17 — SNIPER gate-confluence autopsy.  CACHE-ONLY / READ-ONLY.
-    # Thresholds NOT changed; counterfactual relaxation replay only.
-    log "[CACHE] SNIPER starvation audit (research-only)"
-    run_or_warn "sniper starvation audit" \
+    # Phase 1G.17 — breakout-gate confluence autopsy (legacy Sniper mirror,
+    # decommissioned sleeve; internal name kept for compatibility).
+    # CACHE-ONLY / READ-ONLY.  Thresholds NOT changed; counterfactual
+    # relaxation replay only.
+    log "[CACHE] breakout-gate starvation audit (research-only)"
+    run_or_warn "breakout-gate starvation audit" \
         "$PY" -m research.sniper_starvation_audit "$@"
 }
 
 cmd_voyager_cache_audit() {
-    # Phase 1G.17 — VOYAGER starvation + cache-depth audit.  CACHE-ONLY /
-    # READ-ONLY.  Separates true structure rejections from data-depth
-    # artifacts; gates NOT loosened.
-    log "[CACHE] VOYAGER starvation + cache-depth audit (research-only)"
-    run_or_warn "voyager starvation cache audit" \
+    # Phase 1G.17 — structural-gate starvation + cache-depth audit (legacy
+    # Voyager mirror, decommissioned sleeve; internal name kept for
+    # compatibility).  CACHE-ONLY / READ-ONLY.  Separates true structure
+    # rejections from data-depth artifacts; gates NOT loosened.
+    log "[CACHE] structural-gate starvation + cache-depth audit (research-only)"
+    run_or_warn "structural-gate starvation cache audit" \
         "$PY" -m research.voyager_starvation_cache_audit "$@"
 }
 
@@ -1563,7 +1571,10 @@ case "$SUB" in
     short-detection-forward) cmd_short_detection_forward "${POS[@]}" ;;
     forward-health)     cmd_forward_health     "${POS[@]}" ;;
     leader-reset-study) cmd_leader_reset_study "${POS[@]}" ;;
-    voyager-audit)      cmd_voyager_audit      "${POS[@]}" ;;
+    structural-conversion-audit) cmd_voyager_audit "${POS[@]}" ;;
+    voyager-audit)      # DEPRECATED alias (decommissioned sleeve name)
+                        log "[WARN] 'voyager-audit' is deprecated — use 'structural-conversion-audit'"
+                        cmd_voyager_audit      "${POS[@]}" ;;
     strategy-tournament) cmd_strategy_tournament "${POS[@]}" ;;
     scanner-recall)     cmd_scanner_recall     "${POS[@]}" ;;
     scanner-recall-diagnostics) cmd_scanner_recall_diagnostics "${POS[@]}" ;;
@@ -1580,8 +1591,14 @@ case "$SUB" in
     participation-audit)   cmd_participation_audit   "${POS[@]}" ;;
     recall-shadow-cohort-freeze) cmd_recall_shadow_cohort_freeze "${POS[@]}" ;;
     recall-shadow-gk-forward)    cmd_recall_shadow_gk_forward    "${POS[@]}" ;;
-    sniper-starvation)     cmd_sniper_starvation     "${POS[@]}" ;;
-    voyager-cache-audit)   cmd_voyager_cache_audit   "${POS[@]}" ;;
+    breakout-starvation)   cmd_sniper_starvation     "${POS[@]}" ;;
+    sniper-starvation)     # DEPRECATED alias (decommissioned sleeve name)
+                           log "[WARN] 'sniper-starvation' is deprecated — use 'breakout-starvation'"
+                           cmd_sniper_starvation     "${POS[@]}" ;;
+    structural-cache-audit) cmd_voyager_cache_audit  "${POS[@]}" ;;
+    voyager-cache-audit)   # DEPRECATED alias (decommissioned sleeve name)
+                           log "[WARN] 'voyager-cache-audit' is deprecated — use 'structural-cache-audit'"
+                           cmd_voyager_cache_audit   "${POS[@]}" ;;
     holdout-feasibility)   cmd_holdout_feasibility   "${POS[@]}" ;;
     recall-shadow-feeder)  cmd_recall_shadow_feeder  "${POS[@]}" ;;
     emission-calibration)  cmd_emission_calibration  "${POS[@]}" ;;

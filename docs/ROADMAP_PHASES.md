@@ -320,7 +320,8 @@ produce trades.
   `phase_1g3` block + markdown section (SHORT_A status, radar, forward resolution,
   LEADER_RESET verdict, VOYAGER conversion). Dashboard remains cache-only.
 - `scripts/run_research_cycle.sh` — radar + forward-health added to `risk-telemetry`;
-  new subcommands `short-radar`, `forward-health`, `leader-reset-study`, `voyager-audit`.
+  new subcommands `short-radar`, `forward-health`, `leader-reset-study`, `voyager-audit`
+  (renamed 2026-07-08 to `structural-conversion-audit`; old name kept as deprecated alias).
 
 **Tests added:** `tests/unit/test_phase_1g3_{short_freeze,short_radar,forward_resolution_health,leader_reset_event_study,halt_dry_run_no_mutation,mcp_surfacing}.py`.
 

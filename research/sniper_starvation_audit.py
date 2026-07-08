@@ -293,7 +293,7 @@ def build(since: str = DEFAULT_SINCE) -> Dict:
         "research_only": True,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "since": since,
-        "disclaimer": ("read-only SNIPER gate autopsy · thresholds NOT changed "
+        "disclaimer": ("read-only breakout-gate (legacy SNIPER, decommissioned) autopsy · thresholds NOT changed "
                        "· no signals, no proposals, no execution/governance "
                        "side effects"),
         "whitelist": {
@@ -350,7 +350,8 @@ def _render_txt(res: Dict) -> List[str]:
     w, lw, rp, vd = (res["whitelist"], res["log_window"],
                      res["replay"], res["verdicts"])
     lines = [
-        f"SNIPER STARVATION AUDIT — {res['generated_at'][:10]} "
+        f"BREAKOUT-GATE STARVATION AUDIT (legacy SNIPER mirror, decommissioned) — "
+        f"{res['generated_at'][:10]} "
         f"(research-only; thresholds NOT changed)",
         "=" * 78,
         f"whitelist={w['size']} (sealed literal: {w['sealed_static_literal']})"
@@ -386,7 +387,7 @@ def _render_txt(res: Dict) -> List[str]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="SNIPER starvation audit (1G.17)")
+    ap = argparse.ArgumentParser(description="breakout-gate starvation audit (legacy SNIPER mirror, 1G.17)")
     ap.add_argument("--since", default=DEFAULT_SINCE)
     args = ap.parse_args(argv)
     res = build(since=args.since)

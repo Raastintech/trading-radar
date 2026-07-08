@@ -278,7 +278,7 @@ def build(since: str = DEFAULT_SINCE) -> Dict:
         "research_only": True,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "since": since,
-        "disclaimer": ("read-only VOYAGER depth/structure autopsy · gates NOT "
+        "disclaimer": ("read-only structural-gate (legacy VOYAGER, decommissioned) depth/structure autopsy · gates NOT "
                        "loosened · no signals, no proposals, no side effects"),
         "universe_size": len(universe),
         "log_window": {
@@ -322,7 +322,8 @@ def _render_txt(res: Dict) -> List[str]:
     lw, cd, ct, v = (res["log_window"], res["cache_depth"],
                      res["classification_totals"], res["verdicts"])
     lines = [
-        f"VOYAGER STARVATION + CACHE-DEPTH AUDIT — {res['generated_at'][:10]} "
+        f"STRUCTURAL-GATE STARVATION + CACHE-DEPTH AUDIT (legacy VOYAGER mirror, decommissioned) — "
+        f"{res['generated_at'][:10]} "
         f"(research-only; gates NOT loosened)",
         "=" * 78,
         f"universe={res['universe_size']}  cycles={lw['scan_cycles']}  "
@@ -335,7 +336,7 @@ def _render_txt(res: Dict) -> List[str]:
         f"min={cd['shallow_min_bars']}  ≥200 bars: {cd['shallow_ge_200']}/"
         f"{res['universe_size']}  ≥260: {cd['shallow_ge_260']}",
         f"deep cache covers {cd['deep_coverage_of_universe']}/"
-        f"{res['universe_size']} of the production VOYAGER universe",
+        f"{res['universe_size']} of the legacy structural-lane universe",
         f"uncomputable on shallow-only replay: "
         f"{cd['uncomputable_on_shallow_only']}  "
         f"(of which existing deep cache would fix: "
@@ -354,7 +355,7 @@ def _render_txt(res: Dict) -> List[str]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="VOYAGER starvation/cache audit (1G.17)")
+    ap = argparse.ArgumentParser(description="structural-gate starvation/cache audit (legacy VOYAGER mirror, 1G.17)")
     ap.add_argument("--since", default=DEFAULT_SINCE)
     args = ap.parse_args(argv)
     res = build(since=args.since)

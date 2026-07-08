@@ -2,8 +2,10 @@
 """
 research/voyager_conversion_audit.py — Phase 1G.3 T6
 
-Research-only, READ-ONLY (SELECT-only) diagnosis of why VOYAGER is favored by the
-regime but barely converts council approvals into paper signals/positions.
+Research-only, READ-ONLY (SELECT-only) diagnosis of why the legacy structural
+sleeve (VOYAGER — permanently decommissioned 2026-06-13) barely converted
+council approvals into paper signals/positions. Reads the frozen historical
+ledger; nothing here describes an active strategy.
 
 Reads (read-only): veto_log, voyager_paper_signals, decisions.
 Writes:
@@ -127,6 +129,8 @@ def build_audit(db_path: Optional[Path] = None) -> Dict[str, Any]:
         )
 
     recommendation = (
+        "HISTORICAL Phase 1G.3 recommendation (pre-decommission; ALL sleeves were "
+        "permanently shut down 2026-06-13 — nothing below implies an active strategy): "
         "Fold the long-leadership thesis into LEADER_RESET (research-only) rather than "
         "keep VOYAGER as a separate active sleeve. VOYAGER's failure modes — late/extended "
         "entries and logging against institutional selling — are exactly what LEADER_RESET's "
@@ -160,7 +164,8 @@ def build_audit(db_path: Optional[Path] = None) -> Dict[str, Any]:
         "recommendation_options": {
             "13F_EMERGING": "defer — overlaps LEADER_RESET; revisit after LEADER_RESET event study",
             "fold_into_LEADER_RESET": "recommended — preserve 13F-BUYING sponsorship filter as a feature",
-            "keep_research_only": "VOYAGER stays ACTIVE_PAPER (favored long sleeve); do not redesign independently",
+            "keep_research_only": ("HISTORICAL (pre-decommission): VOYAGER stays ACTIVE_PAPER; "
+                                   "superseded 2026-06-13 — sleeve permanently decommissioned"),
         },
         "recommendation": recommendation,
     }
@@ -171,7 +176,8 @@ def render_text(a: Dict[str, Any]) -> str:
         return f"voyager_conversion_audit: {a['error']}"
     L: List[str] = []
     L.append("=" * 62)
-    L.append(f"VOYAGER CONVERSION AUDIT — {a['generated_at'][:19]}  (read-only)")
+    L.append(f"STRUCTURAL-LANE CONVERSION AUDIT (legacy VOYAGER sleeve, decommissioned) — "
+             f"{a['generated_at'][:19]}  (read-only)")
     L.append("=" * 62)
     L.append(f"approvals={a['approvals']}  vetoes={a['vetoes']}  "
              f"distinct_approved_tickers={a['distinct_approved_tickers']}")

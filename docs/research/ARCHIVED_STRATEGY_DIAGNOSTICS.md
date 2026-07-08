@@ -11,7 +11,7 @@ CLI commands and JSON sidecars; they are just no longer surfaced in the daily ra
 
 | Tool / Report | CLI command | Sidecar |
 |---|---|---|
-| VOYAGER conversion audit | `voyager-audit` | `cache/research/voyager_conversion_audit_latest.json` |
+| Structural-lane (legacy VOYAGER) conversion audit | `structural-conversion-audit` (deprecated alias: `voyager-audit`) | `cache/research/voyager_conversion_audit_latest.json` |
 | SNIPER emission gap audit | `emission-calibration` | `cache/research/scanner_emission_gap_latest.json` |
 | SHORT_A opportunity radar | `short-radar` | `cache/research/short_opportunity_radar_latest.json` |
 | SHORT_A detection audit | `short-detection-audit` | `cache/research/short_detection_audit_latest.json` |
