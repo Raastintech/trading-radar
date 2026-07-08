@@ -129,10 +129,12 @@ def test_reject_counts_by_filter(monkeypatch, tmp_path):
     _world(monkeypatch, tmp_path)
     res = SRD.build(lookback_td=LOOKBACK)
     by_code = {(r["lane"], r["filter"]): r for r in res["reject_counts_by_filter"]}
-    # REJWIN fails voyager too_extended (and sniper no_breakout) at as-of.
-    assert ("voyager", "too_extended") in by_code
-    assert by_code[("voyager", "too_extended")]["winners_missed"] >= 1
-    assert ("sniper", "no_breakout") in by_code
+    # REJWIN fails structural too_extended (and breakout no_breakout) at as-of.
+    assert ("production_structural", "too_extended") in by_code
+    assert by_code[("production_structural", "too_extended")]["winners_missed"] >= 1
+    assert ("production_breakout", "no_breakout") in by_code
+    # legacy sleeve names must never surface as report lanes
+    assert not {r["lane"] for r in res["reject_counts_by_filter"]} & {"voyager", "sniper"}
     # counts are per rejected liquid name; every count ≤ n_rejected.
     assert all(r["rejected_n"] <= res["n_rejected"]
                for r in res["reject_counts_by_filter"])
@@ -146,7 +148,7 @@ def test_top_rejected_annotation(monkeypatch, tmp_path):
     rej = top[0]
     assert rej["caught_by_rs_baseline"] is True
     assert rej["caught_by_loose"] is True
-    assert any(r.startswith("voyager:") for r in rej["reject_reasons"])
+    assert any(r.startswith("production_structural:") for r in rej["reject_reasons"])
     assert rej["fwd20_pct"] == pytest.approx(51.5 / 41.0 * 100 - 100, abs=0.5)
     # ranked descending by fwd20
     vals = [x["fwd20_pct"] for x in top]

@@ -46,7 +46,9 @@ def test_markdown_renders_phase_1g3_section():
     assert "SHORT RADAR: SHORTS_OFF" in md
     assert "FORWARD RESOLUTION: PASS" in md
     assert "LEADER_RESET event study: NEED_MORE_DATA" in md
-    assert "VOYAGER conversion" in md
+    # terminology cleanup: legacy sleeve is reported neutrally, never as active
+    assert "Structural-lane conversion (legacy sleeve audit, decommissioned)" in md
+    assert "VOYAGER conversion" not in md
     # no trade language leaked
     low = md.lower()
     for bad in ("short now", "sell now", "buy now", "trade approved"):

@@ -450,7 +450,7 @@ def build_next_system_actions(
             "Report options coverage health: number of tickers with valid "
             "options data, number skipped, the reason coverage is "
             "insufficient for each, and whether the options overlay is "
-            "required or optional for each consuming strategy or report.",
+            "required or optional for each consuming research surface or report.",
             "The options overlay is DISABLED for insufficient coverage; "
             "without a coverage report it is unclear what data is missing "
             "and which consumers are degraded.",

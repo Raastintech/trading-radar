@@ -6,7 +6,12 @@ liquid universe at the SAME as-of date (default: ~21 trading days back so
 5/10/20d forward returns are fully resolvable, no look-ahead in selection):
 
   strict_scanner  — production-mirror funnel gates from scanner_truth.filters:
-                    liquidity gate AND (Voyager structural OR Sniper breakout).
+                    liquidity gate AND (production structural gate OR production
+                    breakout gate). These mirror the decommissioned Voyager/
+                    Sniper sleeve rules; the sleeves are NOT active strategies —
+                    only their price gates survive as the strict scanner. All
+                    user-facing labels use the neutral lane names
+                    ``production_structural`` / ``production_breakout``.
   rs_baseline     — deliberately simple control: top-N liquid names ranked by
                     20d return relative to SPY (positive 40d momentum required).
   loose_scanner   — the strict gates with research-loosened thresholds (wider
@@ -48,7 +53,16 @@ from research.scanner_truth.filters import (
     GateResult, liquidity_gate, sma, sniper_breakout, voyager_structural,
 )
 
-ARTIFACT_VERSION = "srd.1"
+ARTIFACT_VERSION = "srd.2"          # srd.2: neutral lane labels in outputs
+
+# ── INTERNAL COMPATIBILITY MAPPING (legacy names never surface in reports) ──
+# The gate functions in research/scanner_truth/filters.py keep their legacy
+# Voyager/Sniper names because they are drift-guarded mirrors of the archived
+# sleeve modules. Everything user-facing (JSON artifacts, txt reports, reject
+# reasons, decision buckets) uses these neutral lane labels instead. The
+# decommissioned sleeves must never be presented as active strategies.
+LANE_STRUCTURAL = "production_structural"   # legacy-internal: voyager gates
+LANE_BREAKOUT = "production_breakout"       # legacy-internal: sniper gates
 HORIZONS = (5, 10, 20)
 DEFAULT_LOOKBACK_TD = 21          # as-of = last bar − 21 ⇒ 20d fwd resolvable
 DEFAULT_WINNER_FWD20 = 0.10       # liquid name with fwd20 ≥ +10% = forward winner
@@ -64,25 +78,26 @@ LOOSE_VOY_MAX_EXTENSION_MA50 = 0.25   # vs 0.12
 LOOSE_VOY_DVOL_TREND_RATIO = 0.70     # vs 0.85
 LOOSE_SNI_BREAKOUT_LOOKBACK = 10  # vs 20
 LOOSE_SNI_VOL_SPIKE_THRESH = 1.15     # vs 1.4
-# Loose sniper drops the ATR-contraction and MA50-rising requirements entirely.
+# The loose breakout gate drops the ATR-contraction and MA50-rising requirements.
 
 LOOSE_THRESHOLDS = {
-    "voyager_bars_needed": LOOSE_VOY_BARS_NEEDED,
-    "voyager_ma200_floor": LOOSE_VOY_MA200_FLOOR,
-    "voyager_max_extension_ma50": LOOSE_VOY_MAX_EXTENSION_MA50,
-    "voyager_dvol_trend_ratio": LOOSE_VOY_DVOL_TREND_RATIO,
-    "sniper_breakout_lookback": LOOSE_SNI_BREAKOUT_LOOKBACK,
-    "sniper_vol_spike_thresh": LOOSE_SNI_VOL_SPIKE_THRESH,
-    "sniper_atr_contraction_required": False,
-    "sniper_ma50_rising_required": False,
+    "structural_bars_needed": LOOSE_VOY_BARS_NEEDED,
+    "structural_ma200_floor": LOOSE_VOY_MA200_FLOOR,
+    "structural_max_extension_ma50": LOOSE_VOY_MAX_EXTENSION_MA50,
+    "structural_dvol_trend_ratio": LOOSE_VOY_DVOL_TREND_RATIO,
+    "breakout_lookback": LOOSE_SNI_BREAKOUT_LOOKBACK,
+    "breakout_vol_spike_thresh": LOOSE_SNI_VOL_SPIKE_THRESH,
+    "breakout_atr_contraction_required": False,
+    "breakout_ma50_rising_required": False,
 }
 
 
 # ── Loose gate variants (local — shared filters.py stays production-mirror) ──
 
 def loose_voyager(df: pd.DataFrame, asof: pd.Timestamp) -> GateResult:
-    """Voyager structural gates with loosened research thresholds. With fewer
-    than 200 bars the MA200 floor uses the longest available SMA instead."""
+    """Production structural gates (legacy-internal name) with loosened
+    research thresholds. With fewer than 200 bars the MA200 floor uses the
+    longest available SMA instead."""
     d = df[df.index <= asof]
     reasons: List[str] = []
     metrics: Dict[str, float] = {"bars": float(len(d))}
@@ -112,8 +127,9 @@ def loose_voyager(df: pd.DataFrame, asof: pd.Timestamp) -> GateResult:
 
 
 def loose_sniper(df: pd.DataFrame, asof: pd.Timestamp) -> GateResult:
-    """Sniper breakout with loosened research thresholds: 10d breakout, softer
-    volume spike, no ATR-contraction / MA50-slope requirements."""
+    """Production breakout gate (legacy-internal name) with loosened research
+    thresholds: 10d breakout, softer volume spike, no ATR-contraction /
+    MA50-slope requirements."""
     d = df[df.index <= asof]
     reasons: List[str] = []
     metrics: Dict[str, float] = {"bars": float(len(d))}
@@ -317,8 +333,8 @@ def _reject_counts(world: Dict[str, Dict], rejected: Set[str],
     agg: Dict[str, Dict] = {}
     for t in rejected:
         w = world[t]
-        codes = ([f"voyager:{r}" for r in w["voyager_reasons"]]
-                 + [f"sniper:{r}" for r in w["sniper_reasons"]])
+        codes = ([f"{LANE_STRUCTURAL}:{r}" for r in w["voyager_reasons"]]
+                 + [f"{LANE_BREAKOUT}:{r}" for r in w["sniper_reasons"]])
         for code in codes:
             a = agg.setdefault(code, {"rejected_n": 0, "winners_missed": 0,
                                       "fwd20": []})
@@ -352,8 +368,8 @@ def _top_rejected(world: Dict[str, Dict], rejected: Set[str], loose: Set[str],
             "ticker": t,
             "fwd5_pct": _pct(w["fwd"][5]), "fwd10_pct": _pct(w["fwd"][10]),
             "fwd20_pct": _pct(w["fwd"][20]),
-            "reject_reasons": ([f"voyager:{r}" for r in w["voyager_reasons"]]
-                               + [f"sniper:{r}" for r in w["sniper_reasons"]]),
+            "reject_reasons": ([f"{LANE_STRUCTURAL}:{r}" for r in w["voyager_reasons"]]
+                               + [f"{LANE_BREAKOUT}:{r}" for r in w["sniper_reasons"]]),
             "caught_by_loose": t in loose,
             "caught_by_rs_baseline": t in rs_base,
             "sector": (profiles.get(t) or {}).get("sector"),

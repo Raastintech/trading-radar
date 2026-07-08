@@ -45,7 +45,16 @@ import pandas as pd
 from research import scanner_recall_diagnostics as srd
 from research.scanner_truth import dataio
 
-ARTIFACT_VERSION = "srd-batch.1"
+ARTIFACT_VERSION = "srd-batch.2"    # .2: neutral lane labels in outputs
+
+# INTERNAL COMPATIBILITY MAPPING — user-facing lane label → internal record
+# key. The internal keys mirror the decommissioned Voyager/Sniper sleeve gate
+# functions (drift-guarded in scanner_truth/filters.py); those sleeves are NOT
+# active strategies and never appear in report output.
+_LANE_TO_REASONS_KEY = {
+    srd.LANE_STRUCTURAL: "voyager_reasons",   # legacy-internal key
+    srd.LANE_BREAKOUT: "sniper_reasons",      # legacy-internal key
+}
 GRID_DEFAULT = (20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75)
 MIN_REJECTS_PER_DATE = 5      # a date counts as filter evidence only at ≥ this n
 MIN_EVIDENCE_DATES = 4        # a filter finding is trusted only at ≥ this many dates
@@ -233,7 +242,7 @@ def _filter_stability(dates: List[Dict], extras: List[Dict],
             rets, rets_exhc = [], []
             for t in rejected:
                 w = world[t]
-                reasons = w["voyager_reasons"] if lane == "voyager" else w["sniper_reasons"]
+                reasons = w[_LANE_TO_REASONS_KEY[lane]]
                 if filt in reasons and w["fwd"][20] is not None:
                     rets.append(w["fwd"][20])
                     if t in ex["winners"]:
@@ -327,8 +336,10 @@ def _rejected_winner_analysis(dates: List[Dict], winner_thresh: float) -> Dict:
             seen.setdefault(x["ticker"], []).append(
                 {"asof": d["asof_date"], "fwd20_pct": x["fwd20_pct"],
                  "reasons": x["reject_reasons"]})
-            voy = sum(1 for r in x["reject_reasons"] if r.startswith("voyager:"))
-            sni = sum(1 for r in x["reject_reasons"] if r.startswith("sniper:"))
+            voy = sum(1 for r in x["reject_reasons"]
+                      if r.startswith(f"{srd.LANE_STRUCTURAL}:"))
+            sni = sum(1 for r in x["reject_reasons"]
+                      if r.startswith(f"{srd.LANE_BREAKOUT}:"))
             # one lane needs one flipped filter to admit ⇒ single-filter block
             if min(voy, sni) <= 1:
                 single += 1

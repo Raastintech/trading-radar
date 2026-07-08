@@ -1130,14 +1130,15 @@ def _render_markdown(payload: Dict[str, Any]) -> str:
         vc = g3.get("voyager_conversion")
         if vc:
             lines.append(
-                f"- VOYAGER conversion: {vc.get('approval_to_signal_conversion')} "
+                f"- Structural-lane conversion (legacy sleeve audit, decommissioned): "
+                f"{vc.get('approval_to_signal_conversion')} "
                 f"({vc.get('signals')} signals / {vc.get('approvals')} approvals)"
             )
 
     tour = payload.get("strategy_tournament")
     if tour:
         lines.append("")
-        lines.append("## Phase 1G.4 — strategy tournament")
+        lines.append("## Phase 1G.4 — strategy-family tournament (archived research study)")
         lines.append("")
         lines.append(f"- STRATEGY TOURNAMENT: best={tour.get('best_candidate')} "
                      f"verdict={tour.get('verdict')}")
@@ -1215,8 +1216,8 @@ def _render_markdown(payload: Dict[str, Any]) -> str:
         lines.append(
             f"- PARTICIPATION: state={prt.get('state')} "
             f"last_decision={prt.get('last_decision')} "
-            f"sniper_flow={prt.get('sniper_flow')} "
-            f"voyager_flow={prt.get('voyager_flow')} "
+            f"breakout_lane_flow={prt.get('sniper_flow')} "
+            f"structural_lane_flow={prt.get('voyager_flow')} "
             f"council={prt.get('council')} reason={prt.get('reason')}")
 
     sa = payload.get("social_attention")

@@ -110,14 +110,14 @@ def test_block_structure_classification():
         "top_rejected": [
             {"ticker": "ONE", "fwd20_pct": 30.0, "sector": "Technology",
              "theme": "other",
-             "reject_reasons": ["voyager:too_extended", "sniper:no_breakout",
-                                "sniper:volume_insufficient"]},   # voy lane = 1 fail
+             "reject_reasons": ["production_structural:too_extended", "production_breakout:no_breakout",
+                                "production_breakout:volume_insufficient"]},   # voy lane = 1 fail
             {"ticker": "MANY", "fwd20_pct": 25.0, "sector": "Healthcare",
              "theme": "biotech_healthcare",
-             "reject_reasons": ["voyager:too_extended", "voyager:dvol_fading",
-                                "sniper:no_breakout", "sniper:ma50_not_rising"]},
+             "reject_reasons": ["production_structural:too_extended", "production_structural:dvol_fading",
+                                "production_breakout:no_breakout", "production_breakout:ma50_not_rising"]},
             {"ticker": "LOSER", "fwd20_pct": -5.0, "sector": "Energy",
-             "theme": "other", "reject_reasons": ["voyager:too_extended"]},
+             "theme": "other", "reject_reasons": ["production_structural:too_extended"]},
         ],
     }]
     rw = BATCH._rejected_winner_analysis(dates, 0.10)
@@ -130,8 +130,8 @@ def test_block_structure_classification():
 
 def test_repeat_winner_tracking():
     entry = {"ticker": "REP", "fwd20_pct": 40.0, "sector": "Technology",
-             "theme": "other", "reject_reasons": ["voyager:too_extended",
-                                                  "sniper:no_breakout"]}
+             "theme": "other", "reject_reasons": ["production_structural:too_extended",
+                                                  "production_breakout:no_breakout"]}
     dates = [{"asof_date": "2026-01-01", "top_rejected": [entry]},
              {"asof_date": "2026-02-01", "top_rejected": [dict(entry)]}]
     rw = BATCH._rejected_winner_analysis(dates, 0.10)
@@ -147,20 +147,20 @@ def test_decision_rules_buckets():
                 "ex_healthcare": {"evidence_dates": x_ev, "beats_spy_frac": x_frac,
                                   "pooled_median_fwd20_pct": x_med}}
     stability = [
-        frow("below_ma200_floor", "voyager", 8, 0.8, 5.0, 8, 0.7, 4.0),  # test_loose
-        frow("dvol_fading", "voyager", 8, 0.8, 5.0, 8, 0.2, -1.0),       # sector flip
-        frow("ma50_not_rising", "sniper", 8, 0.6, 2.0),                  # investigate
-        frow("too_extended", "voyager", 8, 0.2, -2.0),                   # keep + not safe
-        frow("insufficient_history_75", "sniper", 1, 1.0, 9.0),          # untrusted
+        frow("below_ma200_floor", "production_structural", 8, 0.8, 5.0, 8, 0.7, 4.0),  # test_loose
+        frow("dvol_fading", "production_structural", 8, 0.8, 5.0, 8, 0.2, -1.0),       # sector flip
+        frow("ma50_not_rising", "production_breakout", 8, 0.6, 2.0),                  # investigate
+        frow("too_extended", "production_structural", 8, 0.2, -2.0),                   # keep + not safe
+        frow("insufficient_history_75", "production_breakout", 1, 1.0, 9.0),          # untrusted
     ]
     dec = BATCH._decide(stability, n_dates=12)
-    assert dec["filters_to_test_in_loose_experiment"] == ["voyager:below_ma200_floor"]
-    assert any(x.startswith("voyager:dvol_fading") for x in dec["filters_to_investigate"])
-    assert "sniper:ma50_not_rising" in dec["filters_to_investigate"]
-    assert "voyager:too_extended" in dec["filters_to_keep_strict"]
-    assert "voyager:too_extended" in dec["filters_not_safe_to_loosen"]
-    assert dec["insufficient_evidence"] == ["sniper:insufficient_history_75"]
-    assert dec["sector_flip_filters"] == ["voyager:dvol_fading"]
+    assert dec["filters_to_test_in_loose_experiment"] == ["production_structural:below_ma200_floor"]
+    assert any(x.startswith("production_structural:dvol_fading") for x in dec["filters_to_investigate"])
+    assert "production_breakout:ma50_not_rising" in dec["filters_to_investigate"]
+    assert "production_structural:too_extended" in dec["filters_to_keep_strict"]
+    assert "production_structural:too_extended" in dec["filters_not_safe_to_loosen"]
+    assert dec["insufficient_evidence"] == ["production_breakout:insufficient_history_75"]
+    assert dec["sector_flip_filters"] == ["production_structural:dvol_fading"]
     assert dec["evidence_strength"] == "MIXED"                # flip ⇒ capped
 
 

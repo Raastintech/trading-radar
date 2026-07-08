@@ -198,31 +198,30 @@ def _age_from_iso_short(value: Any) -> str:
 
 
 def _strategy_fit_label(code: str) -> str:
+    """Display label for a research-card archetype classification.
+
+    INTERNAL COMPATIBILITY MAPPING: cached analyses may still carry the
+    decommissioned sleeve codes (SNP/VOY/SHA/REM/…). Those sleeves are NOT
+    active strategies — every label here is neutral research framing."""
     raw = str(code or "").strip().upper()
-    if raw == "SNP":
-        return "Sniper v6"
-    if raw == "VOY":
-        return "Voyager"
-    if raw == "SHA":
-        return "Short A"
-    if raw == "SNIPER":
-        return "Sniper v6"
-    if raw == "VOYAGER":
-        return "Voyager"
-    if raw == "SHORT":
-        return "Short A"
+    if raw in {"SNP", "SNIPER", "MOMENTUM"}:
+        return "Momentum breakout resemblance (research-only)"
+    if raw in {"VOY", "VOYAGER", "ACCUMULATION"}:
+        return "Accumulation resemblance (research-only)"
+    if raw in {"SHA", "SHORT"}:
+        return "Short-setup resemblance (research-only)"
     if raw == "MANUAL":
         return "Manual research only"
     if raw == "NONE" or raw == "—":
-        return "No active sleeve fit"
+        return "No archetype fit"
     if raw in {"REM", "REMORA"}:
-        return "Remora resemblance (research-only)"
+        return "Follow-on-flow resemblance (research-only)"
     if raw in {"CON", "CONTRARIAN"}:
         return "Contrarian resemblance (research-only)"
     if raw in {"PATH", "PATHFINDER"}:
         return "Pathfinder resemblance (research-only)"
     if raw in {"SHORT_B", "SHB"}:
-        return "Short B resemblance (research-only)"
+        return "Short-setup B resemblance (research-only)"
     return raw.title()
 
 
@@ -2245,9 +2244,9 @@ EVENTS
   Macro risk: {macro_str}
   News sentiment: {sentiment:.2f} ({sent_lbl})
 
-STRATEGIES (research classification only — no trading occurs):
-  MOMENTUM: SNIPER-style momentum breakout LONG (research reference)
-  ACCUMULATION: VOYAGER-style long-horizon institutional accumulation (research reference)
+ARCHETYPES (research classification only — no trading occurs):
+  MOMENTUM: momentum breakout LONG (research reference)
+  ACCUMULATION: long-horizon institutional accumulation (research reference)
   MANUAL: discretionary/manual research only
   NONE: no edge or conflicting signals
 
@@ -3703,8 +3702,8 @@ class PB:  # PanelBuilder — all static
         t.append(
             f"\nPARTICIPATION: state={part['state']}  "
             f"last_decision={part['last_decision'] or 'n/a'}  "
-            f"sniper_flow={part['sniper_flow'] if part['sniper_flow'] is not None else '?'}  "
-            f"voyager_flow={part['voyager_flow'] if part['voyager_flow'] is not None else '?'}  "
+            f"breakout_lane_flow={part['sniper_flow'] if part['sniper_flow'] is not None else '?'}  "
+            f"structural_lane_flow={part['voyager_flow'] if part['voyager_flow'] is not None else '?'}  "
             f"reason={part['reason']}",
             style=part["style"],
         )
