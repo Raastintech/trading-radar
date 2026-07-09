@@ -208,6 +208,14 @@ const $=s=>document.querySelector(s);
 const fmt=(v,d=2)=>(v===null||v===undefined||Number.isNaN(v))?"—":Number(v).toFixed(d);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const navLabel=id=>(NAV.find(n=>n.id===id)||{}).label||id;
+/* Sidecar generated_at values are UTC ISO strings; operators think in ET
+   (research cycle runs on ET timers), so render wall-clock ET. */
+const fmtET=ts=>{
+  if(!ts)return "—";
+  const d=new Date(ts);
+  if(Number.isNaN(d.getTime()))return String(ts).slice(0,19);
+  return d.toLocaleString("sv-SE",{timeZone:"America/New_York"})+" ET";
+};
 
 function heat(v){
   if(v===null||v===undefined) return `<span class="cell miss">—</span>`;
@@ -477,7 +485,7 @@ function renderBoard(){
     ${strip}
     <div id="board-toolbar">
       <input id="filter" placeholder="filter ticker / sector / label" value="${esc(filterText)}">
-      <span class="sum">${rows.length} of ${b.rows.length} candidates · board ${esc(b.generated_at||"?")}</span>
+      <span class="sum">${rows.length} of ${b.rows.length} candidates · board ${esc(fmtET(b.generated_at))}</span>
       <span class="key">green = positive · red = negative · gray = missing/immature · amber = warning</span>
     </div>
     <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
@@ -772,7 +780,7 @@ function renderDataQuality(){
       <td class="tick">${esc(s.name)}</td>
       <td>${badge(s.status)}</td>
       <td>${s.age_hours??"—"}h</td>
-      <td style="color:var(--dim)">${esc(String(s.generated_at||"—")).slice(0,19)}</td></tr>`).join("");
+      <td style="color:var(--dim)">${esc(fmtET(s.generated_at))}</td></tr>`).join("");
     const fails=(pr.failed||[]).map(f=>`<div><span class="wi">⚠</span>${esc(f.ticker)} — ${esc(f.reason||"?")}</div>`).join("");
     $("#workspace").innerHTML=`
       <h2 class="pg">Data Quality</h2>
