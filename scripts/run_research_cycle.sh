@@ -1305,6 +1305,42 @@ cmd_journal_audit() {
         "$PY" research/journal_audit_reviewer.py "$@"
 }
 
+cmd_feedback_queue_review() {
+    # Feedback queue review — consumer side of the journal audit.  Cache-
+    # only, cred-free session-start summary of the LLM audit's queued
+    # repair tasks (logs/research_engine_feedback_queue.jsonl): open tasks
+    # grouped P0/P1/P2, repeat offenders across audits, tasks that appear
+    # resolved by the latest audit, addressed-but-unconfirmed commits, and
+    # a recommended next task.  BOOKKEEPING ONLY: never executes a queued
+    # task, never touches scanner thresholds, gates, scores, or signals —
+    # a human selects what (if anything) to work on.  Read-only; writes
+    # nothing.  Flags: --json, --verbose.
+    log "[CACHE] feedback queue review (read-only task summary)"
+    run_or_warn "feedback queue review" \
+        "$PY" research/feedback_queue.py review "$@"
+}
+
+cmd_feedback_queue_resolve() {
+    # Record progress on one queued task: appends a lifecycle entry
+    # (in_progress / addressed / superseded / resolved_by_audit) to the
+    # append-only ledger data/research/feedback_queue_state.jsonl with
+    # optional commit hash, notes, files changed, and follow-up flag.
+    # The queue file itself is never modified.  Runs the tool directly
+    # (not run_or_warn) so a bad task id fails visibly.
+    # Usage: feedback-queue-resolve TASK_ID [--status S] [--commit H]
+    #        [--notes TEXT] [--files a,b] [--follow-up]
+    log "[STATE] feedback queue resolve (append-only ledger entry)"
+    "$PY" research/feedback_queue.py resolve "$@"
+}
+
+cmd_feedback_queue_dismiss() {
+    # Dismiss one queued task: appends a DISMISSED entry to the state
+    # ledger.  The original queue entry is preserved untouched.
+    # Usage: feedback-queue-dismiss TASK_ID [--notes TEXT]
+    log "[STATE] feedback queue dismiss (append-only ledger entry)"
+    "$PY" research/feedback_queue.py dismiss "$@"
+}
+
 _disabled_execution_cmd() {
     echo "RESEARCH_ONLY_MODE: command disabled."
 }
@@ -1623,6 +1659,9 @@ case "$SUB" in
     targeted-backfill)         cmd_targeted_backfill          "${POS[@]}" ;;
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
+    feedback-queue-review)     cmd_feedback_queue_review      "${POS[@]}" ;;
+    feedback-queue-resolve)    cmd_feedback_queue_resolve     "${POS[@]}" ;;
+    feedback-queue-dismiss)    cmd_feedback_queue_dismiss     "${POS[@]}" ;;
     live-trade|paper-trade|place-order|send-order|submit-order|bracket-order|promote-strategy|strategy-execute|auto-route)
         _disabled_execution_cmd ;;
     "")               usage; exit 64 ;;
