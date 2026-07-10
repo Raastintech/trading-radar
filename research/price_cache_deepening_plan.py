@@ -27,7 +27,6 @@ from typing import Dict, List, Set
 from research.scanner_truth import dataio
 
 TARGET_BARS = 300
-CHUNK_SIZE = 200                 # mirrors core/universe.py _CHUNK_SIZE / Alpaca batch
 APPROX_BYTES_PER_BAR = 70        # snappy parquet OHLCV row, empirical ballpark
 
 WINNER_UNI = dataio.RESEARCH_CACHE / "missed_winner_universe_latest.json"
@@ -123,7 +122,7 @@ def build() -> Dict:
 
     to_deepen = sorted(seen)
     n_deepen = len([t for t in to_deepen if bars.get(t, 0) < TARGET_BARS])
-    est_calls = -(-n_deepen // CHUNK_SIZE)  # ceil; Alpaca batch = 1 call / chunk
+    est_calls = n_deepen  # Phase 3A: FMP get_ticker_bars — one call per ticker
     est_storage_mb = round(n_deepen * TARGET_BARS * APPROX_BYTES_PER_BAR / 1e6, 1)
 
     return {
@@ -139,10 +138,10 @@ def build() -> Dict:
         "n_priority_tickers": len(to_deepen),
         "n_needing_deepen": n_deepen,
         "estimated_provider_calls": {
-            "alpaca_batch_requests": est_calls,
-            "chunk_size": CHUNK_SIZE,
-            "note": "Alpaca SIP batched daily-bars; ~1 request per %d symbols. "
-                    "FMP is NOT used for OHLCV — zero FMP budget impact." % CHUNK_SIZE},
+            "fmp_requests": est_calls,
+            "note": "FMP get_ticker_bars (Phase 3A: Alpaca removed) — one call per "
+                    "ticker needing deepen; metered against the monthly FMP budget, "
+                    "so spend cache-first and batch across days if large."},
         "estimated_storage_mb": est_storage_mb,
         "safe_refresh_command": {
             "dry_run": "SNIPER_ENV_PATH=/home/gem/secure/trading.env "
@@ -151,11 +150,12 @@ def build() -> Dict:
                        ".venv/bin/python scripts/deepen_price_cache.py --priority --execute",
             "note": "Default is DRY-RUN (no provider calls). --execute is required to "
                     "fetch; output is written to %s (merge-on-write), never "
-                    "cache/prices, so the daemon's 90-day overwrite cannot clobber it."
+                    "cache/prices, so the nightly 90-day pre-warm cannot clobber it."
                     % str(dataio.DEEP_PRICES_DIR.relative_to(dataio.REPO))},
         "provider_impact": {
-            "alpaca": "Daily bars via SIP, batched; well within rate limits at this size.",
-            "fmp": "None — OHLCV deepening does not touch FMP; monthly FMP budget unaffected.",
+            "alpaca": "Not used — cache-serving stub since Phase 3A (paid subscription dropped).",
+            "fmp": "One get_ticker_bars call per ticker needing deepen; counts against "
+                   "the monthly FMP budget (premium) — spend cache-first.",
             "dashboard": "Unaffected — dashboard stays cache-only and never triggers refresh."},
     }
 
@@ -176,7 +176,7 @@ def _render_txt(res: Dict) -> List[str]:
     L += [
         "",
         f"priority tickers: {res['n_priority_tickers']}  ·  needing deepen: {res['n_needing_deepen']}",
-        f"estimated Alpaca batch requests: {res['estimated_provider_calls']['alpaca_batch_requests']}",
+        f"estimated FMP requests: {res['estimated_provider_calls']['fmp_requests']} (one per ticker)",
         f"estimated storage: {res['estimated_storage_mb']} MB",
         "",
         "SAFE REFRESH (dry-run default):",
@@ -236,9 +236,10 @@ def _write_doc(res: Dict) -> None:
         f"**needing deepen:** {res['n_needing_deepen']}.",
         "",
         "## Estimated impact",
-        f"- **Alpaca batch requests:** ~{res['estimated_provider_calls']['alpaca_batch_requests']} "
-        f"(batched at {res['estimated_provider_calls']['chunk_size']}/request, SIP daily bars).",
-        "- **FMP budget:** none — OHLCV deepening does not touch FMP.",
+        f"- **FMP requests:** ~{res['estimated_provider_calls']['fmp_requests']} "
+        "(`get_ticker_bars`, one call per ticker — Phase 3A: Alpaca removed).",
+        "- **FMP budget:** metered — one premium call per ticker; spend cache-first "
+        "and split large runs across days.",
         f"- **Storage:** ~{res['estimated_storage_mb']} MB additional parquet.",
         "- **Dashboard:** unaffected; stays cache-only.",
         "",

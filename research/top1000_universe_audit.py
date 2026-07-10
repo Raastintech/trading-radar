@@ -57,11 +57,15 @@ RANKING = {
     "refresh": {"dynamic": True, "ttl_seconds": 1800,
                 "env": "UNIVERSE_SNAPSHOT_TTL_SECONDS (default 1800 = 30 min)",
                 "bar_window_days": 90,
-                "note": "Rebuilt every 30 min from Alpaca; NOT a static list. But the "
-                        "bar window is only 90 days (UNIVERSE_DISCOVERY_DAYS_BACK)."},
-    "staleness_risk": "Within the 30-min TTL the cached snapshot is reused. On Alpaca "
-                      "discovery failure a FALLBACK (curated-only) snapshot is emitted "
-                      "(fallback_used=true) — that is the main stale/degraded path.",
+                "note": "Re-ranks on a 30-min TTL, but post-decommission the Alpaca "
+                        "client is a cache-serving stub (Phase 3A) — only tickers with "
+                        "cached parquets can enter, so the candidate pool is effectively "
+                        "closed (audit 2026-07-10). Bar window is 90 days "
+                        "(UNIVERSE_DISCOVERY_DAYS_BACK)."},
+    "staleness_risk": "Within the 30-min TTL the cached snapshot is reused. Market-wide "
+                      "discovery is dead (Alpaca stub): rebuilds re-rank cached data only, "
+                      "and the curated-only FALLBACK snapshot (fallback_used=true) is the "
+                      "degraded path.",
 }
 
 # Empirical late/extended thresholds (computed from snapshot metadata, point-in-time)
@@ -149,8 +153,9 @@ def build() -> Dict:
 
 def _findings(n_late: int, n_ext: int, n: int, summary: Dict, snap: Dict) -> List[str]:
     out = [
-        "Top-1000 is DYNAMIC (rebuilt ~every 30 min) — not a static or stale list, "
-        "except the curated-only FALLBACK path when Alpaca discovery fails.",
+        "Top-1000 re-ranks on a ~30-min TTL, but post-decommission the candidate pool "
+        "is effectively closed — the Alpaca discovery feed is a cache-serving stub, so "
+        "only tickers with cached parquets can enter (audit 2026-07-10).",
         "Ranking is dominated by LIQUIDITY (0.45) — mega/large-caps are structurally "
         "favored regardless of setup quality.",
         "The 0.15 abs_trend term uses ABSOLUTE 20d return, so already-moved names score "
