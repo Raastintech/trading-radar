@@ -160,6 +160,7 @@ h2.pg{font-size:13px;margin:0 0 10px;color:var(--text)}
   </div>
   <p class="sub">RESEARCH ONLY · cache-only · read-only</p>
   <nav id="nav"></nav>
+  <div id="srv-meta" class="sub"></div>
   <div id="side-foot">Research only — not a signal or recommendation.</div>
 </aside>
 
@@ -1189,6 +1190,16 @@ Promise.all([
   fetch("api/status").then(r=>r.json()).catch(()=>({fallback:"MISSING_ARTIFACT"})),
   fetch("api/leaderboard").then(r=>r.json()).catch(()=>({rows:[],fallback:"MISSING_ARTIFACT"})),
 ]).then(([s,b])=>{STATUS=s;BOARD=b;renderNav();renderTabs();renderHeader();renderPage();});
+fetch("api/meta").then(r=>r.json()).then(m=>{
+  const el=document.getElementById("srv-meta");
+  if(!el)return;
+  if(m.stale){
+    el.innerHTML=`⚠ server code <b>${esc(m.server_code_version)}</b> &ne; repo <b>${esc(m.repo_code_version)}</b> — restart server`;
+    el.style.color="var(--amber)";
+  }else{
+    el.textContent=`server ${m.server_code_version} · up since ${m.server_started_at}`;
+  }
+}).catch(()=>{});
 </script>
 </body>
 </html>

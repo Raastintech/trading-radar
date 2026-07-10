@@ -29,6 +29,7 @@ import hmac
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -83,6 +84,35 @@ def journal_post_authorized(client_ip: str,
 
 INDEX_HTML = HERE / "static" / "index.html"
 
+
+def _git_head_short() -> str:
+    """Repo HEAD (short hash) via plain file reads — no subprocess, so a
+    broken git install can never take the dashboard down."""
+    try:
+        git_dir = HERE.parents[1] / ".git"
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if not head.startswith("ref:"):
+            return head[:7]
+        ref = head.split(" ", 1)[1].strip()
+        ref_path = git_dir / ref
+        if ref_path.exists():
+            return ref_path.read_text(encoding="utf-8").strip()[:7]
+        packed = git_dir / "packed-refs"
+        if packed.exists():
+            for line in packed.read_text(encoding="utf-8").splitlines():
+                if line.endswith(" " + ref):
+                    return line.split(" ", 1)[0][:7]
+    except Exception:
+        pass
+    return "unknown"
+
+
+# Captured once at process start: the page footer compares these against
+# a fresh read at request time so a server running stale code is visible
+# at a glance (the exact failure mode of 2026-07-10).
+SERVER_STARTED_AT = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+SERVER_CODE_VERSION = _git_head_short()
+
 # Later-phase routes are stubbed on purpose — see the phase plan.  They exist
 # so the sidebar can link somewhere honest, not to hide unbuilt features.
 STUB_PAGES = {}  # every planned page is implemented
@@ -120,6 +150,15 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(500, b"index.html missing", "text/plain")
             elif path == "/api/status":
                 self._json(build_status(self.store))
+            elif path == "/api/meta":
+                current = _git_head_short()
+                self._json({
+                    "server_started_at": SERVER_STARTED_AT,
+                    "server_code_version": SERVER_CODE_VERSION,
+                    "repo_code_version": current,
+                    "stale": current != SERVER_CODE_VERSION,
+                    "research_only": True,
+                })
             elif path == "/api/leaderboard":
                 self._json(build_leaderboard(self.store))
             elif path.startswith("/api/ticker/"):
