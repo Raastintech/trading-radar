@@ -2,6 +2,13 @@
 
 *Generated 2026-06-09T01:08:07.117504+00:00 · research-only · cache-only.*
 
+> **⚠ Point-in-time snapshot — the "rebuilt every 30 min from Alpaca" mechanics
+> below are dead.** The Alpaca discovery feed stopped with the decommission
+> (paid subscription dropped; client is a cache-serving stub), so the universe
+> now re-ranks daily from cached parquets and the candidate pool is effectively
+> closed (~2 new parquets/month — audit 2026-07-10, report-only). The ranking
+> formula and bias findings below remain valid history.
+
 ## Where the top-1000 is created
 `core/universe.py` → `UniverseBuilder._build_fresh()`. Symbols are ranked by **`base_score (descending), tie-break symbol`** (core/universe.py:_compute_features (base_score) + _build_fresh:721-722) and the top `UNIVERSE_BASE_LIMIT (default 1000)` are kept as `base_universe`.
 

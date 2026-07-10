@@ -69,7 +69,7 @@ remaining layer weights are renormalized to sum to 1.0).
 |---|---|---|---|
 | 1 | Market regime | `cache/research/regime_forecast_latest.json` (or recompute if `--refresh`) | layer becomes "Unknown" with score 0 |
 | 2 | Sector | FMP `get_company_profile` (24h Gatekeeper cache) → SPDR sector ETF mapping → sector rotation block from the market forecast | layer becomes "Unknown" with score 0 |
-| 3 | Stock technicals | cache → Alpaca → FMP → yfinance (same chain as Phase 1) | layer becomes "Unknown" if no usable bars |
+| 3 | Stock technicals | cache → Alpaca stub (serves cached parquets only, no network since Phase 3B) → FMP → yfinance | layer becomes "Unknown" if no usable bars |
 | 4 | Daily Entry Validator | `core.daily_entry_validator.validate_daily_entry(bars)` | "Watch Only" when <80 bars, else one of: Buyable Now / Watch Reclaim / Pullback Forming / Watch Only / Too Extended / Broken / Avoid |
 | 5 | Alpha Discovery | `cache/research/alpha_discovery_board_latest.json` and `..._overlay_latest.json` | layer becomes "No data" or "Not on Alpha board" |
 | 6 | Market Posture | rebuilt via `core.research_assist_bte.build_research_bte` against `cache/universe/universe_snapshot_latest.json` | layer becomes "Unknown" if snapshot missing |
@@ -238,7 +238,7 @@ market-regime weight on the basis of validation evidence.
   Daily Entry Validator change, no Social Arb change, no dashboard change
 - cache-first; honours `--cache-only / --offline`
 - no tight API loops — provider chain reuses the Phase 1 cache layers
-  (Alpaca batch, FMP 12h Gatekeeper, yfinance batch fallback)
+  (Alpaca stub serving cached parquets, FMP 12h Gatekeeper, yfinance batch fallback)
 - degrades gracefully when any layer is missing
 - never hallucinates missing layers — every absent layer is named in
   `data_quality_notes`

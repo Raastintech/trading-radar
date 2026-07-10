@@ -2,6 +2,12 @@
 
 *Generated 2026-06-09T01:08:07.111258+00:00 · research-only · PLAN ONLY (no provider calls made by this report).*
 
+> **⚠ Provider estimates superseded (Phase 3B, 2026-06-14).** Deepening now
+> runs via FMP `historical-price-eod/full` (premium, budget-metered) — the
+> "Alpaca batch requests" estimate below predates the Alpaca removal, and the
+> "daemon overwrites cache/prices" premise ended when the daemon was stopped
+> (2026-06-13). See `docs/research/PRICE_BAR_PROVIDER_MIGRATION.md`.
+
 ## Why
 Phase 1G.6 found the research price cache is uniformly shallow (median ~110 bars). The production daemon overwrites `cache/prices/*.parquet` with ~90-day windows on every scan (see `core/data_gatekeeper.py` and `core/universe.py:_DAYS_BACK=90`), so MA200 and the Voyager 260-bar gate are effectively non-functional on the research cache and the scanner-truth Voyager-structural verdicts are fidelity-limited.
 

@@ -2,6 +2,13 @@
 
 Generated: 2026-06-12T21:34:34.186261+00:00
 
+> **⚠ Superseded on two counts.** (1) Strike-level chains ARE now persisted:
+> the Phase 1J.1/1J.2 collector snapshots full chains daily (15:45 ET) to
+> `data/options_snapshots/` — the "not persisted anywhere" row below was true
+> only on the audit date. (2) Providers: Tradier is the sole options provider
+> since Phase 3B (2026-06-14); the Alpaca snapshot notes are historical.
+> See `docs/research/OPTIONS_CHAIN_SNAPSHOT_SCHEMA.md`.
+
 RESEARCH_ONLY: cache-only audit; no provider calls, no signals, no orders, no proposals.
 
 ## CAN WE VALIDLY BACKTEST OPTIONS PREMIUM NOW? NO

@@ -446,8 +446,9 @@ def render_doc(res: Dict[str, Any]) -> str:
         f"(future-dated rows: {iv['point_in_time']['future_dated_rows']}); there is NO historical backfill source. "
         "Current snapshots are explicitly NOT treated as history.",
         "",
-        "Providers: Alpaca snapshots carry no IV/greeks/OI (OI merged live from the contracts endpoint); "
-        "Tradier serves current chains only. Realized volatility is computable "
+        "Providers: Tradier is the sole options provider (Phase 3B); it serves current chains only — "
+        "this inventory does not count the daily point-in-time snapshots in data/options_snapshots/. "
+        "Realized volatility is computable "
         f"({res['realized_volatility']['deep_cache_tickers']} deep-cache tickers, ~{res['realized_volatility']['deep_cache_typical_bars']} bars) — IV history is the constraint.",
         "",
         "## IV Rank feasibility (Task 3)",
