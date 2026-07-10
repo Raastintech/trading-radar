@@ -1305,6 +1305,23 @@ cmd_journal_audit() {
         "$PY" research/journal_audit_reviewer.py "$@"
 }
 
+cmd_research_programs() {
+    # Phase 5 — horizon-aligned research-program validation.  Cache-only,
+    # cred-free, READ-ONLY on the engine: routes every watchlist label to
+    # its research program (Tactical 5-15td / Swing 45-60td / Long-Term
+    # 6-18mo), then computes deduped-episode forward evidence at the
+    # horizons each program actually targets, with matched SPY/QQQ/sector
+    # benchmarks, date-clustered bootstrap, and PRE-REGISTERED verdict
+    # gates (VALIDATED_EDGE / PROMISING_BUT_UNPROVEN /
+    # NO_EVIDENCE_OF_EDGE / INSUFFICIENT_MATURE_EVIDENCE).  Writes
+    # cache/research/research_program_validation_latest.json +
+    # logs/research_program_validation_latest.txt.  Changes NO scanner
+    # threshold, ranking, gate, or promotion rule.  Flags: --dry-run --json.
+    log "[CACHE] research program validation (horizon-aligned, read-only)"
+    run_or_warn "research program validation" \
+        "$PY" research/research_programs.py "$@"
+}
+
 cmd_feedback_queue_review() {
     # Feedback queue review — consumer side of the journal audit.  Cache-
     # only, cred-free session-start summary of the LLM audit's queued
@@ -1509,6 +1526,10 @@ cmd_nightly() {
     # near the end so it sees the ages of everything this cycle just wrote.
     cmd_provider_health
     cmd_data_freshness
+    # Phase 5.1 — research-program validation runs after the forward
+    # tracker so the digest/audit read fresh horizon-aligned per-program
+    # verdicts.  Cache-only, read-only, pre-registered gates.
+    cmd_research_programs
     # Nightly Operator Summary — runs LAST so it reads every sidecar the
     # nightly cycle just refreshed.  Cache-only; no provider calls.
     # No strategy abbreviations or trade language in output.
@@ -1659,6 +1680,7 @@ case "$SUB" in
     targeted-backfill)         cmd_targeted_backfill          "${POS[@]}" ;;
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
+    research-programs)         cmd_research_programs          "${POS[@]}" ;;
     feedback-queue-review)     cmd_feedback_queue_review      "${POS[@]}" ;;
     feedback-queue-resolve)    cmd_feedback_queue_resolve     "${POS[@]}" ;;
     feedback-queue-dismiss)    cmd_feedback_queue_dismiss     "${POS[@]}" ;;

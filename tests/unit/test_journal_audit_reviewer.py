@@ -842,3 +842,61 @@ def test_no_broker_or_execution_imports_in_reviewer():
     for mod in imported:
         assert not any(mod.startswith(f) or f in mod for f in forbidden), \
             f"forbidden import in journal_audit_reviewer: {mod}"
+
+
+# ── 12. per-program verdicts (Phase 5.1) ─────────────────────────────────────
+
+
+PROGRAM_SECTION = """
+## 4b. Research Programs
+- TACTICAL (hold 5-15td): candidates today 31 | verdict INSUFFICIENT_MATURE_EVIDENCE | matured episodes 5d:96 10d:32
+- SWING (hold 45-60td): candidates today 58 | verdict PROMISING_BUT_UNPROVEN | matured episodes 5d:99 10d:69
+- LONG_TERM (hold 126-378td): candidates today 11 | verdict INSUFFICIENT_MATURE_EVIDENCE | matured episodes none
+"""
+
+
+def test_program_verdicts_parsed_from_digest():
+    digest = make_analyst_digest() + PROGRAM_SECTION
+    sig = jar.extract_digest_signals(digest)
+    assert sig["digest_programs"]["TACTICAL"]["verdict"] == \
+        "INSUFFICIENT_MATURE_EVIDENCE"
+    assert sig["digest_programs"]["SWING"]["candidates_today"] == 58
+    audit = jar.audit_daily_digest(digest, use_llm=False)
+    pv = audit["program_verdicts"]
+    assert pv["tactical"] == "INSUFFICIENT_MATURE_EVIDENCE"
+    assert pv["swing"] == "PROMISING_BUT_UNPROVEN"
+    assert pv["long_term"] == "INSUFFICIENT_MATURE_EVIDENCE"
+    # safety verdict, never a blended performance conclusion
+    assert pv["overall_engine"] == "RESEARCH_ONLY"
+
+
+def test_program_verdicts_llm_cannot_override_digest(monkeypatch):
+    monkeypatch.setattr(jar, "_llm_audit", lambda text: {
+        "research_verdict": "RESEARCH_ONLY",
+        "alpha_discovery_quality": "MIXED",
+        "engine_health": "OPERATIONAL_WITH_BLOCKERS",
+        "promote_to_signal": False,
+        "one_line_summary": "s",
+        "program_verdicts": {  # lying LLM promotes all programs
+            "tactical": "VALIDATED_EDGE",
+            "swing": "VALIDATED_EDGE",
+            "long_term": "VALIDATED_EDGE",
+            "overall_engine": "READY_FOR_HUMAN_REVIEW"},
+        "what_is_working": [], "flaws_detected": [],
+        "recommended_claude_code_tasks": [], "next_system_actions": [],
+        "audit_source": "llm", "model": "test",
+    })
+    audit = jar.audit_daily_digest(make_analyst_digest() + PROGRAM_SECTION)
+    pv = audit["program_verdicts"]
+    assert pv["tactical"] == "INSUFFICIENT_MATURE_EVIDENCE"  # digest wins
+    assert pv["swing"] == "PROMISING_BUT_UNPROVEN"
+    assert pv["overall_engine"] == "RESEARCH_ONLY"
+
+
+def test_program_verdicts_unknown_when_section_missing():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    pv = audit["program_verdicts"]
+    assert pv["tactical"] == "UNKNOWN"
+    assert pv["swing"] == "UNKNOWN"
+    assert pv["long_term"] == "UNKNOWN"
+    assert pv["overall_engine"] == "RESEARCH_ONLY"

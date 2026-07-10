@@ -65,9 +65,10 @@ import pandas as pd
 
 import core.config as cfg
 from core.research_mode import SYSTEM_MODE, RESEARCH_ONLY_BANNER
+from research.research_programs import TRACKED_HORIZONS, classify_label
 
-VERSION = "RESEARCH_FORWARD_TRACKER_V1"
-BENCHMARK_SCHEMA_VERSION = "BENCHMARK_RETURNS_V1"
+VERSION = "RESEARCH_FORWARD_TRACKER_V2"
+BENCHMARK_SCHEMA_VERSION = "BENCHMARK_RETURNS_V2"
 PRICE_DIR = cfg.CACHE_DIR / "prices"
 RESEARCH_DIR = cfg.CACHE_DIR / "research"
 DATA_DIR = ROOT / "data" / "research"
@@ -76,7 +77,9 @@ HISTORY_JSONL = DATA_DIR / "research_watchlist_history.jsonl"
 OUT_JSON = RESEARCH_DIR / "research_forward_latest.json"
 OUT_TXT = cfg.LOG_DIR / "research_forward_latest.txt"
 
-HORIZONS = [5, 10, 20, 60]
+# Canonical multi-program horizon set (Phase 5.1) — defined once in
+# research/research_programs.py so architecture and measurement agree.
+HORIZONS = list(TRACKED_HORIZONS)
 
 # Sector → benchmark ETF mapping for relative-return computation
 SECTOR_ETF_MAP: Dict[str, str] = {
@@ -196,15 +199,29 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
     matured = [e for e in entries if e.get("ret_10d") is not None]
     matured_5d = [e for e in entries if e.get("ret_5d") is not None]
     n = len(matured)
-    status = _sample_status(n)
+    # Phase 5.1 (A3): re-appearances of the same ticker are overlapping
+    # observations, not independent evidence — sample status is graded on
+    # UNIQUE matured tickers, with the raw row count kept for transparency.
+    n_unique = len({e.get("ticker") for e in matured})
+    n_dates = len({e.get("appearance_date") for e in matured})
+    status = _sample_status(n_unique)
+    matured_by_horizon = {
+        f"{h}d": sum(1 for e in entries if e.get(f"ret_{h}d") is not None)
+        for h in HORIZONS}
 
-    # No bucket verdict until at least PROVISIONAL sample threshold (≥10 matured)
-    if n < SAMPLE_THRESHOLD_PROVISIONAL:
+    # No bucket verdict until at least PROVISIONAL sample threshold of
+    # UNIQUE matured tickers (Phase 5.1: was raw rows, which overstated
+    # the sample by the duplication factor)
+    if n_unique < SAMPLE_THRESHOLD_PROVISIONAL:
         return {
             "bucket": bucket_name,
             "total_entries": len(entries),
             "matured_5d_entries": len(matured_5d),
             "matured_entries": n,
+            "matured_unique_tickers": n_unique,
+            "matured_distinct_dates": n_dates,
+            "matured_by_horizon": matured_by_horizon,
+            "sample_basis": "unique_tickers",
             "sample_status": status,
             "verdict": "NEED_MORE_DATA",
             "win_rate_10d": None,
@@ -258,12 +275,17 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
     avg_vs_spy, med_vs_spy, wr_vs_spy, n_spy = _bench_stats("ret_10d_vs_spy")
     avg_vs_qqq, med_vs_qqq, wr_vs_qqq, n_qqq = _bench_stats("ret_10d_vs_qqq")
     avg_vs_sec, med_vs_sec, wr_vs_sec, n_sec = _bench_stats("ret_10d_vs_sector")
+    avg_vs_iwm, med_vs_iwm, wr_vs_iwm, n_iwm = _bench_stats("ret_10d_vs_iwm")
 
     return {
         "bucket": bucket_name,
         "total_entries": len(entries),
         "matured_5d_entries": len(matured_5d),
         "matured_entries": n,
+        "matured_unique_tickers": n_unique,
+        "matured_distinct_dates": n_dates,
+        "matured_by_horizon": matured_by_horizon,
+        "sample_basis": "unique_tickers",
         "sample_status": status,
         "verdict": verdict,
         "win_rate_10d": pos_rate,
@@ -281,6 +303,10 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
         "avg_ret_vs_sector": avg_vs_sec,
         "median_ret_vs_sector": med_vs_sec,
         "n_with_sector_baseline": n_sec,
+        "win_rate_vs_iwm": wr_vs_iwm,
+        "avg_ret_vs_iwm": avg_vs_iwm,
+        "median_ret_vs_iwm": med_vs_iwm,
+        "n_with_iwm_baseline": n_iwm,
         "note": None,
     }
 
@@ -302,18 +328,59 @@ def _benchmark_readiness(history: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         }
     n_spy = sum(1 for r in all_recs if r.get("spy_ret_10d") is not None)
     n_qqq = sum(1 for r in all_recs if r.get("qqq_ret_10d") is not None)
+    n_iwm = sum(1 for r in all_recs if r.get("iwm_ret_10d") is not None)
     n_with_etf = sum(1 for r in all_recs if r.get("benchmark_sector_etf"))
     n_sec = sum(1 for r in all_recs if r.get("sector_ret_10d") is not None)
     return {
         "spy_available": True,
         "qqq_available": True,
+        "iwm_available": True,
         "total_entries": total,
         "entries_with_spy_10d": n_spy,
         "entries_with_qqq_10d": n_qqq,
+        "entries_with_iwm_10d": n_iwm,
         "entries_with_sector_etf": n_with_etf,
         "entries_with_sector_10d": n_sec,
         "benchmark_schema_version": BENCHMARK_SCHEMA_VERSION,
     }
+
+
+def _resolution_coverage(history: Dict[str, Dict[str, Any]],
+                         spy_closes: List[tuple]) -> Dict[str, Any]:
+    """Phase 5.1 (A4): quantify silent resolution attrition.  An entry
+    whose appearance date plus the horizon fits inside the SPY trading
+    calendar SHOULD have a resolved return; entries that do not (missing
+    or truncated price parquets — warrants, micro-caps, delistings) are
+    a survivorship hole that must be reported next to every verdict."""
+    spy_dates = [d for d, _ in spy_closes]
+    out: Dict[str, Any] = {}
+    for h in (5, 10, 20):
+        expected = 0
+        resolved = 0
+        unresolved_tickers: List[str] = []
+        for rec in history.values():
+            date = rec.get("appearance_date") or ""
+            idx = None
+            for i, d in enumerate(spy_dates):
+                if d >= date:
+                    idx = i
+                    break
+            if idx is None or idx + h >= len(spy_dates):
+                continue  # not calendar-mature yet
+            expected += 1
+            if rec.get(f"ret_{h}d") is not None:
+                resolved += 1
+            elif rec["ticker"] not in unresolved_tickers:
+                unresolved_tickers.append(rec["ticker"])
+        out[f"{h}d"] = {
+            "calendar_mature": expected,
+            "resolved": resolved,
+            "unresolved": expected - resolved,
+            "coverage_pct": round(resolved / expected * 100, 1)
+            if expected else None,
+            "unresolved_tickers_sample": unresolved_tickers[:10],
+        }
+    return out
 
 
 def run_forward_tracker() -> Dict[str, Any]:
@@ -352,25 +419,40 @@ def run_forward_tracker() -> Dict[str, Any]:
             sector = item.get("sector")
             industry = item.get("industry")
             sector_etf = _benchmark_sector_etf(sector, industry)
+            label = item.get("watchlist_label")
+            route = classify_label(label or "")
             rec: Dict[str, Any] = {
                 "ticker": ticker,
                 "appearance_date": today,
                 "sector": sector,
                 "industry": industry,
+                "market_cap": item.get("market_cap"),
                 "benchmark_sector_etf": sector_etf,
-                "watchlist_label": item.get("watchlist_label"),
+                "watchlist_label": label,
                 "category": item.get("category"),
                 "research_score": item.get("research_score"),
                 "earliness_label": item.get("earliness_label"),
                 "consensus_label": item.get("consensus_label"),
-                "ret_5d": None,
-                "ret_10d": None,
-                "ret_20d": None,
-                "ret_60d": None,
+                # Phase 5.1 routing: every candidate carries its program
+                "research_program": route.get("program"),
+                "program_holding_period_td":
+                    route.get("expected_holding_period_td"),
+                "program_confidence": route.get("confidence"),
+                **{f"ret_{h}d": None for h in HORIZONS},
                 "resolved": False,
             }
             history[key] = rec
             new_entries.append(rec)
+
+    # Backfill program routing for entries that predate Phase 5.1 (same
+    # label -> program mapping; additive, never overwrites)
+    for rec in history.values():
+        if not rec.get("research_program"):
+            route = classify_label(rec.get("watchlist_label") or "")
+            rec["research_program"] = route.get("program")
+            rec["program_holding_period_td"] = \
+                route.get("expected_holding_period_td")
+            rec["program_confidence"] = route.get("confidence")
 
     # Backfill sector/benchmark_sector_etf for existing entries that predate this schema
     for rec in history.values():
@@ -385,9 +467,11 @@ def run_forward_tracker() -> Dict[str, Any]:
             rec.setdefault("industry", ind)
             rec["benchmark_sector_etf"] = _benchmark_sector_etf(s, ind)
 
-    # Preload benchmark closes — reused across all entries
+    # Preload benchmark closes — reused across all entries.  IWM added in
+    # Phase 5.1 (A5): small/mid-cap picks were judged only against
+    # large-cap indices, which flips the sign of measured excess.
     benchmark_closes: Dict[str, List[tuple]] = {}
-    for bm in ("SPY", "QQQ"):
+    for bm in ("SPY", "QQQ", "IWM"):
         benchmark_closes[bm] = _load_closes_with_dates(bm)
         logger.info("Benchmark %s: %d bars loaded", bm, len(benchmark_closes[bm]))
 
@@ -404,6 +488,7 @@ def run_forward_tracker() -> Dict[str, Any]:
 
     spy_closes = benchmark_closes.get("SPY", [])
     qqq_closes = benchmark_closes.get("QQQ", [])
+    iwm_closes = benchmark_closes.get("IWM", [])
 
     # Resolve forward returns for unresolved entries
     resolved_count = 0
@@ -454,6 +539,14 @@ def run_forward_tracker() -> Dict[str, Any]:
                         rec[f"ret_{h}d_vs_qqq"] = round(ret_val - qqq_ret, 2)
                         updated = True
 
+                iwm_field = f"iwm_ret_{h}d"
+                if rec.get(iwm_field) is None:
+                    iwm_ret = _forward_return(iwm_closes, date, h)
+                    if iwm_ret is not None:
+                        rec[iwm_field] = iwm_ret
+                        rec[f"ret_{h}d_vs_iwm"] = round(ret_val - iwm_ret, 2)
+                        updated = True
+
                 if sector_closes:
                     sec_field = f"sector_ret_{h}d"
                     if rec.get(sec_field) is None:
@@ -472,7 +565,8 @@ def run_forward_tracker() -> Dict[str, Any]:
         if horizons_with_ticker:
             spy_complete = all(rec.get(f"spy_ret_{h}d") is not None for h in horizons_with_ticker)
             qqq_complete = all(rec.get(f"qqq_ret_{h}d") is not None for h in horizons_with_ticker)
-            if spy_complete and qqq_complete:
+            iwm_complete = all(rec.get(f"iwm_ret_{h}d") is not None for h in horizons_with_ticker)
+            if spy_complete and qqq_complete and iwm_complete:
                 rec["benchmark_schema_version"] = BENCHMARK_SCHEMA_VERSION
                 rec["benchmark_fields_updated_at"] = now
                 reasons: List[str] = []
@@ -505,6 +599,20 @@ def run_forward_tracker() -> Dict[str, Any]:
 
     overall_verdict = _compute_verdicts(all_entries, "ALL")
     bench_readiness = _benchmark_readiness(history)
+    resolution_coverage = _resolution_coverage(history, spy_closes)
+
+    # Per-program rollup (routing only — program VERDICTS come from the
+    # pre-registered gates in research/research_programs.py, not here)
+    program_counts: Dict[str, Dict[str, int]] = {}
+    for rec in all_entries:
+        prog = rec.get("research_program") or "UNROUTED"
+        pc = program_counts.setdefault(
+            prog, {"entries": 0, "unique_tickers": 0})
+        pc["entries"] += 1
+    for prog in program_counts:
+        pc_tickers = {r["ticker"] for r in all_entries
+                      if (r.get("research_program") or "UNROUTED") == prog}
+        program_counts[prog]["unique_tickers"] = len(pc_tickers)
 
     out: Dict[str, Any] = {
         "version": VERSION,
@@ -517,6 +625,9 @@ def run_forward_tracker() -> Dict[str, Any]:
         "overall": overall_verdict,
         "verdicts_by_label": verdicts,
         "benchmark_readiness": bench_readiness,
+        "resolution_coverage": resolution_coverage,
+        "program_counts": program_counts,
+        "tracked_horizons_td": HORIZONS,
         "guardrails": {
             "no_trade_recommendation": True,
             "forward_returns_are_research_only": True,
@@ -557,6 +668,24 @@ def _format_text(result: Dict[str, Any]) -> str:
             f"  Sector ETF assigned:       {n_etf}/{total}",
             f"  Sector ETF returns ready:  {n_sec}/{total}",
         ]
+
+    rc = result.get("resolution_coverage") or {}
+    if rc:
+        lines += ["", "=== RESOLUTION COVERAGE (survivorship guard) ==="]
+        for h, blk in rc.items():
+            cov = blk.get("coverage_pct")
+            lines.append(
+                f"  {h:>4}: {blk.get('resolved', 0)}/"
+                f"{blk.get('calendar_mature', 0)} resolved "
+                f"({cov if cov is not None else 'n/a'}%) — "
+                f"{blk.get('unresolved', 0)} unresolved")
+
+    pc = result.get("program_counts") or {}
+    if pc:
+        lines += ["", "=== RESEARCH PROGRAM ROUTING ==="]
+        for prog, blk in sorted(pc.items()):
+            lines.append(f"  {prog:<12} entries={blk['entries']:5d}  "
+                         f"unique_tickers={blk['unique_tickers']}")
 
     lines += ["", "=== BY LABEL BUCKET ==="]
     for v in result.get("verdicts_by_label", []):

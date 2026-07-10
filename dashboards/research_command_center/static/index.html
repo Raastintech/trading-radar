@@ -341,6 +341,39 @@ function journalAuditCard(a){
     <div class="warnlist">${flaws}</div>`);
 }
 
+function programCard(pid,p,routing){
+  // Phase 5.1 — one card per research program: holding period, maturity,
+  // pre-registered verdict, and which labels route here.  Research-only.
+  const labels=Object.entries(routing||{})
+    .filter(([,r])=>r.program===pid).map(([l])=>l);
+  const matured=(p.matured_horizons_td||[]).map(h=>`${h}d`).join(" ")||"none";
+  const gaps=(p.primary_not_collected_td||[]).length
+    ?`<div class="note">⚠ primary horizons not collected: ${esc((p.primary_not_collected_td||[]).join(", "))}td</div>`:"";
+  const diag=(p.diagnostic_signal&&p.diagnostic_signal!=="NONE")
+    ?kvRow("Diagnostic read",badge(p.diagnostic_signal)):"";
+  return card(`${esc(p.name||pid)}`,
+    `<div class="kv">
+      ${kvRow("Holding period",esc((p.expected_holding_period_td||"?")+" trading days"))}
+      ${kvRow("Validation",badge(p.verdict||"UNKNOWN"))}
+      ${kvRow("Episodes",esc(String(p.n_episodes??"—")))}
+      ${kvRow("Matured horizons",esc(matured))}
+      ${diag}
+    </div>
+    ${gaps}
+    <div class="note">${esc(p.verdict_reason||"")}</div>
+    <div class="note" style="color:var(--dim)">labels: ${esc(labels.join(", ")||"—")}</div>`);
+}
+
+function researchProgramsSection(rp){
+  if(!rp||!rp.present)
+    return card("Research programs",
+      `<div class="note">No program validation yet — run ./scripts/run_research_cycle.sh research-programs</div>`);
+  const progs=rp.programs||{};
+  return ["TACTICAL","SWING","LONG_TERM"]
+    .filter(pid=>progs[pid])
+    .map(pid=>programCard(pid,progs[pid],rp.label_routing)).join("");
+}
+
 function renderHome(){
   const s=STATUS||{}, p4=s.phase_4b||{};
   const rows=(BOARD||{}).rows||[];
@@ -380,6 +413,10 @@ function renderHome(){
         ${kvRow("Young / quarantine",nYQ,nYQ>0?"warn":"")}
       </div>`)}
       ${journalAuditCard(s.journal_audit)}
+    </div>
+    <h2 class="pg" style="margin-top:14px">Research Programs — Tactical / Swing / Long-Term</h2>
+    <div class="cards">
+      ${researchProgramsSection(s.research_programs)}
     </div>
     ${card(`Warnings — last nightly run <span class="bdg ${(s.warnings||[]).length?"a":"n"}">${(s.warnings||[]).length}</span>`,
       `<div class="warnlist">

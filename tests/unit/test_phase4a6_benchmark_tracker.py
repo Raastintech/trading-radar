@@ -42,7 +42,7 @@ from research.research_watchlist_forward_tracker import (
 class TestConstants:
 
     def test_benchmark_schema_version_present(self):
-        assert BENCHMARK_SCHEMA_VERSION == "BENCHMARK_RETURNS_V1"
+        assert BENCHMARK_SCHEMA_VERSION == "BENCHMARK_RETURNS_V2"  # Phase 5.1: +IWM
 
     def test_60d_in_horizons(self):
         assert 60 in HORIZONS
@@ -199,9 +199,15 @@ class TestRelativeReturnFormula:
 
 class TestComputeVerdictsWithBenchmarks:
 
+    _seq = 0
+
     def _entry(self, ret_10d: Optional[float], vs_spy: Optional[float] = None,
                 vs_qqq: Optional[float] = None, vs_sec: Optional[float] = None) -> Dict[str, Any]:
-        e: Dict[str, Any] = {"ret_10d": ret_10d}
+        # Phase 5.1: sample status is graded on UNIQUE tickers, so every
+        # synthetic entry needs its own ticker to count as evidence.
+        TestComputeVerdictsWithBenchmarks._seq += 1
+        e: Dict[str, Any] = {"ret_10d": ret_10d,
+                             "ticker": f"T{TestComputeVerdictsWithBenchmarks._seq}"}
         if vs_spy is not None:
             e["ret_10d_vs_spy"] = vs_spy
         if vs_qqq is not None:
@@ -218,20 +224,20 @@ class TestComputeVerdictsWithBenchmarks:
         assert v["avg_ret_vs_spy"] is None
 
     def test_benchmark_stats_computed_at_provisional(self):
-        entries = [self._entry(3.0, vs_spy=1.0, vs_qqq=0.5)] * 10
+        entries = [self._entry(3.0, vs_spy=1.0, vs_qqq=0.5) for _ in range(10)]
         v = _compute_verdicts(entries, "TEST")
         assert v["win_rate_vs_spy"] == pytest.approx(1.0)
         assert v["avg_ret_vs_spy"] == pytest.approx(1.0)
         assert v["n_with_spy_baseline"] == 10
 
     def test_benchmark_stats_null_when_no_spy_data(self):
-        entries = [self._entry(5.0)] * 10  # no vs_spy field
+        entries = [self._entry(5.0) for _ in range(10)]  # no vs_spy field
         v = _compute_verdicts(entries, "TEST")
         assert v["win_rate_vs_spy"] is None
         assert v["n_with_spy_baseline"] is None
 
     def test_sector_stats_independent_of_spy(self):
-        entries = [self._entry(3.0, vs_spy=1.0, vs_sec=2.0)] * 10
+        entries = [self._entry(3.0, vs_spy=1.0, vs_sec=2.0) for _ in range(10)]
         v = _compute_verdicts(entries, "TEST")
         assert v["avg_ret_vs_spy"] == pytest.approx(1.0)
         assert v["avg_ret_vs_sector"] == pytest.approx(2.0)
@@ -239,8 +245,8 @@ class TestComputeVerdictsWithBenchmarks:
 
     def test_partial_spy_coverage_uses_available_entries(self):
         entries = (
-            [self._entry(3.0, vs_spy=1.5)] * 7 +
-            [self._entry(4.0)] * 3  # 3 entries without vs_spy
+            [self._entry(3.0, vs_spy=1.5) for _ in range(7)] +
+            [self._entry(4.0) for _ in range(3)]  # 3 entries without vs_spy
         )
         v = _compute_verdicts(entries, "TEST")
         assert v["n_with_spy_baseline"] == 7

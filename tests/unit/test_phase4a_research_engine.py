@@ -394,12 +394,12 @@ class TestComputeVerdicts:
         assert v["verdict"] == "NEED_MORE_DATA"
 
     def test_promising_high_win_rate(self):
-        entries = [{"ret_10d": float(i)} for i in range(8, 18)]  # all positive
+        entries = [{"ticker": f"T{i}", "ret_10d": float(i)} for i in range(8, 18)]  # all positive
         v = _compute_verdicts(entries, "TEST")
         assert v["verdict"] in ("PROMISING", "EARLY_SIGNAL")
 
     def test_no_forward_edge_mostly_negative(self):
-        entries = [{"ret_10d": -5.0}] * 8 + [{"ret_10d": 3.0}] * 2
+        entries = [{"ticker": f"N{i}", "ret_10d": -5.0} for i in range(8)] + [{"ticker": f"P{i}", "ret_10d": 3.0} for i in range(2)]
         v = _compute_verdicts(entries, "TEST")
         assert v["verdict"] == "NO_FORWARD_EDGE"
 

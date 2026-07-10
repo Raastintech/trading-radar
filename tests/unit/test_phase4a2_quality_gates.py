@@ -691,7 +691,7 @@ class TestSampleStatus:
 
     def test_verdict_assigned_at_provisional_threshold(self):
         # 10+ matured with all positive returns → should get EARLY_SIGNAL or PROMISING
-        entries = [{"ret_10d": float(i + 1)} for i in range(10)]
+        entries = [{"ticker": f"T{i}", "ret_10d": float(i + 1)} for i in range(10)]
         v = _compute_verdicts(entries, "TEST")
         assert v["verdict"] != "NEED_MORE_DATA"
 

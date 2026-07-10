@@ -105,6 +105,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     forward = _load_json(store.forward_json)
     universe = _load_json(store.universe_json)
     truth = _load_json(store.moment_of_truth_json)
+    programs = _load_json(store.research_programs_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -114,6 +115,9 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         ("research_universe_build_latest.json", universe),
         ("moment_of_truth_2026_06_27.json", truth),
     ] if obj is None]
+    # research_program_validation_latest.json is intentionally NOT in the
+    # alarm list — section 4b reports its absence with the rerun command,
+    # and a missing Phase-5 sidecar must not flip the digest status.
 
     inventory = _docs_and_logs_inventory(store)
     missing += [name for name, present in inventory.items() if not present]
@@ -127,6 +131,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "forward": forward,
         "universe": universe,
         "truth": truth,
+        "programs": programs,
         "missing": missing,
     }
 
@@ -371,12 +376,20 @@ def _section_forward(inputs: Dict[str, Any]) -> List[str]:
                            if days < POST_FIX_EARLY_DAYS else "maturing"))
         except Exception:
             pass
+    # Phase 5.1 (A6 fix): 20d+ horizons ARE collected by the tracker;
+    # report their real matured counts instead of "not tracked".
+    mbh = fwd.get("matured_by_horizon") or {}
+
+    def _mat(h: str) -> str:
+        v = mbh.get(h)
+        return _fmt(v) if v is not None else "n/a (old artifact)"
+
     lines = [
         "## 4. Forward Evidence",
         f"- Tracked entries: {_fmt(status.get('total_tracked'))} | "
         f"matured 5d: {_fmt(status.get('matured_5d'))} | matured 10d: "
-        f"{_fmt(status.get('matured_10d'))} | matured 20d: not tracked in "
-        "current artifacts",
+        f"{_fmt(status.get('matured_10d'))} | matured 20d: {_mat('20d')} "
+        f"| matured 45d: {_mat('45d')} | matured 60d: {_mat('60d')}",
         f"- Benchmark readiness: {status.get('benchmark_readiness')} | "
         f"sample status: {_fmt(fwd.get('sample_status'))}",
         f"- Tracker verdict: {status.get('tracker_verdict')}"
@@ -386,6 +399,59 @@ def _section_forward(inputs: Dict[str, Any]) -> List[str]:
         f"({phase4b.get('reason') or 'n/a'})",
         f"- Post-fix evidence: {post_fix}",
     ]
+    return lines
+
+
+def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
+    """Phase 5.1 — per-program summary so Tactical, Swing, and Long-Term
+    findings are never blended into one conclusion.  Reads only the
+    program-validation sidecar (cache) plus today's scanner watchlist."""
+    lines = ["## 4b. Research Programs"]
+    report = inputs.get("programs")
+    if not report:
+        lines.append("- Program validation artifact missing — run "
+                     "./scripts/run_research_cycle.sh research-programs")
+        return lines
+
+    programs = report.get("programs") or {}
+    label_to: Dict[str, str] = {}
+    for pid, p in programs.items():
+        for label in p.get("labels") or []:
+            label_to[label] = pid
+    watchlist = (inputs.get("scanner") or {}).get("watchlist") or []
+    counts: Dict[str, int] = {}
+    for item in watchlist:
+        pid = label_to.get(item.get("watchlist_label") or "", "UNROUTED")
+        counts[pid] = counts.get(pid, 0) + 1
+
+    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+        p = programs.get(pid) or {}
+        horizons = p.get("horizons") or {}
+        matured = " ".join(
+            f"{h}d:{v.get('n_episodes')}"
+            for h, v in sorted(horizons.items(), key=lambda kv: int(kv[0])))
+        gap = (p.get("horizon_coverage") or {}).get(
+            "primary_not_collected") or []
+        line = (f"- {pid} (hold "
+                f"{p.get('expected_holding_period_td') or '?'}td): "
+                f"candidates today {counts.get(pid, 0)} | verdict "
+                f"{p.get('verdict') or 'UNKNOWN'} | matured episodes "
+                f"{matured or 'none'}")
+        if gap:
+            line += f" | primary horizons not collected: {gap}"
+        lines.append(line)
+        diag = p.get("diagnostic_signal")
+        if diag and diag not in ("NONE", None):
+            lines.append(
+                f"  - diagnostic read at "
+                f"{p.get('diagnostic_horizon_td')}d: {diag}"
+                + (f" ({p.get('diagnostic_excess_vs_qqq_pct'):+}% vs QQQ,"
+                   f" win {p.get('diagnostic_win_rate_pct')}%)"
+                   if p.get("diagnostic_excess_vs_qqq_pct") is not None
+                   else ""))
+    if counts.get("UNROUTED"):
+        lines.append(f"- UNROUTED candidates: {counts['UNROUTED']} "
+                     "(labels missing from the program map)")
     return lines
 
 
@@ -485,6 +551,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_scanner(inputs, top, reset_reclaim) + [""]
         + _section_sector_regime(inputs, top) + [""]
         + _section_forward(inputs) + [""]
+        + _section_research_programs(inputs) + [""]
         + _section_fundamentals(inputs, top) + [""]
         + _section_review_queue(inputs, top, high, reset_reclaim) + [""]
         + _section_final_finding(inputs, status, high, concerns) + [""]

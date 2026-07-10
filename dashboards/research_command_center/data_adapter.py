@@ -104,6 +104,10 @@ class ArtifactStore:
     def journal_audit_json(self) -> Path:
         return self.research_dir / "journal_audit_latest.json"
 
+    @property
+    def research_programs_json(self) -> Path:
+        return self.research_dir / "research_program_validation_latest.json"
+
 
 def _load_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
@@ -167,6 +171,56 @@ def build_journal_audit(store: Optional[ArtifactStore] = None) -> Dict[str, Any]
         ],
         "recommended_tasks": (audit.get("recommended_claude_code_tasks")
                               or [])[:5],
+    }
+
+
+def build_research_programs(
+        store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Phase 5 program routing/validation for the dashboard.  Cache-only
+    read of the sidecar written by research/research_programs.py — the
+    dashboard never runs the validation itself.  Exposes, per program:
+    name, expected holding period, evidence maturity, and the
+    pre-registered verdict, plus per-label routing so a candidate's
+    program and holding period are always displayable."""
+    store = store or ArtifactStore()
+    report = _load_json(store.research_programs_json)
+    if report is None:
+        return {"present": False, "research_only": True}
+    programs = {}
+    label_routing = {}
+    for pid, p in (report.get("programs") or {}).items():
+        cov = p.get("horizon_coverage") or {}
+        matured = sorted(int(h) for h in (p.get("horizons") or {}))
+        programs[pid] = {
+            "name": p.get("name"),
+            "expected_holding_period_td":
+                p.get("expected_holding_period_td"),
+            "verdict": p.get("verdict"),
+            "verdict_reason": p.get("verdict_reason"),
+            "n_episodes": p.get("n_episodes"),
+            "matured_horizons_td": matured,
+            "primary_not_collected_td":
+                cov.get("primary_not_collected") or [],
+            "diagnostic_signal": p.get("diagnostic_signal"),
+        }
+        for label, lb in (p.get("label_verdicts") or {}).items():
+            label_routing[label] = {
+                "program": pid,
+                "expected_holding_period_td":
+                    lb.get("expected_holding_period_td"),
+                "verdict": lb.get("verdict"),
+                "diagnostic_signal": lb.get("diagnostic_signal"),
+                "lifecycle_stage": lb.get("lifecycle_stage"),
+            }
+    return {
+        "present": True,
+        "generated_at": report.get("generated_at"),
+        "age_hours": _age_hours(report.get("generated_at")),
+        "research_only": True,
+        "deduped_episodes": report.get("deduped_episodes"),
+        "duplication_factor": report.get("duplication_factor"),
+        "programs": programs,
+        "label_routing": label_routing,
     }
 
 
@@ -235,6 +289,7 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "quarantine_count": sum(quarantine.values()) if quarantine else None,
         "warnings": (summary or {}).get("warnings") or [],
         "journal_audit": build_journal_audit(store),
+        "research_programs": build_research_programs(store),
         "missing_artifacts": missing,
         "fallback": MISSING_ARTIFACT if missing else None,
         "generated_at": (scanner or {}).get("generated_at"),

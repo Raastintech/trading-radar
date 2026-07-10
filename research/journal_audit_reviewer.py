@@ -167,6 +167,16 @@ _SECTORS_RE = re.compile(
 _TOP_NAME_SECTORS_RE = re.compile(
     r"^-\s*Top-name sectors:\s*(.+?)\s*[—-]+\s*alignment:\s*(\w+)",
     re.IGNORECASE | re.MULTILINE)
+_PROGRAM_LINE_RE = re.compile(
+    r"^-\s*(TACTICAL|SWING|LONG_TERM)\s*\(hold[^)]*\):\s*candidates today"
+    r"\s*(\d+)\s*\|\s*verdict\s*([A-Z_]+)",
+    re.IGNORECASE | re.MULTILINE)
+
+# Per-program verdict vocabulary (Phase 5.1) — matches the pre-registered
+# gates in research/research_programs.py plus UNKNOWN for a missing section.
+PROGRAM_VERDICTS = ("VALIDATED_EDGE", "PROMISING_BUT_UNPROVEN",
+                    "NO_EVIDENCE_OF_EDGE", "INSUFFICIENT_MATURE_EVIDENCE",
+                    "UNKNOWN")
 
 
 def _parse_ticker_list(raw: str) -> List[str]:
@@ -311,6 +321,13 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         top_name_sectors = _parse_name_list(m.group(1))
         alignment_label = m.group(2).lower()
 
+    programs: Dict[str, Dict[str, Any]] = {}
+    for pm in _PROGRAM_LINE_RE.finditer(text):
+        programs[pm.group(1).upper()] = {
+            "candidates_today": int(pm.group(2)),
+            "verdict": pm.group(3).upper(),
+        }
+
     weak_overlap = sorted({
         etf for etf in weak_sectors
         if any(SECTOR_ETF_NAMES.get(etf, etf).lower() in s.lower()
@@ -359,6 +376,7 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         "sector_alignment_label": alignment_label,
         "weak_sector_overlap": weak_overlap,
         "sector_alignment_questionable": sector_alignment_questionable,
+        "digest_programs": programs,
     }
 
 
@@ -524,6 +542,27 @@ def build_unbiased_next_steps(signals: Dict[str, Any],
                      f"({', '.join(social)}) before trusting their "
                      "placement.")
     return steps
+
+
+def build_program_verdicts(signals: Dict[str, Any],
+                           research_verdict: str) -> Dict[str, str]:
+    """Per-program verdicts, restated from the digest's Research Programs
+    section (which carries the pre-registered gate outcomes).  The LLM
+    never overrides these; a missing section yields UNKNOWN.  Tactical,
+    Swing, and Long-Term are never blended into one conclusion —
+    overall_engine only reflects the safety verdict."""
+    digest_programs = signals.get("digest_programs") or {}
+
+    def _verdict(pid: str) -> str:
+        raw = str((digest_programs.get(pid) or {}).get("verdict") or "")
+        return raw if raw in PROGRAM_VERDICTS else "UNKNOWN"
+
+    return {
+        "tactical": _verdict("TACTICAL"),
+        "swing": _verdict("SWING"),
+        "long_term": _verdict("LONG_TERM"),
+        "overall_engine": research_verdict,
+    }
 
 
 def _compose_balanced_takeaway(signals: Dict[str, Any],
@@ -722,6 +761,7 @@ def build_fallback_audit(digest_text: str,
         "one_line_summary": summary,
         "balanced_research_takeaway": _compose_balanced_takeaway(sig, tiers)
         if not sig["empty"] else "Digest unreadable — no takeaway.",
+        "program_verdicts": build_program_verdicts(sig, research_verdict),
         "candidate_quality_summary": tiers,
         "missing_evidence_or_artifacts": build_missing_evidence(sig),
         "unbiased_next_steps": build_unbiased_next_steps(sig, tiers),
@@ -1112,6 +1152,12 @@ exactly this JSON schema:
   "promote_to_signal": false,
   "one_line_summary": "...",
   "balanced_research_takeaway": "...",
+  "program_verdicts": {{
+    "tactical": "VALIDATED_EDGE" | "PROMISING_BUT_UNPROVEN" | "NO_EVIDENCE_OF_EDGE" | "INSUFFICIENT_MATURE_EVIDENCE" | "UNKNOWN",
+    "swing": "...same enum...",
+    "long_term": "...same enum...",
+    "overall_engine": "RESEARCH_ONLY"
+  }},
   "candidate_quality_summary": {{
     "overall": "IMPROVING_BUT_UNPROVEN" | "WEAK" | "MIXED" | "STRONG_BUT_BLOCKED",
     "higher_quality_manual_review": ["TICKER"],
@@ -1169,6 +1215,10 @@ these questions through the schema fields:
 8. What can be done next without bias?  (unbiased_next_steps)
 
 Grading rules:
+- Analyze each research program INDEPENDENTLY (Tactical / Swing /
+  Long-Term).  Never blend them into one global performance conclusion.
+  program_verdicts must restate the digest's "Research Programs" section
+  verdicts exactly; overall_engine only restates the safety verdict.
 - If Phase 4B is BLOCKED, research_verdict must be "RESEARCH_ONLY".
 - If forward evidence is MIXED, INCONCLUSIVE, or NEED_MORE_DATA,
   alpha_discovery_quality must not be "STRONG".
@@ -1238,6 +1288,7 @@ def _build_llm_context(signals: Dict[str, Any]) -> Dict[str, Any]:
             "stale_count": signals.get("stale_count"),
             "suspect_count": signals.get("suspect_count"),
         },
+        "research_programs": signals.get("digest_programs"),
         "sector_regime": {
             "regime": signals.get("regime"),
             "confidence": signals.get("regime_confidence"),
@@ -1513,6 +1564,21 @@ def sanitize_audit(audit: Dict[str, Any],
     if signals.get("forward_immature") \
             and clean["alpha_discovery_quality"] == "STRONG":
         clean["alpha_discovery_quality"] = "MIXED"
+
+    # Per-program verdicts (Phase 5.1): the digest's Research Programs
+    # section is ground truth — the LLM's proposal is ignored except as a
+    # fallback for programs the digest did not report.
+    det_programs = build_program_verdicts(signals,
+                                          clean["research_verdict"])
+    llm_programs = audit.get("program_verdicts") \
+        if isinstance(audit.get("program_verdicts"), dict) else {}
+    clean["program_verdicts"] = {
+        key: (det_programs[key] if det_programs[key] != "UNKNOWN"
+              else _coerce_enum(llm_programs.get(key), PROGRAM_VERDICTS,
+                                "UNKNOWN"))
+        for key in ("tactical", "swing", "long_term")
+    }
+    clean["program_verdicts"]["overall_engine"] = clean["research_verdict"]
 
     # Balanced analyst interpretation: deterministic tiers are the base;
     # the LLM may only demote names or add conservative flags.
