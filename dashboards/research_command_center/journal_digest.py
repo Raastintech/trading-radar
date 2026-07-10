@@ -328,6 +328,64 @@ def _section_scanner(inputs: Dict[str, Any], top: List[str],
     return lines
 
 
+# Sector-ETF symbol -> sector-name fragment, for comparing the market
+# context's ETF-denominated leading/weak lists against company sector
+# names.  Local copy — the hard-separation rule forbids dashboards
+# importing research-layer modules.  Fragments match by case-insensitive
+# substring so "Health" covers both "Healthcare" and "Health Care".
+_SECTOR_ETF_NAMES = {
+    "XLK": "Technology", "XLU": "Utilities", "XLB": "Materials",
+    "XLE": "Energy", "XLF": "Financial", "XLV": "Health",
+    "XLI": "Industrials", "XLY": "Consumer Cyclical",
+    "XLP": "Consumer Defensive", "XLC": "Communication Services",
+    "XLRE": "Real Estate", "SMH": "Technology",
+}
+
+
+def _sectors_matching(etfs: List[str], sector_names: List[str]) -> List[str]:
+    """Sector names (from company profiles) that fall under any of the
+    given sector-ETF symbols.  Handles the ETF-symbol vs sector-name
+    namespace mismatch that made the old alignment check a no-op."""
+    out: List[str] = []
+    for name in sector_names:
+        for etf in etfs:
+            fragment = _SECTOR_ETF_NAMES.get(str(etf).upper(), str(etf))
+            if fragment.lower() in name.lower() and name not in out:
+                out.append(name)
+    return out
+
+
+def _alignment_label(leading: List[str], weak: List[str],
+                     top_sectors: List[str]) -> str:
+    """Honest alignment verdict.  The old logic compared sector NAMES
+    against ETF SYMBOLS (never matched -> always 'aligned') and claimed
+    alignment even when there were no leading sectors to align with.
+    Display-only: no ranking, scoring, or gate reads this label."""
+    if not top_sectors or not (leading or weak):
+        return "unknown"
+    in_weak = _sectors_matching(weak, top_sectors)
+    in_leading = _sectors_matching(leading, top_sectors)
+    if not leading:
+        # Nothing to align WITH — say so, and quantify the weak overlap
+        # instead of defaulting to a reassuring label.
+        if in_weak:
+            return (f"not_assessable — no leading sectors; "
+                    f"{len(in_weak)} of {len(top_sectors)} top-name "
+                    f"sectors sit in weak sectors ({', '.join(in_weak)})")
+        return ("not_assessable — no leading sectors to align with "
+                "(no top-name sector is weak)")
+    if in_weak and in_leading:
+        return (f"mixed — leaders: {', '.join(in_leading)}; weak: "
+                f"{', '.join(in_weak)}")
+    if in_weak:
+        return ("misaligned — top names sit in weak sectors: "
+                + ", ".join(in_weak))
+    if in_leading:
+        return "aligned — top names sit in leading sectors: " \
+            + ", ".join(in_leading)
+    return "unconfirmed — top-name sectors are neither leading nor weak"
+
+
 def _section_sector_regime(inputs: Dict[str, Any], top: List[str]) -> List[str]:
     market = (inputs["summary"] or {}).get("market_context") or {}
     scanner = inputs["scanner"] or {}
@@ -340,11 +398,7 @@ def _section_sector_regime(inputs: Dict[str, Any], top: List[str]) -> List[str]:
         sector = str((by_ticker.get(t) or {}).get("sector") or "")
         if sector and sector not in top_sectors:
             top_sectors.append(sector)
-    aligned = "unknown"
-    if top_sectors and (leading or weak):
-        in_weak = [s for s in top_sectors if s in weak]
-        aligned = ("misaligned — top names sit in weak sectors: "
-                   + ", ".join(in_weak)) if in_weak else "aligned"
+    aligned = _alignment_label(leading, weak, top_sectors)
     lines = [
         "## 3. Sector / Regime",
         f"- Regime: {market.get('regime') or 'UNKNOWN'} "

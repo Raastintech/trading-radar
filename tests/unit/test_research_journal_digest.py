@@ -386,3 +386,42 @@ def test_status_watching_when_clean_and_proven(tmp_path):
     assert entry["status"] == "WATCHING"
     assert "phase4b-blocked" not in entry["tags"]
     assert "needs-more-data" not in entry["tags"]
+
+
+# ── sector-alignment label (P1 d29046c033c6) ─────────────────────────────────
+
+from dashboards.research_command_center.journal_digest import (  # noqa: E402
+    _alignment_label, _sectors_matching,
+)
+
+
+def test_etf_symbols_match_sector_names():
+    # the original bug: names vs ETF symbols never matched -> always
+    # "aligned"; the mapping layer must bridge the namespaces
+    assert _sectors_matching(["XLK"], ["Technology"]) == ["Technology"]
+    assert _sectors_matching(["XLV"], ["Healthcare"]) == ["Healthcare"]
+    assert _sectors_matching(["XLU"], ["Technology"]) == []
+
+
+def test_alignment_not_assessable_without_leadership():
+    label = _alignment_label([], ["XLK", "XLU"],
+                             ["Technology", "Industrials"])
+    assert label.startswith("not_assessable")
+    assert "1 of 2" in label and "Technology" in label
+    assert "aligned —" not in label
+    clean = _alignment_label([], ["XLU"], ["Technology"])
+    assert clean.startswith("not_assessable")
+    assert "no top-name sector is weak" in clean
+
+
+def test_alignment_verdicts_with_leadership():
+    assert _alignment_label(["XLI"], ["XLU"], ["Industrials"]) \
+        .startswith("aligned")
+    assert _alignment_label(["XLI"], ["XLK"], ["Technology"]) \
+        .startswith("misaligned")
+    assert _alignment_label(["XLI"], ["XLK"],
+                            ["Industrials", "Technology"]) \
+        .startswith("mixed")
+    assert _alignment_label(["XLI"], ["XLK"], ["Energy"]) \
+        .startswith("unconfirmed")
+    assert _alignment_label([], [], ["Energy"]) == "unknown"

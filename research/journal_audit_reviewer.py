@@ -332,8 +332,13 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         etf for etf in weak_sectors
         if any(SECTOR_ETF_NAMES.get(etf, etf).lower() in s.lower()
                for s in top_name_sectors)})
+    # Questionable only when the digest CLAIMS alignment despite a
+    # no-leadership tape with weak-sector overlap — the contradiction.
+    # An honest label ("not_assessable", "mixed", "misaligned") for the
+    # same tape is the correct behavior and must not be flagged.
     sector_alignment_questionable = bool(
-        sectors_line_present and not leading_sectors and weak_overlap)
+        sectors_line_present and not leading_sectors and weak_overlap
+        and (alignment_label or "aligned") == "aligned")
 
     return {
         "empty": len(text.strip()) < 40,

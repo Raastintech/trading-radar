@@ -900,3 +900,19 @@ def test_program_verdicts_unknown_when_section_missing():
     assert pv["swing"] == "UNKNOWN"
     assert pv["long_term"] == "UNKNOWN"
     assert pv["overall_engine"] == "RESEARCH_ONLY"
+
+
+def test_honest_no_leadership_label_not_flagged_as_questionable():
+    """After the d29046c033c6 fix, a digest that says 'not_assessable'
+    for a no-leadership tape is correct behavior — only a digest still
+    CLAIMING 'aligned' in that tape is a contradiction."""
+    honest = make_analyst_digest(alignment="not_assessable")
+    sig = jar.extract_digest_signals(honest)
+    assert sig["sector_alignment_questionable"] is False
+    audit = jar.audit_daily_digest(honest, use_llm=False)
+    assert not [e for e in audit["missing_evidence_or_artifacts"]
+                if e["area"] == "sector_alignment"]
+    # the legacy contradiction still fires
+    lying = make_analyst_digest(alignment="aligned")
+    assert jar.extract_digest_signals(lying)[
+        "sector_alignment_questionable"] is True
