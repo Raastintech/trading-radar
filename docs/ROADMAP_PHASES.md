@@ -10,8 +10,10 @@ completion state and the next operating mode are tracked.
 >
 > **Auto-trading, paper-trading, and all execution paths are permanently decommissioned.**
 > The system runs daily research cycles (heartbeat, scanner, research cards, lens, forecast)
-> via FMP + Tradier (options research). Alpaca is not required. SNIPER and VOYAGER sleeves
-> are DECOMMISSIONED. No new paper signals. No capital promotion path open.
+> via FMP (premium — primary provider, budget spent cache-first) + Tradier (options research
+> + daily chain-snapshot collector). Alpaca is not required: the paid subscription was dropped,
+> only a free-tier fallback account remains, and the client is a cache-serving stub.
+> SNIPER and VOYAGER sleeves are DECOMMISSIONED. No new paper signals. No capital promotion path open.
 > See `docs/research/AUTO_TRADING_DECOMMISSION_FINAL_FINDINGS.md` for the full record.
 
 ---
@@ -570,7 +572,10 @@ the phase progression. They are tracked here so future sessions don't
 confuse them with numbered phases.
 
 ### Options Data Enrichment — Alpaca primary + Tradier IV/Greeks merge
-**Status:** ✅ shipped 2026-05-21.
+**Status:** ✅ shipped 2026-05-21. **⚠ Superseded by Phase 3A/3B (2026-06-14):**
+Tradier is now the sole options provider — Alpaca options were removed from the
+active code path (`docs/research/OPTIONS_RESEARCH_PROVIDER_MIGRATION.md`). The
+merge behavior below is preserved as a historical record only.
 
 - `core/options_feed_chain.py::get_chain` keeps "first non-empty wins"
   for primary selection (Alpaca serves the chain shape: OI, quote,

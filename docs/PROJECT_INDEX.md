@@ -146,7 +146,9 @@ Two env shapes are canonical (see CLAUDE.md for detail):
   `ready_to_gate_*` verdicts are historical, not active gates.
 - **Current daily cycle:** market heartbeat → research scanner → stock research cards
   → regime forecast → alpha discovery → social arb → lens → risk telemetry.
-  FMP is the sole live data provider. Tradier for options research (read-only).
+  FMP (premium) is the sole live data provider — spend the monthly budget cache-first.
+  Tradier for options research (read-only) + the daily 15:45 ET chain-snapshot collector.
+  Alpaca: paid subscription dropped; free-tier fallback account only (client is a stub).
   See `docs/ROADMAP_PHASES.md` for the decommission record.
 
 ---
