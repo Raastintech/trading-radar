@@ -1,5 +1,14 @@
 # Options Data Sources
 
+> **⚠ PARTIALLY SUPERSEDED (Phase 3A/3B, 2026-06-14).** The provider chain below
+> predates the auto-trading decommission. **Tradier is now the sole options data
+> provider** — Alpaca options were removed from the active code path
+> (`core/options_feed_factory.py` is Tradier-only) and the paid Alpaca subscription
+> was dropped (free-tier fallback account only). The daily 15:45 ET snapshot
+> collector persists point-in-time Tradier chain data. For current truth read
+> `docs/research/OPTIONS_RESEARCH_PROVIDER_MIGRATION.md` first; the field-level
+> notes below remain useful for Tradier semantics only.
+
 Operational reference for the research-only options layer that feeds the
 Stock Lens, Alpha Discovery overlay, and Social Arb radar. Captures
 which provider serves which field, the known gaps, and how to diagnose

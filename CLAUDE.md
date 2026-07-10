@@ -29,7 +29,7 @@ For current project truth, read **in this order** (stop at the first contradicti
 
 `gem-trader` is a **research-only stock intelligence engine**. It runs a daily research cycle via systemd timers, producing a six-category research watchlist, per-ticker research cards, forward-evidence tracking, and a nightly operator summary. The goal is to surface the best candidate stocks for human review — not to trade them automatically.
 
-**Alpaca is not required and not used for execution.** FMP is the primary data provider (fundamentals, events, macro, price history). Tradier provides options chain data for research. The daemon (`gem-trader.service`) is stopped and disabled (2026-06-13); all research runs via systemd timers + cron, not a resident process.
+**Alpaca is not required and not used for execution** — the paid subscription was dropped post-decommission; only a free-tier fallback account remains. FMP (premium) is the primary data provider (fundamentals, events, macro, price history). Tradier provides options chain data for research and feeds the daily chain-snapshot collector. The daemon (`gem-trader.service`) is stopped and disabled (2026-06-13); all research runs via systemd timers + cron, not a resident process.
 
 ## Credentials and environment
 
@@ -132,7 +132,9 @@ When operating-truth questions arise, read in this order (per `docs/INDEX.md` an
 
 ### Data and provider policy
 
-Only `Alpaca` (market data + execution) and `FMP` (fundamentals/events/macro/VIX/news) are in the primary execution path. `yfinance` is **debug-only fallback** — never primary. `core/data_gatekeeper.py` is a SQLite+Parquet cache layer that fronts every FMP call; FMP budget is tracked monthly via `fmp_budget_monthly`. The cache is shared by the daemon, the dashboard, and research scripts.
+**FMP (premium subscription)** is the primary data provider — fundamentals, events, macro, VIX, news, and daily price bars. **Tradier** is the sole options data provider (chains, IV, greeks, OI) — the daily 15:45 ET snapshot collector persists point-in-time chain data from it. **The paid Alpaca subscription was dropped post-decommission (2026-06-13);** only a free-tier account remains as a fallback in a few pipelines — never treat Alpaca as an active/primary source, and do not assume paid SIP entitlements. The Alpaca broker client is a cache-serving stub (no network calls). `yfinance` is **debug-only fallback** — never primary.
+
+Use the FMP budget strategically: `core/data_gatekeeper.py` is a SQLite+Parquet cache layer that fronts every FMP call; the budget is tracked monthly via `fmp_budget_monthly`. Prefer cache-first designs and spread calls across the month rather than exhausting the allowance in one burst. The cache is shared by the dashboard and research scripts.
 
 The dashboard is **cache-only** — it never calls providers and never invokes `run_research_cycle.sh`. Provider calls for the daily cycle happen only in:
 - `scripts/run_research_cycle.sh` (nightly + premarket timers),
@@ -167,11 +169,11 @@ Optionally a `LIVE_CONFIRM_FILE` path must also exist on disk. The check lives i
 | Unit | Schedule | Purpose |
 |------|----------|---------|
 | `gem-trader.service` | **stopped + disabled** (2026-06-13) | Former trading daemon (`main.py`) — decommissioned; do not restart |
-| `gem-trader-nightly.timer` | 03:30 ET Mon-Fri | Cache cleanup + pre-warm (`scripts/nightly_refresh.py`); now also refreshes the regime-forecast parquet universe via Alpaca SIP so the premarket / nightly forecast anchors on the most recent completed session. |
+| `gem-trader-nightly.timer` | 03:30 ET Mon-Fri | Cache cleanup + pre-warm (`scripts/nightly_refresh.py`); also pre-warms the regime-forecast parquet universe via FMP (Phase 3A: Alpaca SIP removed) so the premarket / nightly forecast anchors on the most recent completed session without burning the FMP budget all at once. |
 | `gem-trader-premarket.timer` | 08:00 ET Mon-Fri | Premarket research (`run_research_cycle.sh premarket`): forecast + alpha + alpha-overlay + delta |
 | `gem-trader-midday.timer` | 12:30 ET Mon-Fri | Midday cache-only refresh (`run_research_cycle.sh midday`): resolve + reports + delta + risk-telemetry. No provider calls. |
 | `gem-trader-paper-evidence.timer` | 18:15 ET Mon-Fri | Paper-outcome resolver + scoreboard (`scripts/run_paper_evidence.py`) |
-| `gem-trader-research.timer` | 20:30 ET Mon-Fri | Nightly research cycle (`run_research_cycle.sh nightly`); runs `After=` paper-evidence. Fires 20:30 ET (was 19:00 ET) so Alpaca SIP daily bars for today's close are reliably published before the forecast runs. Includes risk-telemetry tail and lens cap `--max=35`. |
+| `gem-trader-research.timer` | 20:30 ET Mon-Fri | Nightly research cycle (`run_research_cycle.sh nightly`); runs `After=` paper-evidence. Fires 20:30 ET (was 19:00 ET) so daily bars for today's close (FMP) are reliably published before the forecast runs. Includes risk-telemetry tail and lens cap `--max=35`. |
 | `gem-trader-weekly-liquid.timer` | 14:00 ET Sat | Weekly liquid-top stock-lens refresh (`run_research_cycle.sh lenses-liquid 80`). Closes the staleness gap for off-curated tickers. |
 
 ### Phase 2B MCP audit workflows (cache-only)
@@ -180,7 +182,7 @@ Optionally a `LIVE_CONFIRM_FILE` path must also exist on disk. The check lives i
 
 ### Options data sources (research-only)
 
-Options chain data feeds the Stock Lens, Alpha Discovery overlay, and Social Arb radar via `core/options_feed_factory.py:load_options_feed()` — Alpaca primary, Tradier fallback. **Alpaca's snapshot endpoint does not return OI/greeks/IV;** the adapter merges OI from `/v2/options/contracts`. Tradier provides greeks + IV when its token validates (currently pending account activation). Live execution path is unchanged. Doctrine: `docs/ops/OPTIONS_DATA_SOURCES.md`.
+Options chain data feeds the Stock Lens, Alpha Discovery overlay, and Social Arb radar via `core/options_feed_factory.py:load_options_feed()` — **Tradier only** (Phase 3A/3B, 2026-06-14: Alpaca options removed from the active code path). Tradier provides chains, IV (`greeks.smv_vol`), greeks, OI, and put/call ratio; the token is active and validated. The daily point-in-time chain snapshot collector (user timer, 15:45 ET Mon-Fri, `research/options_chain_snapshot_collector.py`) accumulates chain history from Tradier for future IV-rank work. Migration record: `docs/research/OPTIONS_RESEARCH_PROVIDER_MIGRATION.md`; doctrine: `docs/ops/OPTIONS_DATA_SOURCES.md`.
 
 ### Phase 2B.1 MCP audit session orchestration (cache-only)
 
