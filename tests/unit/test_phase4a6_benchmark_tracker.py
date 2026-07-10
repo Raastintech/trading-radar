@@ -385,3 +385,70 @@ class TestNoProviderCalls:
         assert "requests" not in src
         assert "http" not in src.lower()
         assert "open(" not in src
+
+
+# ── Phase 5.1 follow-up: MAE + priority split ────────────────────────────────
+
+from research.research_watchlist_forward_tracker import (  # noqa: E402
+    _forward_mae, _priority_split, _priority_cohort,
+)
+
+
+class TestForwardMae:
+    CLOSES = [(f"2026-06-{d:02d}", c) for d, c in
+              [(1, 100.0), (2, 98.0), (3, 90.0), (4, 95.0), (5, 104.0),
+               (6, 103.0), (7, 110.0), (8, 108.0)]]
+
+    def test_mae_is_lowest_close_in_window(self):
+        # entry 2026-06-01 @100; 5d window = 06-02..06-06, min 90 -> -10%
+        assert _forward_mae(self.CLOSES, "2026-06-01", 5) == -10.0
+
+    def test_mae_none_when_window_incomplete(self):
+        assert _forward_mae(self.CLOSES, "2026-06-01", 10) is None
+        assert _forward_mae([], "2026-06-01", 5) is None
+
+    def test_mae_never_positive(self):
+        # entry 06-04 @95; 3d window = 104,103,110 (all above entry) -> 0.0
+        assert _forward_mae(self.CLOSES, "2026-06-04", 3) == 0.0
+
+
+class TestPrioritySplit:
+    def _rec(self, tkr, prio, ret10=None, vs_spy=None, mae10=None):
+        r = {"ticker": tkr, "priority_label": prio}
+        if ret10 is not None:
+            r["ret_10d"] = ret10
+        if vs_spy is not None:
+            r["ret_10d_vs_spy"] = vs_spy
+        if mae10 is not None:
+            r["mae_10d"] = mae10
+        return r
+
+    def test_cohort_mapping(self):
+        assert _priority_cohort(
+            {"priority_label": "HIGH_PRIORITY_RESEARCH"}) == "high_priority"
+        assert _priority_cohort(
+            {"priority_label": "RESET_WATCH"}) == "watch_only"
+        assert _priority_cohort(
+            {"priority_label": "EXTENDED_CROWDED"}) == "other"
+        assert _priority_cohort({"priority_label": None}) == "unstamped"
+        assert _priority_cohort({}) == "unstamped"
+
+    def test_split_stats_and_unstamped_reported(self):
+        entries = [
+            self._rec("A", "HIGH_PRIORITY_RESEARCH", 10.0, 4.0, -2.0),
+            self._rec("B", "HIGH_PRIORITY_RESEARCH", -2.0, -3.0, -8.0),
+            self._rec("C", "WATCHLIST_RESEARCH", 1.0, 0.5, -1.0),
+            self._rec("D", None, 5.0, 2.0, -4.0),  # pre-stamping row
+        ]
+        split = _priority_split(entries)
+        hp = split["high_priority"]["horizons"]["10d"]
+        assert hp["n"] == 2
+        assert hp["mean_ret_pct"] == 4.0
+        assert hp["median_ret_pct"] == 4.0
+        assert hp["hit_rate_vs_spy"] == 0.5
+        assert hp["mean_mae_pct"] == -5.0
+        assert hp["worst_mae_pct"] == -8.0
+        assert split["watch_only"]["horizons"]["10d"]["n"] == 1
+        # unstamped rows are reported, never dropped
+        assert split["unstamped"]["entries"] == 1
+        assert split["unstamped"]["horizons"]["10d"]["mean_ret_pct"] == 5.0

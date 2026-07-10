@@ -31,6 +31,12 @@ Evaluation windows are defined **before** evidence collection. Do not add or mov
 
 Every ledger row carries: `research_program`, `program_holding_period_td`, `program_confidence` (from `classify_label`), plus `market_cap` when the scanner provides it. Old rows were backfilled by label. No candidate appears without a program.
 
+## Max adverse excursion + priority split (Phase 5.1 follow-up)
+
+- `mae_{h}d` per entry: lowest close inside the horizon window vs the entry close (≤ 0), computed under the same full-window maturity rule as returns.
+- `priority_split` in the summary artifact: forward evidence at 5/10/20d split into `high_priority` (radar HIGH_PRIORITY_RESEARCH / TOP_RESEARCH), `watch_only` (WATCHLIST_RESEARCH / RESET_WATCH), `other` (EXTENDED_CROWDED / DATA_QUARANTINE), and `unstamped` — each with n, hit-rate vs SPY, mean/median return and excess, mean/worst MAE.
+- **Stamping is next-run backfill:** the alpha radar runs after the tracker nightly, so `priority_label` lands on the following run when the radar sidecar's date matches the entry's `appearance_date`. Rows recorded before 2026-07-10 have no per-date radar snapshot and stay `unstamped` (reported, never dropped); the split becomes meaningful as stamped cohorts mature (~5 trading days after 2026-07-10 for 5d, etc.).
+
 ## Sample honesty rules
 
 - `sample_status` is graded on **unique matured tickers** (`sample_basis: unique_tickers`), never raw rows; `matured_unique_tickers`, `matured_distinct_dates`, and `matured_by_horizon` are exported for transparency. (Raw rows overstated the sample ×3–4 via nightly re-appearances.)

@@ -177,6 +177,92 @@ def _forward_return(closes_with_dates: List[tuple], appearance_date: str, horizo
     return round((exit_close / entry_close - 1.0) * 100.0, 2)
 
 
+def _forward_mae(closes_with_dates: List[tuple], appearance_date: str,
+                 horizon: int) -> Optional[float]:
+    """Post-selection max adverse excursion: the lowest close inside the
+    horizon window relative to the entry close, in % (<= 0).  Uses closes
+    for consistency with the return methodology; only computed when the
+    full window exists (same maturity rule as the forward return)."""
+    if not closes_with_dates:
+        return None
+    idx = None
+    for i, (d, _) in enumerate(closes_with_dates):
+        if d >= appearance_date:
+            idx = i
+            break
+    if idx is None or idx + horizon >= len(closes_with_dates):
+        return None
+    entry_close = closes_with_dates[idx][1]
+    if not entry_close:
+        return None
+    window = [c for _, c in closes_with_dates[idx + 1: idx + horizon + 1]]
+    if not window:
+        return None
+    return round(min(0.0, (min(window) / entry_close - 1.0) * 100.0), 2)
+
+
+# Priority cohorts (Phase 5.1 follow-up): the daily alpha radar's
+# priority buckets collapsed into the split the forward evidence reports.
+PRIORITY_COHORTS: Dict[str, tuple] = {
+    "high_priority": ("HIGH_PRIORITY_RESEARCH", "TOP_RESEARCH"),
+    "watch_only": ("WATCHLIST_RESEARCH", "RESET_WATCH"),
+    "other": ("EXTENDED_CROWDED", "DATA_QUARANTINE"),
+}
+PRIORITY_SPLIT_HORIZONS = (5, 10, 20)
+
+
+def _priority_cohort(rec: Dict[str, Any]) -> str:
+    label = rec.get("priority_label")
+    if label is None:
+        return "unstamped"
+    for name, buckets in PRIORITY_COHORTS.items():
+        if label in buckets:
+            return name
+    return "other"
+
+
+def _priority_split(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Forward evidence split by radar priority cohort: hit rate vs SPY,
+    mean/median return and excess, and post-selection max adverse
+    excursion at 5/10/20d.  'unstamped' rows predate priority stamping
+    and are reported, never silently dropped."""
+    split: Dict[str, Any] = {}
+    for name in list(PRIORITY_COHORTS) + ["unstamped"]:
+        cohort = [r for r in entries if _priority_cohort(r) == name]
+        block: Dict[str, Any] = {
+            "entries": len(cohort),
+            "unique_tickers": len({r.get("ticker") for r in cohort}),
+            "horizons": {},
+        }
+        for h in PRIORITY_SPLIT_HORIZONS:
+            rets = [r[f"ret_{h}d"] for r in cohort
+                    if r.get(f"ret_{h}d") is not None]
+            if not rets:
+                continue
+            ex = [r[f"ret_{h}d_vs_spy"] for r in cohort
+                  if r.get(f"ret_{h}d_vs_spy") is not None]
+            maes = [r[f"mae_{h}d"] for r in cohort
+                    if r.get(f"mae_{h}d") is not None]
+            block["horizons"][f"{h}d"] = {
+                "n": len(rets),
+                "mean_ret_pct": round(sum(rets) / len(rets), 2),
+                "median_ret_pct": round(statistics.median(rets), 2),
+                "hit_rate_vs_spy":
+                    round(sum(1 for v in ex if v > 0) / len(ex), 3)
+                    if ex else None,
+                "mean_excess_vs_spy_pct":
+                    round(sum(ex) / len(ex), 2) if ex else None,
+                "median_excess_vs_spy_pct":
+                    round(statistics.median(ex), 2) if ex else None,
+                "mean_mae_pct":
+                    round(sum(maes) / len(maes), 2) if maes else None,
+                "worst_mae_pct": round(min(maes), 2) if maes else None,
+                "n_with_mae": len(maes),
+            }
+        split[name] = block
+    return split
+
+
 def _load_history() -> Dict[str, Dict[str, Any]]:
     """Load JSONL history keyed by 'ticker|date'."""
     result: Dict[str, Dict[str, Any]] = {}
@@ -454,6 +540,32 @@ def run_forward_tracker() -> Dict[str, Any]:
                 route.get("expected_holding_period_td")
             rec["program_confidence"] = route.get("confidence")
 
+    # Priority stamping (next-run backfill): the alpha radar runs AFTER
+    # the tracker each night, so entries recorded tonight get their
+    # priority bucket stamped on the next run, when the radar sidecar's
+    # date matches their appearance_date.  Older rows without a matching
+    # radar snapshot stay unstamped and are reported as such.
+    radar_map: Dict[str, str] = {}
+    radar_date: Optional[str] = None
+    radar_path = RESEARCH_DIR / "daily_alpha_radar_latest.json"
+    if radar_path.exists():
+        try:
+            radar = json.loads(radar_path.read_text(encoding="utf-8"))
+            radar_date = str(radar.get("generated_at") or "")[:10]
+            for bucket, tickers in (radar.get("priority_tickers")
+                                    or {}).items():
+                for t in tickers or []:
+                    radar_map.setdefault(t, bucket)
+        except Exception:
+            radar_map, radar_date = {}, None
+    if radar_map and radar_date:
+        for rec in history.values():
+            if rec.get("priority_label") is None \
+                    and rec.get("appearance_date") == radar_date \
+                    and rec["ticker"] in radar_map:
+                rec["priority_label"] = radar_map[rec["ticker"]]
+                rec["priority_source"] = "daily_alpha_radar"
+
     # Backfill sector/benchmark_sector_etf for existing entries that predate this schema
     for rec in history.values():
         if "benchmark_sector_etf" not in rec:
@@ -518,6 +630,17 @@ def run_forward_tracker() -> Dict[str, Any]:
                 ret = _forward_return(closes, date, h)
                 if ret is not None:
                     rec[ret_field] = ret
+                    updated = True
+
+            # Post-selection max adverse excursion (same window rule)
+            mae_field = f"mae_{h}d"
+            if rec.get(mae_field) is None \
+                    and rec.get(ret_field) is not None:
+                if closes is None:
+                    closes = _load_closes_with_dates(ticker)
+                mae = _forward_mae(closes, date, h)
+                if mae is not None:
+                    rec[mae_field] = mae
                     updated = True
 
             # Fill benchmark fields whenever the ticker return for this horizon is ready
@@ -627,6 +750,7 @@ def run_forward_tracker() -> Dict[str, Any]:
         "benchmark_readiness": bench_readiness,
         "resolution_coverage": resolution_coverage,
         "program_counts": program_counts,
+        "priority_split": _priority_split(all_entries),
         "tracked_horizons_td": HORIZONS,
         "guardrails": {
             "no_trade_recommendation": True,
@@ -686,6 +810,26 @@ def _format_text(result: Dict[str, Any]) -> str:
         for prog, blk in sorted(pc.items()):
             lines.append(f"  {prog:<12} entries={blk['entries']:5d}  "
                          f"unique_tickers={blk['unique_tickers']}")
+
+    ps = result.get("priority_split") or {}
+    if ps:
+        lines += ["", "=== PRIORITY SPLIT (hit-rate vs SPY | mean/med ret "
+                      "| mean/worst MAE) ==="]
+        for name, blk in ps.items():
+            if not blk.get("horizons"):
+                lines.append(f"  {name:<14} entries={blk.get('entries', 0)}"
+                             "  (no matured evidence)")
+                continue
+            lines.append(f"  {name:<14} entries={blk['entries']}  "
+                         f"unique={blk['unique_tickers']}")
+            for h, st in blk["horizons"].items():
+                lines.append(
+                    f"    {h:>4}: n={st['n']:3d}  "
+                    f"hit_vs_spy={st['hit_rate_vs_spy'] if st['hit_rate_vs_spy'] is not None else 'n/a'}  "
+                    f"ret={st['mean_ret_pct']:+.2f}/{st['median_ret_pct']:+.2f}%  "
+                    f"mae={st['mean_mae_pct'] if st['mean_mae_pct'] is not None else 'n/a'}"
+                    f"/{st['worst_mae_pct'] if st['worst_mae_pct'] is not None else 'n/a'}%"
+                    f" (mae n={st['n_with_mae']})")
 
     lines += ["", "=== BY LABEL BUCKET ==="]
     for v in result.get("verdicts_by_label", []):
