@@ -621,3 +621,224 @@ def test_sidecar_carries_actions_and_trend(tmp_path):
     assert "audit_trend" in saved
     assert saved["promote_to_signal"] is False
     assert not FORBIDDEN.search(json.dumps(saved))
+
+
+# ── 11. balanced analyst interpretation (candidate tiers + missing evidence) ─
+
+
+def make_analyst_digest(*, verdict: str = "NO_FORWARD_EDGE",
+                        phase4b: str = "BLOCKED",
+                        matured_20d: str = "not tracked in current artifacts",
+                        leading: str = "none",
+                        weak: str = "XLU, XLB, XLK",
+                        top_sectors: str = "Industrials, Technology, "
+                                           "Consumer Cyclical",
+                        alignment: str = "aligned") -> str:
+    """Digest mirroring the real 2026-07-09 format: mixed-quality
+    high-priority names, a social-attention name, and analyst context."""
+    return f"""# Daily Research Digest
+
+## 1. Data Quality
+- Freshness: FRESH (scanner age 0.0h)
+- Stale-price skipped: 17 | suspect-feed skipped: 7 | quarantined: 5
+- Missing artifacts: 0
+- Warning: Scanner recall low at 2.0% — main miss: FILTER_TOO_STRICT (simple-RS baseline: 33.7%)
+- Warning: Options overlay: DISABLED — insufficient coverage
+- Warning: Targeted backfill plan: 8 tickers need >=300 bars — run targeted-backfill --execute to fill
+
+## 2. Scanner / Why Names Appeared
+- Total candidates: 99
+- High-priority: FBIN, SDGR, AGYS, BLMN, RH, LEVI
+- RH: Social attention signal (source: social_arb)
+
+## 3. Sector / Regime
+- Regime: Bull Pullback / Buy-the-Dip (confidence low; bias 5d constructive / 10d constructive / 30d mixed)
+- Leading sectors: {leading} | weak sectors: {weak}
+- Top-name sectors: {top_sectors} — alignment: {alignment}
+
+## 4. Forward Evidence
+- Tracked entries: 1771 | matured 5d: 763 | matured 10d: 338 | matured 20d: {matured_20d}
+- Tracker verdict: {verdict} | moment-of-truth verdict: INCONCLUSIVE
+- Phase 4B: {phase4b} (forward evidence insufficient)
+
+## 5. Fundamental Overlay
+- FBIN: quality PROFITABLE_CASHGEN | GM 44.01% | OM 11.0% | net debt | dilution 3q -2.1%
+- SDGR: quality UNPROFITABLE_FUNDED | GM 55.33% | OM -64.65% | net cash | dilution 3q +0.8%
+- AGYS: quality PROFITABLE_CASHGEN | GM 61.85% | OM 12.61% | net cash | dilution 3q +0.5%
+- BLMN: quality PROFITABLE_CASHGEN | GM 54.45% | OM 1.07% | net debt | dilution 3q +0.7%
+- RH: quality PROFITABLE_CASHGEN | GM 43.54% | OM 10.8% | net debt | dilution 3q -4.5%
+- LEVI: quality PROFITABLE_CASHGEN | GM 61.69% | OM 10.54% | net debt | dilution 3q -1.2%
+
+## 6. Journal Review Queue
+- Review first: FBIN, SDGR, AGYS, BLMN, RH, LEVI
+
+## 7. Final Finding
+Pipeline is operational.
+
+Research only — not a signal or recommendation.
+"""
+
+
+def test_mixed_fundamentals_produce_tiered_candidate_summary():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    cq = audit["candidate_quality_summary"]
+    assert cq["overall"] == "IMPROVING_BUT_UNPROVEN"
+    assert cq["higher_quality_manual_review"] == ["FBIN", "AGYS", "RH",
+                                                  "LEVI"]
+    # BLMN: profitable but OM 1.07% (< 3% thin-margin floor)
+    assert cq["caution_manual_review"] == ["BLMN"]
+
+
+def test_unprofitable_funded_negative_om_is_speculative():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    cq = audit["candidate_quality_summary"]
+    assert cq["speculative_or_prove_it"] == ["SDGR"]
+    assert "SDGR" not in cq["higher_quality_manual_review"]
+
+
+def test_social_attention_name_requires_confirmation():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    cq = audit["candidate_quality_summary"]
+    assert cq["social_signal_requires_confirmation"] == ["RH"]
+    # RH is profitable so it still tiers as higher-quality — the social
+    # flag is an additional confirmation requirement, not a demotion.
+    assert "RH" in cq["higher_quality_manual_review"]
+    assert any("confirmation" in s and "RH" in s
+               for s in audit["unbiased_next_steps"])
+
+
+def test_missing_20d_creates_warning_and_system_action():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    missing = audit["missing_evidence_or_artifacts"]
+    fwd = [e for e in missing if e["area"] == "forward_evidence"]
+    assert fwd and "20d" in fwd[0]["issue"]
+    acts = [a for a in audit["next_system_actions"]
+            if a["area"] == "forward_evidence"
+            and "winsorized mean" in a["success_metric"]]
+    assert acts and acts[0]["priority"] == "P0"
+    # a digest that DOES track 20d raises neither
+    audit2 = jar.audit_daily_digest(
+        make_analyst_digest(matured_20d="120"), use_llm=False)
+    assert not [e for e in audit2["missing_evidence_or_artifacts"]
+                if e["area"] == "forward_evidence"]
+
+
+def test_sector_alignment_review_warning():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    sect = [e for e in audit["missing_evidence_or_artifacts"]
+            if e["area"] == "sector_alignment"]
+    assert sect and "XLK" in sect[0]["issue"]
+    assert any(a["area"] == "sector_alignment"
+               for a in audit["next_system_actions"])
+    # with actual leading sectors the warning is not raised
+    audit2 = jar.audit_daily_digest(
+        make_analyst_digest(leading="XLI, XLV"), use_llm=False)
+    assert not [e for e in audit2["missing_evidence_or_artifacts"]
+                if e["area"] == "sector_alignment"]
+
+
+def test_blocked_and_no_forward_edge_stay_research_only(monkeypatch):
+    """Improving candidate quality never overrides the safety verdict —
+    even when a lying LLM says READY_FOR_HUMAN_REVIEW."""
+    monkeypatch.setattr(jar, "_llm_audit", lambda text: {
+        "research_verdict": "READY_FOR_HUMAN_REVIEW",
+        "alpha_discovery_quality": "IMPROVING",
+        "engine_health": "OPERATIONAL",
+        "promote_to_signal": True,
+        "one_line_summary": "candidate quality improved",
+        "candidate_quality_summary": {
+            "overall": "IMPROVING_BUT_UNPROVEN",
+            "higher_quality_manual_review": ["FBIN", "AGYS", "RH", "LEVI"],
+            "caution_manual_review": [], "speculative_or_prove_it": [],
+            "social_signal_requires_confirmation": []},
+        "what_is_working": [], "flaws_detected": [],
+        "recommended_claude_code_tasks": [], "next_system_actions": [],
+        "audit_source": "llm", "model": "test",
+    })
+    audit = jar.audit_daily_digest(make_analyst_digest(
+        verdict="NO_FORWARD_EDGE", phase4b="BLOCKED"))
+    assert audit["research_verdict"] == "RESEARCH_ONLY"
+    assert audit["promote_to_signal"] is False
+    # NO_FORWARD_EDGE alone (Phase 4B wording unblocked) also pins it
+    audit2 = jar.audit_daily_digest(make_analyst_digest(
+        verdict="NO_FORWARD_EDGE", phase4b="UNBLOCKED"), use_llm=False)
+    assert audit2["research_verdict"] == "RESEARCH_ONLY"
+
+
+def test_fallback_produces_tiers_and_unbiased_steps_without_llm():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    assert audit["audit_source"] == "rule_based_fallback"
+    cq = audit["candidate_quality_summary"]
+    assert cq["higher_quality_manual_review"] and \
+        cq["caution_manual_review"] and cq["speculative_or_prove_it"]
+    steps = "\n".join(audit["unbiased_next_steps"])
+    assert "RESEARCH_ONLY" in steps
+    assert "high-priority" in steps
+    assert "fundamentals" in steps          # tier instead of equals
+    assert "backfill" in steps              # 8 tickers >=300 bars
+    assert "20d" in steps                   # missing horizon
+    assert "shadow recall" in steps         # not loosening gates
+    assert "sector-alignment" in steps      # none-vs-weak overlap
+    assert audit["balanced_research_takeaway"]
+    assert "manual review, not promotion" in \
+        audit["balanced_research_takeaway"]
+    # two-sided one-liner: improvement AND blockers
+    assert "Candidate quality improved" in audit["one_line_summary"]
+    assert "research-only" in audit["one_line_summary"]
+
+
+def test_llm_cannot_promote_tickers_or_invent_them(monkeypatch):
+    monkeypatch.setattr(jar, "_llm_audit", lambda text: {
+        "research_verdict": "RESEARCH_ONLY",
+        "alpha_discovery_quality": "MIXED",
+        "engine_health": "OPERATIONAL_WITH_BLOCKERS",
+        "promote_to_signal": True,  # must be forced false
+        "one_line_summary": "s",
+        "candidate_quality_summary": {
+            "overall": "STRONG_BUT_BLOCKED",
+            # SDGR promoted + invented ticker: both must be rejected
+            "higher_quality_manual_review": ["SDGR", "ZZZZ"],
+            # demotion of a deterministic higher-quality name is allowed
+            "caution_manual_review": ["LEVI"],
+            "speculative_or_prove_it": [],
+            "social_signal_requires_confirmation": ["RH"]},
+        "what_is_working": [], "flaws_detected": [],
+        "recommended_claude_code_tasks": [], "next_system_actions": [],
+        "audit_source": "llm", "model": "test",
+    })
+    audit = jar.audit_daily_digest(make_analyst_digest())
+    assert audit["promote_to_signal"] is False
+    cq = audit["candidate_quality_summary"]
+    assert "SDGR" in cq["speculative_or_prove_it"]      # not promoted
+    assert "ZZZZ" not in json.dumps(cq)                 # invented: dropped
+    assert "LEVI" in cq["caution_manual_review"]        # demotion allowed
+    assert "LEVI" not in cq["higher_quality_manual_review"]
+    assert cq["social_signal_requires_confirmation"] == ["RH"]
+
+
+def test_existing_blocker_detection_still_works():
+    audit = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    areas = {f["area"] for f in audit["flaws_detected"]}
+    assert {"scanner_recall", "forward_evidence",
+            "options_overlay"} <= areas
+    act_areas = {a["area"] for a in audit["next_system_actions"]}
+    assert {"scanner_recall", "forward_evidence", "data_quality",
+            "options_overlay"} <= act_areas
+
+
+def test_no_broker_or_execution_imports_in_reviewer():
+    import ast as _ast
+    source = Path(jar.__file__).read_text(encoding="utf-8")
+    tree = _ast.parse(source)
+    imported = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            imported.update(a.name for a in node.names)
+        elif isinstance(node, _ast.ImportFrom):
+            imported.add(node.module or "")
+    forbidden = ("alpaca", "tradier", "execution", "broker",
+                 "core.config", "core.alpaca", "order", "strategies",
+                 "council")
+    for mod in imported:
+        assert not any(mod.startswith(f) or f in mod for f in forbidden), \
+            f"forbidden import in journal_audit_reviewer: {mod}"

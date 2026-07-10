@@ -70,6 +70,32 @@ FLAW_AREAS = ("scanner_recall", "data_quality", "forward_evidence",
               "fundamental_overlay", "options_overlay", "regime_filter",
               "ranking_logic", "journal_wording", "other")
 
+# candidate_quality_summary — balanced analyst interpretation of the board.
+CANDIDATE_QUALITY_LEVELS = ("IMPROVING_BUT_UNPROVEN", "WEAK", "MIXED",
+                            "STRONG_BUT_BLOCKED")
+# Tier rank for the conservative-only LLM merge: the LLM may DEMOTE a name
+# (higher -> caution -> speculative) but never promote one.
+_TIER_RANK = {"higher_quality_manual_review": 2, "caution_manual_review": 1,
+              "speculative_or_prove_it": 0}
+
+MISSING_EVIDENCE_AREAS = ("forward_evidence", "data_quality",
+                          "sector_alignment", "options_overlay", "other")
+
+# Fundamental tiering thresholds (digest-text interpretation only — these
+# never touch scanner scores, rankings, or gates).
+THIN_OPERATING_MARGIN_PCT = 3.0
+HIGH_DILUTION_3Q_PCT = 5.0
+
+# Weak-sector ETFs -> sector-name fragments used for the alignment
+# cross-check (substring match against digest top-name sectors).
+SECTOR_ETF_NAMES = {
+    "XLK": "Technology", "XLU": "Utilities", "XLB": "Materials",
+    "XLE": "Energy", "XLF": "Financial", "XLV": "Health",
+    "XLI": "Industrials", "XLY": "Consumer Cyclical",
+    "XLP": "Consumer Defensive", "XLC": "Communication Services",
+    "XLRE": "Real Estate",
+}
+
 # Tracker verdicts that mean the forward evidence is not yet trustworthy.
 IMMATURE_FORWARD_VERDICTS = {"MIXED", "INCONCLUSIVE", "NEED_MORE_DATA"}
 # Tracker verdicts that mean the forward evidence is actively negative.
@@ -80,8 +106,8 @@ SCANNER_RECALL_FLOOR_PCT = 5.0
 # next_system_actions schema
 PRIORITIES = ("P0", "P1", "P2")
 ACTION_AREAS = ("scanner_recall", "forward_evidence", "options_overlay",
-                "data_quality", "fundamental_overlay")
-MAX_SYSTEM_ACTIONS = 8
+                "data_quality", "fundamental_overlay", "sector_alignment")
+MAX_SYSTEM_ACTIONS = 10
 
 # audit_trend
 TREND_WINDOW = 5
@@ -105,6 +131,67 @@ _RECALL_MAIN_MISS_RE = re.compile(
 _TRACKER_VERDICT_RE = re.compile(
     r"tracker verdict:\s*([A-Z_]+)", re.IGNORECASE)
 _QUARANTINED_RE = re.compile(r"quarantined:\s*(\d+)", re.IGNORECASE)
+
+# ── analyst-context regexes (deterministic pre-parse for the LLM) ────────────
+_TICKER = r"[A-Z][A-Z0-9.\-]{0,7}"
+_HIGH_PRIORITY_RE = re.compile(
+    r"^-\s*High-priority:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+_REVIEW_FIRST_RE = re.compile(
+    r"^-\s*Review first:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+_FUNDAMENTAL_ROW_RE = re.compile(
+    rf"^-\s*({_TICKER}):\s*quality\s+([A-Z_]+)"
+    r"(?:\s*\|\s*GM\s+(-?[\d.]+)%)?"
+    r"(?:\s*\|\s*OM\s+(-?[\d.]+)%)?"
+    r"(?:\s*\|\s*(net debt|net cash))?"
+    r"(?:\s*\|\s*dilution\s+3q\s+([+-]?[\d.]+)%)?",
+    re.MULTILINE)
+_SOCIAL_SOURCE_RE = re.compile(
+    rf"^-\s*({_TICKER}):\s*Social attention signal",
+    re.IGNORECASE | re.MULTILINE)
+_MOMENT_OF_TRUTH_RE = re.compile(
+    r"moment-of-truth verdict:\s*([A-Z_]+)", re.IGNORECASE)
+_MATURED_RE = re.compile(
+    r"matured\s+(5d|10d|20d):\s*([^|\n]+)", re.IGNORECASE)
+_STALE_SKIPPED_RE = re.compile(
+    r"stale-price skipped:\s*(\d+)", re.IGNORECASE)
+_SUSPECT_SKIPPED_RE = re.compile(
+    r"suspect-feed skipped:\s*(\d+)", re.IGNORECASE)
+_BACKFILL_COUNT_RE = re.compile(
+    r"(\d+)\s+tickers?\s+need\s*>=?\s*300\s*bars", re.IGNORECASE)
+_REGIME_RE = re.compile(
+    r"^-\s*Regime:\s*(.+?)\s*\(confidence\s+(\w+)",
+    re.IGNORECASE | re.MULTILINE)
+_SECTORS_RE = re.compile(
+    r"Leading sectors:\s*([^|\n]+?)\s*\|\s*weak sectors:\s*([^\n]+)",
+    re.IGNORECASE)
+_TOP_NAME_SECTORS_RE = re.compile(
+    r"^-\s*Top-name sectors:\s*(.+?)\s*[—-]+\s*alignment:\s*(\w+)",
+    re.IGNORECASE | re.MULTILINE)
+
+
+def _parse_ticker_list(raw: str) -> List[str]:
+    """Comma-separated tickers from a digest line; '(+N more)' and
+    non-ticker tokens are dropped."""
+    out: List[str] = []
+    for token in re.sub(r"\(\+\d+\s+more\)", "", raw or "").split(","):
+        token = token.strip()
+        if token and re.fullmatch(_TICKER, token) and token not in out:
+            out.append(token)
+    return out
+
+
+def _parse_name_list(raw: str) -> List[str]:
+    """Comma-separated sector names; 'none' means empty."""
+    items = [s.strip() for s in (raw or "").split(",")]
+    items = [s for s in items if s and s.lower() not in ("none", "n/a", "-")]
+    return items
+
+
+def _float_or_none(raw: Any) -> Optional[float]:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 # ── digest signal extraction (deterministic, text-only) ──────────────────────
@@ -161,6 +248,76 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         for ln in text.splitlines()
         if "warning" in ln.lower() or "warn" in ln.lower())
 
+    # ── analyst context: candidates, fundamentals, forward depth, sectors ──
+    m = _HIGH_PRIORITY_RE.search(text)
+    high_priority = _parse_ticker_list(m.group(1)) if m else []
+    m = _REVIEW_FIRST_RE.search(text)
+    review_first = _parse_ticker_list(m.group(1)) if m else []
+
+    fundamentals: Dict[str, Dict[str, Any]] = {}
+    for fm in _FUNDAMENTAL_ROW_RE.finditer(text):
+        fundamentals[fm.group(1)] = {
+            "quality": fm.group(2).upper(),
+            "gm_pct": _float_or_none(fm.group(3)),
+            "om_pct": _float_or_none(fm.group(4)),
+            "balance": (fm.group(5) or "").lower() or None,
+            "dilution_3q_pct": _float_or_none(fm.group(6)),
+        }
+
+    social_source = []
+    for sm in _SOCIAL_SOURCE_RE.finditer(text):
+        if sm.group(1) not in social_source:
+            social_source.append(sm.group(1))
+
+    moment_of_truth = None
+    m = _MOMENT_OF_TRUTH_RE.search(text)
+    if m:
+        moment_of_truth = m.group(1).upper()
+
+    matured: Dict[str, Optional[int]] = {}
+    matured_20d_missing = False
+    for mm in _MATURED_RE.finditer(text):
+        horizon, raw = mm.group(1).lower(), mm.group(2).strip()
+        digits = re.match(r"(\d+)", raw)
+        matured[horizon] = int(digits.group(1)) if digits else None
+        if horizon == "20d" and digits is None:
+            # explicit "matured 20d: not tracked ..." (or similar prose)
+            matured_20d_missing = True
+
+    m = _STALE_SKIPPED_RE.search(text)
+    stale_count = int(m.group(1)) if m else None
+    m = _SUSPECT_SKIPPED_RE.search(text)
+    suspect_count = int(m.group(1)) if m else None
+    m = _BACKFILL_COUNT_RE.search(text)
+    backfill_ticker_count = int(m.group(1)) if m else None
+
+    regime = regime_confidence = None
+    m = _REGIME_RE.search(text)
+    if m:
+        regime, regime_confidence = m.group(1).strip(), m.group(2).lower()
+
+    leading_sectors: List[str] = []
+    weak_sectors: List[str] = []
+    m = _SECTORS_RE.search(text)
+    sectors_line_present = m is not None
+    if m:
+        leading_sectors = _parse_name_list(m.group(1))
+        weak_sectors = [s.upper() for s in _parse_name_list(m.group(2))]
+
+    top_name_sectors: List[str] = []
+    alignment_label = None
+    m = _TOP_NAME_SECTORS_RE.search(text)
+    if m:
+        top_name_sectors = _parse_name_list(m.group(1))
+        alignment_label = m.group(2).lower()
+
+    weak_overlap = sorted({
+        etf for etf in weak_sectors
+        if any(SECTOR_ETF_NAMES.get(etf, etf).lower() in s.lower()
+               for s in top_name_sectors)})
+    sector_alignment_questionable = bool(
+        sectors_line_present and not leading_sectors and weak_overlap)
+
     return {
         "empty": len(text.strip()) < 40,
         # \b keeps "UNBLOCKED" from matching
@@ -181,7 +338,237 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         "freshness_stale": bool(re.search(r"freshness:\s*stale", lower)),
         "nightly_failed": bool(re.search(r"nightly status\s+(fail|error)",
                                          lower)),
+        # analyst context (deterministic pre-parse)
+        "high_priority_tickers": high_priority,
+        "review_first_tickers": review_first,
+        "fundamentals": fundamentals,
+        "social_source_tickers": social_source,
+        "moment_of_truth_verdict": moment_of_truth,
+        "matured_5d": matured.get("5d"),
+        "matured_10d": matured.get("10d"),
+        "matured_20d": matured.get("20d"),
+        "matured_20d_missing": matured_20d_missing,
+        "stale_count": stale_count,
+        "suspect_count": suspect_count,
+        "backfill_ticker_count": backfill_ticker_count,
+        "regime": regime,
+        "regime_confidence": regime_confidence,
+        "leading_sectors": leading_sectors,
+        "weak_sectors": weak_sectors,
+        "top_name_sectors": top_name_sectors,
+        "sector_alignment_label": alignment_label,
+        "weak_sector_overlap": weak_overlap,
+        "sector_alignment_questionable": sector_alignment_questionable,
     }
+
+
+# ── balanced analyst interpretation (deterministic) ─────────────────────────
+#
+# These builders read only the parsed digest signals.  They interpret the
+# digest content — they never predict price direction, never promote a
+# ticker, and never touch scanner scores, rankings, thresholds, gates, or
+# artifacts.  They are the contract on every path: the LLM may DEMOTE a
+# name to a more conservative tier or add missing-evidence items, but it
+# can never promote a name or drop a deterministic finding.
+
+
+def build_candidate_quality_summary(
+        signals: Dict[str, Any]) -> Dict[str, Any]:
+    """Tier the high-priority names by their digest fundamentals."""
+    fundamentals = signals.get("fundamentals") or {}
+    high_priority = signals.get("high_priority_tickers") or []
+    higher: List[str] = []
+    caution: List[str] = []
+    speculative: List[str] = []
+    for ticker in high_priority:
+        row = fundamentals.get(ticker)
+        if row is None:
+            caution.append(ticker)  # no overlay row -> unverified
+            continue
+        om = row.get("om_pct")
+        dilution = row.get("dilution_3q_pct")
+        if row.get("quality") == "UNPROFITABLE_FUNDED" \
+                or (om is not None and om < 0):
+            speculative.append(ticker)
+        elif (om is not None and om < THIN_OPERATING_MARGIN_PCT) \
+                or (dilution is not None
+                    and dilution >= HIGH_DILUTION_3Q_PCT):
+            caution.append(ticker)
+        elif row.get("quality") == "PROFITABLE_CASHGEN":
+            higher.append(ticker)
+        else:
+            caution.append(ticker)
+
+    unproven = bool(signals.get("phase4b_blocked")
+                    or signals.get("forward_negative")
+                    or signals.get("forward_immature"))
+    tiered = len(higher) + len(caution) + len(speculative)
+    if tiered == 0:
+        overall = "WEAK"
+    elif len(higher) == tiered and unproven:
+        overall = "STRONG_BUT_BLOCKED"
+    elif len(higher) * 2 >= tiered:
+        overall = "IMPROVING_BUT_UNPROVEN"
+    elif higher:
+        overall = "MIXED"
+    else:
+        overall = "WEAK"
+
+    return {
+        "overall": overall,
+        "higher_quality_manual_review": higher,
+        "caution_manual_review": caution,
+        "speculative_or_prove_it": speculative,
+        "social_signal_requires_confirmation":
+            list(signals.get("social_source_tickers") or []),
+    }
+
+
+def _missing(area: str, issue: str, why: str, fix: str) -> Dict[str, str]:
+    return {"area": area, "issue": issue, "why_it_matters": why,
+            "suggested_fix": fix}
+
+
+def build_missing_evidence(signals: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Evidence/artifact gaps that weaken the digest's own conclusions."""
+    out: List[Dict[str, str]] = []
+    if signals.get("matured_20d_missing"):
+        depth = []
+        if signals.get("matured_5d") is not None:
+            depth.append(f"matured 5d: {signals['matured_5d']}")
+        if signals.get("matured_10d") is not None:
+            depth.append(f"matured 10d: {signals['matured_10d']}")
+        out.append(_missing(
+            "forward_evidence",
+            "Matured 20d forward evidence is not tracked in current "
+            "artifacts" + (f" ({'; '.join(depth)})" if depth else "") + ".",
+            "Swing/alpha research needs the 20d horizon; without it the "
+            "edge verdict rests on short horizons only and could flip "
+            "when longer outcomes mature.",
+            "Add or repair 20d forward-outcome tracking in the "
+            "forward-evidence artifacts and dashboard."))
+    if signals.get("sector_alignment_questionable"):
+        overlap = ", ".join(signals.get("weak_sector_overlap") or [])
+        label = signals.get("sector_alignment_label") or "aligned"
+        out.append(_missing(
+            "sector_alignment",
+            f"Alignment is labeled '{label}' while leading sectors are "
+            f"none and weak sectors ({overlap}) overlap the top-name "
+            "sectors.",
+            "A no-leadership tape with top names concentrated in weak "
+            "sectors contradicts an 'aligned' label and raises "
+            "false-positive risk in candidate selection.",
+            "Review the sector-alignment logic and wording for the "
+            "no-leadership case; explain what 'aligned' means when weak "
+            "sectors overlap top-name sectors."))
+    if signals.get("options_overlay_disabled"):
+        out.append(_missing(
+            "options_overlay",
+            "Options overlay is DISABLED for insufficient coverage.",
+            "A corroborating evidence layer (options participation / IV "
+            "context) is absent from candidate context.",
+            "Produce an options-coverage gap report listing which top and "
+            "watch names lack options data."))
+    if signals.get("backfill_warning") \
+            or signals.get("backfill_ticker_count"):
+        n = signals.get("backfill_ticker_count")
+        out.append(_missing(
+            "data_quality",
+            (f"Targeted backfill plan flags {n} tickers needing >=300 bars."
+             if n else "Targeted backfill warnings are present."),
+            "Insufficient price history weakens RS/MA fields and can "
+            "produce unreliable candidate qualification.",
+            "Run the targeted backfill (dry-run first, then --execute) and "
+            "verify the bar-count floor afterwards."))
+    return out
+
+
+def build_unbiased_next_steps(signals: Dict[str, Any],
+                              tiers: Dict[str, Any]) -> List[str]:
+    """Neutral, research-only next steps derived from the digest facts."""
+    steps: List[str] = []
+    if signals.get("phase4b_blocked") or signals.get("forward_negative"):
+        steps.append("Keep the research verdict RESEARCH_ONLY — no "
+                     "promotion path until forward evidence proves an "
+                     "edge.")
+    if signals.get("high_priority_tickers"):
+        steps.append("Run structured manual review only on the "
+                     "high-priority names; watch-only names stay "
+                     "watch-only.")
+    if tiers.get("caution_manual_review") \
+            or tiers.get("speculative_or_prove_it"):
+        steps.append("Tier the high-priority names by fundamentals "
+                     "(profitable cash generators vs thin-margin vs "
+                     "unprofitable) instead of treating them as equals.")
+    if signals.get("backfill_warning") \
+            or signals.get("backfill_ticker_count"):
+        n = signals.get("backfill_ticker_count")
+        steps.append(f"Run the targeted backfill for the "
+                     f"{n if n else 'flagged'} tickers needing >=300 "
+                     "bars.")
+    if signals.get("matured_20d_missing"):
+        steps.append("Add or repair 20d forward-evidence tracking in the "
+                     "current artifacts.")
+    recall = signals.get("scanner_recall_pct")
+    if recall is not None and recall < SCANNER_RECALL_FLOOR_PCT:
+        steps.append("Continue the shadow recall experiment rather than "
+                     "loosening production gates.")
+    if signals.get("sector_alignment_questionable"):
+        steps.append("Review the sector-alignment logic when leading "
+                     "sectors are none but weak sectors overlap top-name "
+                     "sectors.")
+    social = tiers.get("social_signal_requires_confirmation") or []
+    if social:
+        steps.append("Require price/volume/RS and fundamental "
+                     f"confirmation for social-attention-driven names "
+                     f"({', '.join(social)}) before trusting their "
+                     "placement.")
+    return steps
+
+
+def _compose_balanced_takeaway(signals: Dict[str, Any],
+                               tiers: Dict[str, Any]) -> str:
+    higher = tiers.get("higher_quality_manual_review") or []
+    tiered = (len(higher) + len(tiers.get("caution_manual_review") or [])
+              + len(tiers.get("speculative_or_prove_it") or []))
+    verdict = signals.get("tracker_verdict") or "unproven"
+    blocked = " and Phase 4B stays BLOCKED" \
+        if signals.get("phase4b_blocked") else ""
+    if higher:
+        return (f"The engine is operational and finding cleaner research "
+                f"candidates ({len(higher)} of {tiered} high-priority "
+                f"names are profitable cash generators), but it has not "
+                f"proven forward alpha (tracker verdict {verdict}"
+                f"{blocked}) — names deserve structured manual review, "
+                "not promotion.")
+    return (f"The engine is operational but candidate quality is weak and "
+            f"forward alpha is unproven (tracker verdict {verdict}"
+            f"{blocked}) — research-only posture holds.")
+
+
+def _compose_two_sided_summary(signals: Dict[str, Any],
+                               tiers: Dict[str, Any]) -> str:
+    """One-line summary that reports candidate quality AND the blockers."""
+    higher = tiers.get("higher_quality_manual_review") or []
+    tiered = (len(higher) + len(tiers.get("caution_manual_review") or [])
+              + len(tiers.get("speculative_or_prove_it") or []))
+    blockers: List[str] = []
+    if signals.get("tracker_verdict") in NEGATIVE_FORWARD_VERDICTS:
+        blockers.append(signals["tracker_verdict"])
+    if signals.get("phase4b_blocked"):
+        blockers.append("blocked Phase 4B")
+    recall = signals.get("scanner_recall_pct")
+    if recall is not None and recall < SCANNER_RECALL_FLOOR_PCT:
+        blockers.append(f"low recall ({recall:.1f}%)")
+    if signals.get("options_overlay_disabled"):
+        blockers.append("disabled options overlay")
+    if signals.get("matured_20d_missing"):
+        blockers.append("missing 20d evidence")
+    if higher and blockers:
+        return (f"Candidate quality improved with {len(higher)} of "
+                f"{tiered} high-priority names profitable, but "
+                f"{', '.join(blockers)} keep the engine research-only.")
+    return ""
 
 
 # ── rule-based fallback audit ────────────────────────────────────────────────
@@ -311,14 +698,16 @@ def build_fallback_audit(digest_text: str,
     if not sig["missing_artifacts"] and not sig["empty"]:
         working.append("No missing research artifacts were reported.")
 
+    tiers = build_candidate_quality_summary(sig)
     if sig["empty"]:
         summary = ("Digest is empty or unreadable — engine state cannot be "
                    "audited; treat as insufficient data.")
     else:
-        summary = (f"Engine {health.replace('_', ' ').lower()}; forward "
-                   f"evidence {verdict or 'unknown'}; "
-                   f"{len(flaws)} flaw(s) flagged; research-only posture "
-                   "holds.")
+        summary = _compose_two_sided_summary(sig, tiers) or (
+            f"Engine {health.replace('_', ' ').lower()}; forward "
+            f"evidence {verdict or 'unknown'}; "
+            f"{len(flaws)} flaw(s) flagged; research-only posture "
+            "holds.")
 
     tasks = [f["suggested_fix"] for f in flaws]
     if not tasks and not sig["empty"]:
@@ -331,6 +720,11 @@ def build_fallback_audit(digest_text: str,
         "engine_health": health,
         "promote_to_signal": False,
         "one_line_summary": summary,
+        "balanced_research_takeaway": _compose_balanced_takeaway(sig, tiers)
+        if not sig["empty"] else "Digest unreadable — no takeaway.",
+        "candidate_quality_summary": tiers,
+        "missing_evidence_or_artifacts": build_missing_evidence(sig),
+        "unbiased_next_steps": build_unbiased_next_steps(sig, tiers),
         "what_is_working": working,
         "flaws_detected": flaws,
         "recommended_claude_code_tasks": tasks,
@@ -415,6 +809,59 @@ def build_next_system_actions(
             "median/average forward return, and post-selection max "
             "drawdown at 5d/10d/20d, split into high-priority vs "
             "watch-only cohorts."))
+
+    # P0 — 20d matured horizon missing from current artifacts
+    if signals.get("matured_20d_missing"):
+        actions.append(_action(
+            "P0", "forward_evidence",
+            "Add matured 20d forward evidence to the current artifacts "
+            "and dashboard so the swing/alpha horizon is measured "
+            "alongside 5d and 10d.",
+            "The digest reports matured 20d as not tracked in current "
+            "artifacts — the horizon that matters most for swing/alpha "
+            "research is unmeasured, so the edge verdict rests on short "
+            "horizons only.",
+            "Every digest reports 5d, 10d, and 20d forward stats with "
+            "hit rate, mean, median, winsorized mean, excess vs SPY, and "
+            "max adverse excursion."))
+
+    # P1 — candidate-quality interpretation in the journal audit
+    tiers = build_candidate_quality_summary(signals)
+    if tiers["higher_quality_manual_review"] \
+            and (tiers["caution_manual_review"]
+                 or tiers["speculative_or_prove_it"]):
+        actions.append(_action(
+            "P1", "fundamental_overlay",
+            "Improve candidate-quality interpretation in the journal "
+            "audit: separate profitable cash generators, cautious "
+            "thin-margin names, speculative unprofitable names, and "
+            "social-signal names instead of treating high-priority names "
+            "as equals.",
+            "High-priority names are fundamentally unequal in the digest "
+            "(profitable cash generators alongside thin-margin and "
+            "unprofitable names) — a flat list over-promotes the weakest "
+            "of them.",
+            "Audit output separates profitable cash generators, cautious "
+            "names, speculative names, and social-signal names into "
+            "distinct manual-review tiers."))
+
+    # P1 — sector-alignment logic review (wording/logic diagnostic only)
+    if signals.get("sector_alignment_questionable"):
+        overlap = ", ".join(signals.get("weak_sector_overlap") or [])
+        actions.append(_action(
+            "P1", "sector_alignment",
+            "Review the sector-alignment logic and wording for the "
+            "no-leadership case: explain how alignment is computed when "
+            "leading sectors are none and weak sectors overlap the "
+            "top-name sectors.",
+            "The digest labels alignment "
+            f"'{signals.get('sector_alignment_label') or 'aligned'}' "
+            f"while leading sectors are none and weak sectors ({overlap}) "
+            "overlap top-name sectors — the label may overstate "
+            "confirmation.",
+            "Audit/digest explains the alignment verdict when leading "
+            "sectors are none and weak sectors overlap top-name sectors; "
+            "no ranking or gate change."))
 
     # P1 — data quality (backfill / quarantine / missing artifacts)
     if (signals.get("quarantine_count") or 0) > 0 \
@@ -678,6 +1125,23 @@ exactly this JSON schema:
   "engine_health": "OPERATIONAL" | "OPERATIONAL_WITH_BLOCKERS" | "DEGRADED" | "INSUFFICIENT_DATA",
   "promote_to_signal": false,
   "one_line_summary": "...",
+  "balanced_research_takeaway": "...",
+  "candidate_quality_summary": {{
+    "overall": "IMPROVING_BUT_UNPROVEN" | "WEAK" | "MIXED" | "STRONG_BUT_BLOCKED",
+    "higher_quality_manual_review": ["TICKER"],
+    "caution_manual_review": ["TICKER"],
+    "speculative_or_prove_it": ["TICKER"],
+    "social_signal_requires_confirmation": ["TICKER"]
+  }},
+  "missing_evidence_or_artifacts": [
+    {{
+      "area": "forward_evidence" | "data_quality" | "sector_alignment" | "options_overlay" | "other",
+      "issue": "...",
+      "why_it_matters": "...",
+      "suggested_fix": "..."
+    }}
+  ],
+  "unbiased_next_steps": ["..."],
   "what_is_working": ["..."],
   "flaws_detected": [
     {{
@@ -700,12 +1164,41 @@ exactly this JSON schema:
   ]
 }}
 
+You are a balanced analyst, not only a blocker reporter.  Answer ALL of
+these questions through the schema fields:
+1. What is working?  (what_is_working)
+2. What is still blocking alpha proof?  (flaws_detected + one_line_summary)
+3. Are the highlighted names fundamentally equal, or should they be
+   tiered?  (candidate_quality_summary — use the fundamental overlay rows)
+4. Are any names over-promoted relative to their fundamentals?
+   (caution_manual_review / speculative_or_prove_it)
+5. Did any ticker appear because of social attention and therefore require
+   price/volume/RS + fundamental confirmation?
+   (social_signal_requires_confirmation)
+6. Is any evidence missing that weakens the conclusion — e.g. an untracked
+   forward horizon?  (missing_evidence_or_artifacts)
+7. Are there wording or logic inconsistencies in sector alignment, forward
+   evidence, or the final finding?  (flaws_detected and/or
+   missing_evidence_or_artifacts area "sector_alignment")
+8. What can be done next without bias?  (unbiased_next_steps)
+
 Grading rules:
 - If Phase 4B is BLOCKED, research_verdict must be "RESEARCH_ONLY".
 - If forward evidence is MIXED, INCONCLUSIVE, or NEED_MORE_DATA,
   alpha_discovery_quality must not be "STRONG".
-- Base every statement strictly on the digest text; if something is not in
-  the digest, do not claim it.
+- Base every statement strictly on the digest text and the structured
+  context below; if something is not there, do not claim it.
+- one_line_summary must report BOTH sides: what improved (e.g. candidate
+  quality) AND what keeps the engine research-only.  Not only the
+  blockers.
+- balanced_research_takeaway is the analyst conclusion: operational
+  reality + candidate quality + why nothing is promotable yet.
+- candidate_quality_summary may only contain tickers named in the digest.
+  Tier by the fundamental overlay: profitable cash generators with sound
+  margins are higher-quality manual review; thin operating margin
+  (< 3%) or heavy dilution means caution; UNPROFITABLE_FUNDED or negative
+  operating margin means speculative/prove-it.  Tiers describe review
+  order for a human — never a buy/sell view.
 - flaws_detected should cover contradictions, weak evidence, blockers, and
   false-positive risk you can point to in the text.
 - recommended_claude_code_tasks are short, concrete engineering follow-ups
@@ -717,10 +1210,59 @@ Grading rules:
   only be proposed as an experiment whose forward evidence must prove it
   works first.  Each action needs a measurable success_metric.
 
+Structured digest context (deterministically pre-parsed — ground your
+tiering and analysis in this AND the digest text):
+{context}
+
 Digest:
 ---
 {digest}
 ---"""
+
+
+def _build_llm_context(signals: Dict[str, Any]) -> Dict[str, Any]:
+    """Compact structured context handed to the LLM so it analyses the
+    whole digest, not only the largest blockers."""
+    return {
+        "high_priority_tickers": signals.get("high_priority_tickers"),
+        "review_first_tickers": signals.get("review_first_tickers"),
+        "fundamental_overlay": signals.get("fundamentals"),
+        "social_attention_source_tickers":
+            signals.get("social_source_tickers"),
+        "deterministic_candidate_tiers":
+            build_candidate_quality_summary(signals),
+        "forward_evidence": {
+            "tracker_verdict": signals.get("tracker_verdict"),
+            "moment_of_truth_verdict":
+                signals.get("moment_of_truth_verdict"),
+            "phase4b_blocked": signals.get("phase4b_blocked"),
+            "matured_5d": signals.get("matured_5d"),
+            "matured_10d": signals.get("matured_10d"),
+            "matured_20d": signals.get("matured_20d"),
+            "matured_20d_missing": signals.get("matured_20d_missing"),
+        },
+        "system_warnings": {
+            "scanner_recall_pct": signals.get("scanner_recall_pct"),
+            "recall_baseline_pct": signals.get("recall_baseline_pct"),
+            "options_overlay_disabled":
+                signals.get("options_overlay_disabled"),
+            "backfill_ticker_count":
+                signals.get("backfill_ticker_count"),
+            "quarantine_count": signals.get("quarantine_count"),
+            "stale_count": signals.get("stale_count"),
+            "suspect_count": signals.get("suspect_count"),
+        },
+        "sector_regime": {
+            "regime": signals.get("regime"),
+            "confidence": signals.get("regime_confidence"),
+            "leading_sectors": signals.get("leading_sectors"),
+            "weak_sectors": signals.get("weak_sectors"),
+            "top_name_sectors": signals.get("top_name_sectors"),
+            "alignment_label": signals.get("sector_alignment_label"),
+            "sector_alignment_questionable":
+                signals.get("sector_alignment_questionable"),
+        },
+    }
 
 
 def _extract_json_object(text: str) -> Dict[str, Any]:
@@ -775,13 +1317,17 @@ def _llm_audit(digest_text: str) -> Dict[str, Any]:
     client = anthropic.Anthropic(
         api_key=api_key, timeout=LLM_TIMEOUT_SECONDS, max_retries=1)
     model = os.getenv(MODEL_ENV_VAR, DEFAULT_MODEL)
+    context = json.dumps(
+        _build_llm_context(extract_digest_signals(digest_text)),
+        ensure_ascii=False, indent=2)
     msg = client.messages.create(
         model=model,
         max_tokens=LLM_MAX_TOKENS,
         system=_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
-            "content": _USER_PROMPT_TEMPLATE.format(digest=digest_text),
+            "content": _USER_PROMPT_TEMPLATE.format(
+                context=context, digest=digest_text),
         }],
     )
     if getattr(msg, "stop_reason", None) == "refusal":
@@ -826,6 +1372,129 @@ def _sanitize_flaws(value: Any) -> List[Dict[str, str]]:
     return out
 
 
+def _sanitize_candidate_summary(value: Any,
+                                deterministic: Dict[str, Any],
+                                known_tickers: set) -> Dict[str, Any]:
+    """Conservative-only merge of the LLM's tiering onto the deterministic
+    tiers.  The LLM may demote a name to a more conservative tier or flag
+    extra digest tickers for caution/speculation/social confirmation; it
+    can never promote a name to a better tier, and tickers not named in
+    the digest are dropped."""
+    det = {k: list(deterministic.get(k) or []) for k in _TIER_RANK}
+    social = list(
+        deterministic.get("social_signal_requires_confirmation") or [])
+    overall = deterministic.get("overall") or "WEAK"
+
+    if isinstance(value, dict):
+        overall = _coerce_enum(value.get("overall"),
+                               CANDIDATE_QUALITY_LEVELS, overall)
+
+        def _clean(key: str) -> List[str]:
+            return [t.upper() for t in _coerce_str_list(value.get(key), 16)
+                    if t.upper() in known_tickers]
+
+        llm_rank: Dict[str, int] = {}
+        for tier, rank in _TIER_RANK.items():
+            for t in _clean(tier):
+                llm_rank[t] = min(rank, llm_rank.get(t, rank))
+
+        det_rank: Dict[str, int] = {}
+        for tier, rank in _TIER_RANK.items():
+            for t in det[tier]:
+                det_rank[t] = rank
+
+        final_rank: Dict[str, int] = dict(det_rank)
+        for t, rank in llm_rank.items():
+            if t in final_rank:
+                final_rank[t] = min(final_rank[t], rank)  # demote only
+            elif rank < _TIER_RANK["higher_quality_manual_review"]:
+                final_rank[t] = rank  # new caution/speculative flag ok
+            # LLM-only "higher quality" additions are dropped.
+
+        det = {tier: [t for t, r in final_rank.items() if r == rank]
+               for tier, rank in _TIER_RANK.items()}
+        # keep deterministic ordering where possible
+        order = {t: i for i, t in enumerate(known_tickers_ordered(
+            deterministic, llm_rank))}
+        for tier in det:
+            det[tier].sort(key=lambda t: order.get(t, 999))
+
+        for t in _clean("social_signal_requires_confirmation"):
+            if t not in social:
+                social.append(t)
+
+    return {
+        "overall": overall,
+        "higher_quality_manual_review":
+            det["higher_quality_manual_review"],
+        "caution_manual_review": det["caution_manual_review"],
+        "speculative_or_prove_it": det["speculative_or_prove_it"],
+        "social_signal_requires_confirmation": social,
+    }
+
+
+def known_tickers_ordered(deterministic: Dict[str, Any],
+                          llm_rank: Dict[str, int]) -> List[str]:
+    """Stable display order: deterministic tier order first, then any
+    LLM-added tickers."""
+    seen: List[str] = []
+    for tier in _TIER_RANK:
+        for t in deterministic.get(tier) or []:
+            if t not in seen:
+                seen.append(t)
+    for t in llm_rank:
+        if t not in seen:
+            seen.append(t)
+    return seen
+
+
+def _sanitize_missing_evidence(value: Any) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    if not isinstance(value, list):
+        return out
+    for e in value[:8]:
+        if not isinstance(e, dict):
+            continue
+        issue = str(e.get("issue") or "").strip()
+        if not issue:
+            continue
+        area = str(e.get("area") or "").strip().lower()
+        out.append(_missing(
+            area if area in MISSING_EVIDENCE_AREAS else "other",
+            issue,
+            str(e.get("why_it_matters") or "").strip(),
+            str(e.get("suggested_fix") or "").strip()))
+    return out
+
+
+def _merge_missing_evidence(
+        deterministic: List[Dict[str, str]],
+        llm_proposed: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Deterministic entries win; LLM extras only fill areas not already
+    covered (same convention as merge_system_actions) — otherwise every
+    LLM rewording of a deterministic gap piles up as a near-duplicate."""
+    covered = {e["area"] for e in deterministic}
+    merged = deterministic + [e for e in llm_proposed
+                              if e["area"] not in covered]
+    return merged[:8]
+
+
+def _normalize_line(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _merge_steps(deterministic: List[str],
+                 llm_proposed: List[str]) -> List[str]:
+    seen = {_normalize_line(s) for s in deterministic}
+    merged = list(deterministic)
+    for s in llm_proposed:
+        key = _normalize_line(s)
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(s)
+    return merged[:10]
+
+
 def sanitize_audit(audit: Dict[str, Any],
                    signals: Dict[str, Any]) -> Dict[str, Any]:
     """Coerce any audit dict (LLM or fallback) into the exact schema and
@@ -853,11 +1522,35 @@ def sanitize_audit(audit: Dict[str, Any],
         "model": audit.get("model"),
     }
     # Hard invariants, independent of who produced the audit:
-    if signals.get("phase4b_blocked"):
+    if signals.get("phase4b_blocked") or signals.get("forward_negative"):
         clean["research_verdict"] = "RESEARCH_ONLY"
     if signals.get("forward_immature") \
             and clean["alpha_discovery_quality"] == "STRONG":
         clean["alpha_discovery_quality"] = "MIXED"
+
+    # Balanced analyst interpretation: deterministic tiers are the base;
+    # the LLM may only demote names or add conservative flags.
+    det_tiers = build_candidate_quality_summary(signals)
+    known_tickers = (
+        set(signals.get("high_priority_tickers") or [])
+        | set(signals.get("review_first_tickers") or [])
+        | set((signals.get("fundamentals") or {}).keys())
+        | set(signals.get("social_source_tickers") or []))
+    clean["candidate_quality_summary"] = _sanitize_candidate_summary(
+        audit.get("candidate_quality_summary"), det_tiers, known_tickers)
+    clean["balanced_research_takeaway"] = str(
+        audit.get("balanced_research_takeaway") or "").strip() \
+        or _compose_balanced_takeaway(signals,
+                                      clean["candidate_quality_summary"])
+    clean["missing_evidence_or_artifacts"] = _merge_missing_evidence(
+        build_missing_evidence(signals),
+        _sanitize_missing_evidence(
+            audit.get("missing_evidence_or_artifacts")))
+    clean["unbiased_next_steps"] = _merge_steps(
+        build_unbiased_next_steps(signals,
+                                  clean["candidate_quality_summary"]),
+        _coerce_str_list(audit.get("unbiased_next_steps"), 10))
+
     # Repair tasks: deterministic actions from the digest signals are the
     # contract; sanitized LLM proposals only fill areas not already covered.
     clean["next_system_actions"] = merge_system_actions(
