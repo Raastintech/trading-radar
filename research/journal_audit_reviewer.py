@@ -825,25 +825,11 @@ def build_next_system_actions(
             "hit rate, mean, median, winsorized mean, excess vs SPY, and "
             "max adverse excursion."))
 
-    # P1 — candidate-quality interpretation in the journal audit
-    tiers = build_candidate_quality_summary(signals)
-    if tiers["higher_quality_manual_review"] \
-            and (tiers["caution_manual_review"]
-                 or tiers["speculative_or_prove_it"]):
-        actions.append(_action(
-            "P1", "fundamental_overlay",
-            "Improve candidate-quality interpretation in the journal "
-            "audit: separate profitable cash generators, cautious "
-            "thin-margin names, speculative unprofitable names, and "
-            "social-signal names instead of treating high-priority names "
-            "as equals.",
-            "High-priority names are fundamentally unequal in the digest "
-            "(profitable cash generators alongside thin-margin and "
-            "unprofitable names) — a flat list over-promotes the weakest "
-            "of them.",
-            "Audit output separates profitable cash generators, cautious "
-            "names, speculative names, and social-signal names into "
-            "distinct manual-review tiers."))
+    # NOTE: no repair task is emitted for candidate-quality tiering.  The
+    # audit itself now separates profitable cash generators / caution /
+    # speculative / social-signal names (candidate_quality_summary), and
+    # mixed fundamentals describe the market board, not a system gap — a
+    # task keyed on that condition would re-queue forever.
 
     # P1 — sector-alignment logic review (wording/logic diagnostic only)
     if signals.get("sector_alignment_questionable"):
