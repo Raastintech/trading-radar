@@ -1305,6 +1305,23 @@ cmd_journal_audit() {
         "$PY" research/journal_audit_reviewer.py "$@"
 }
 
+cmd_scanner_recall_cohorts() {
+    # P0 completion — prospective scanner-recall cohort accrual.  Cache-
+    # only, cred-free: registers strict-mirror / real-scanner-watchlist /
+    # simple-RS / loose-variant / random-control cohorts as of the latest
+    # bar (selection from bars <= today only; idempotent per date in
+    # data/research/scanner_recall_cohorts_history.jsonl), then resolves
+    # 5/10/20d forward returns + SPY excess + winner recall for matured
+    # dates.  PRE-REGISTERED gates decide when a loosening PROPOSAL may
+    # even be written (>=15 matured dates, >=300 ticker-days, recall
+    # >=2x strict, positive excess, beats random on >=60% of dates) —
+    # nothing is ever auto-applied; production gates stay unchanged.
+    # Flags: --report-only, --dry-run.
+    log "[CACHE] scanner recall cohorts (prospective accrual, read-only)"
+    run_or_warn "scanner recall cohorts" \
+        "$PY" research/scanner_recall_cohorts.py "$@"
+}
+
 cmd_research_programs() {
     # Phase 5 — horizon-aligned research-program validation.  Cache-only,
     # cred-free, READ-ONLY on the engine: routes every watchlist label to
@@ -1526,6 +1543,10 @@ cmd_nightly() {
     # near the end so it sees the ages of everything this cycle just wrote.
     cmd_provider_health
     cmd_data_freshness
+    # P0 — prospective recall-cohort registration: runs after the scanner
+    # (needs tonight's watchlist artifact) and after prices refreshed.
+    # Cache-only; idempotent per date.
+    cmd_scanner_recall_cohorts
     # Phase 5.1 — research-program validation runs after the forward
     # tracker so the digest/audit read fresh horizon-aligned per-program
     # verdicts.  Cache-only, read-only, pre-registered gates.
@@ -1681,6 +1702,7 @@ case "$SUB" in
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
+    scanner-recall-cohorts)    cmd_scanner_recall_cohorts     "${POS[@]}" ;;
     feedback-queue-review)     cmd_feedback_queue_review      "${POS[@]}" ;;
     feedback-queue-resolve)    cmd_feedback_queue_resolve     "${POS[@]}" ;;
     feedback-queue-dismiss)    cmd_feedback_queue_dismiss     "${POS[@]}" ;;
