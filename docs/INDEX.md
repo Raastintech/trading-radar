@@ -52,7 +52,7 @@ production/
 │   ├── config.py              # Credential loader (reads /home/gem/secure/trading.env)
 │   ├── fmp_client.py          # FMP Starter client + Gatekeeper cache
 │   ├── data_gatekeeper.py     # SQLite metadata + Parquet price cache
-│   └── alpaca_client.py       # Alpaca Pro Plus execution + OHLCV
+│   └── alpaca_client.py       # Cache-serving stub (execution decommissioned 2026-06; no network calls)
 ├── strategies/
 │   ├── sniper.py              # Momentum breakout LONG (FROZEN during backtest phase)
 │   ├── voyager.py             # Mean-reversion SHORT (FROZEN)
@@ -76,8 +76,9 @@ production/
 
 | Source | Purpose | Plan |
 |--------|---------|------|
-| FMP | Earnings, fundamentals, economic calendar, VIX, news | Starter Annual (300 calls/min) |
-| Alpaca | OHLCV bars (SIP feed), order execution, positions | Pro Plus |
+| FMP | **Primary provider** — earnings, fundamentals, economic calendar, VIX, news, daily price bars | Premium (budget tracked monthly; spend cache-first) |
+| Tradier | Options chains, IV, greeks, OI — research + daily 15:45 ET snapshot collector | Active (research-only) |
+| Alpaca | Cache-serving stub — no network calls; paid subscription dropped post-decommission, free-tier account kept as fallback only | Free tier |
 | yfinance | Optional debug fallback only — never primary | None |
 
 ## Key Operational Commands (Ubuntu server)

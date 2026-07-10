@@ -170,10 +170,12 @@ the following are read from on-disk JSON / SQLite cache:
   with the underlying Gatekeeper TTL of 13 h enforcing the
   refresh window
 
-The dashboard's `DataLayer` does poll Alpaca/FMP for low-frequency
-items (positions, VIX, SPY bars, treasury, econ cal, earnings cal,
-sector PE). All of those go through the Gatekeeper cache. None of
-them drives the Phase 2B research artifacts surfaced in Mode 2 / 3.
+The dashboard's `DataLayer` does poll FMP for low-frequency items
+(VIX, SPY bars, treasury, econ cal, earnings cal, sector PE), all
+through the Gatekeeper cache. Alpaca reads (positions, bars) are
+served by the cache-serving stub — no network calls since Phase 3B.
+None of them drives the Phase 2B research artifacts surfaced in
+Mode 2 / 3.
 
 ## Operator commands
 

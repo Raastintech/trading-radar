@@ -15,7 +15,7 @@ Storage: `data/options_snapshots/YYYY-MM-DD/<UNDERLYING>.parquet`
 |---|---|---|
 | `as_of_date` | str (YYYY-MM-DD) | collection trading date |
 | `as_of_timestamp_utc` | str ISO-8601 | exact collection moment |
-| `provider` | str | serving feed (`alpaca`, enriched flag if Tradier IV/greeks merged) |
+| `provider` | str | serving feed — `tradier` since Phase 3B (2026-06-14, Tradier sole options provider); day-one snapshots (2026-06-12) carry `alpaca+tradier` |
 | `underlying` | str | e.g. `SPY` |
 | `underlying_price` | float/null | spot at collection (cache-first daily close, then quote mid) |
 | `expiration` | str (YYYY-MM-DD) | listed expiration |
@@ -27,8 +27,8 @@ Storage: `data/options_snapshots/YYYY-MM-DD/<UNDERLYING>.parquet`
 | `mid` | float/null | (bid+ask)/2 when both sides exist |
 | `last` | float/null | last trade price if provided |
 | `volume` | float/null | day volume |
-| `open_interest` | float/null | merged from the Alpaca contracts endpoint (snapshot endpoint has none) |
-| `implied_volatility` | float/null | Tradier enrichment when available; Alpaca snapshots carry none |
+| `open_interest` | float/null | per-contract OI from the Tradier chain (day-one rows: merged from the Alpaca contracts endpoint) |
+| `implied_volatility` | float/null | Tradier `greeks.smv_vol` when available |
 | `delta` | float/null | enrichment-only |
 | `gamma` | float/null | enrichment-only |
 | `theta` | float/null | enrichment-only |

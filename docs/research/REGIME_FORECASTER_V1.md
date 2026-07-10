@@ -1,5 +1,11 @@
 # Market & Sector Regime Forecaster V1 — Phase 1
 
+> **⚠ Provider ladder superseded (Phase 3B, 2026-06-14).** The "Alpaca SIP daily
+> bars" tier below no longer makes network calls — `AlpacaClient` is a
+> cache-serving stub (the paid subscription was dropped), so live bar fetches
+> come from the FMP tier (premium, primary provider). See
+> `docs/research/PRICE_BAR_PROVIDER_MIGRATION.md` for the current priority.
+
 A research-only probabilistic regime and sector-rotation forecaster.
 
 It answers four questions every run:

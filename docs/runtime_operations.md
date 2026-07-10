@@ -1,5 +1,12 @@
 # gem-trader — Runtime Operations Guide
 
+> **⚠ HISTORICAL (pre-decommission).** This guide describes the trading daemon,
+> which was permanently stopped and disabled on 2026-06-13 (research-only mode).
+> Order execution, position monitoring, and Alpaca network calls no longer exist
+> — the paid Alpaca subscription was dropped (free-tier fallback only) and
+> `AlpacaClient` is a cache-serving stub. Current runtime = systemd research
+> timers; see `CLAUDE.md` and `docs/ROADMAP_PHASES.md`.
+
 **Date:** 2026-04-16  
 **Model:** session-aware supervised daemon
 

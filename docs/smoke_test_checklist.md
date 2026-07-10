@@ -1,5 +1,13 @@
 # gem-trader — Operational Smoke-Test Checklist
 
+> **⚠ PARTIALLY HISTORICAL (post-decommission, 2026-06-13).** This checklist
+> predates research-only mode. The Alpaca steps now exercise the cache-serving
+> stub (no network calls — the paid subscription was dropped, free-tier fallback
+> only), and the order-submission / position-monitor / council steps are dead
+> paths. Still valid: FMP fetch, startup checks, scanner output, heartbeat
+> (now `cache/research/market_heartbeat_latest.json`). FMP (premium) is the
+> primary provider; Tradier serves options.
+
 Run this before every backtest cycle, paper-trading session, or live session restart.  
 Each check is a one-liner you can run in the activated venv.
 
