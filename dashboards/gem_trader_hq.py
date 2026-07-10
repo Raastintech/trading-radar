@@ -963,6 +963,11 @@ class DataLayer:
         if self._stale("research_scanner"):
             self._set("research_scanner",
                       self._fetch_risk_sidecar("research_scanner_latest.json"))
+        # Phase 5.1 — research-program validation sidecar (cache-only;
+        # the dashboard never runs the validation)
+        if self._stale("research_programs"):
+            self._set("research_programs",
+                      self._fetch_risk_sidecar("research_program_validation_latest.json"))
 
     # ── fetchers ──────────────────────────────────────────────────────────────
 
@@ -3177,6 +3182,38 @@ class PB:  # PanelBuilder — all static
         if n_suspect is not None:
             t.append(f"  ·  bad-feed skipped {n_suspect}", style="dim red" if n_suspect else "dim")
         t.append("  ·  ×N = in N categories", style="dim")
+        # Phase 5.1 — research-program routing line: which program each
+        # horizon belongs to and its pre-registered validation verdict.
+        # Cache-only read; verdicts come from research-programs, never
+        # computed here.
+        rp = data.get("research_programs") or {}
+        progs = rp.get("programs") or {}
+        if progs:
+            short = {"VALIDATED_EDGE": ("VALIDATED", "bold green"),
+                     "PROMISING_BUT_UNPROVEN": ("PROMISING", "yellow"),
+                     "NO_EVIDENCE_OF_EDGE": ("NO-EDGE", "bold red"),
+                     "INSUFFICIENT_MATURE_EVIDENCE":
+                         ("INSUFF-EVIDENCE", "dim yellow")}
+            t.append("\n programs ", style="dim")
+            first = True
+            for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+                prog = progs.get(pid)
+                if not prog:
+                    continue
+                if not first:
+                    t.append("  ·  ", style="dim")
+                first = False
+                verdict, style = short.get(
+                    prog.get("verdict"),
+                    (prog.get("verdict") or "?", "dim"))
+                horizons = prog.get("horizons") or {}
+                matured = ("/".join(sorted(horizons, key=int)) + "d"
+                           if horizons else "none yet")
+                t.append(f"{pid} ", style="bold")
+                t.append(f"{prog.get('expected_holding_period_td')}td ",
+                         style="dim")
+                t.append(verdict, style=style)
+                t.append(f" ({matured})", style="dim")
         return Panel(t, box=box.SIMPLE, padding=(0, 1))
 
     @staticmethod
@@ -7750,7 +7787,7 @@ def build_scanner(state, data, claude):
     """
     body = Layout()
     body.split_column(
-        Layout(PB.scanner_board_strip(data), name="strip", size=3),
+        Layout(PB.scanner_board_strip(data), name="strip", size=4),
         Layout(name="row1"),
         Layout(name="row2"),
     )
