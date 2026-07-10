@@ -108,6 +108,10 @@ class ArtifactStore:
     def research_programs_json(self) -> Path:
         return self.research_dir / "research_program_validation_latest.json"
 
+    @property
+    def quarantine_report_json(self) -> Path:
+        return self.research_dir / "quarantine_cause_report_latest.json"
+
 
 def _load_json(path: Path) -> Optional[Dict[str, Any]]:
     try:

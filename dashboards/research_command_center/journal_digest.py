@@ -106,6 +106,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     universe = _load_json(store.universe_json)
     truth = _load_json(store.moment_of_truth_json)
     programs = _load_json(store.research_programs_json)
+    quarantine_causes = _load_json(store.quarantine_report_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -132,6 +133,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "universe": universe,
         "truth": truth,
         "programs": programs,
+        "quarantine_causes": quarantine_causes,
         "missing": missing,
     }
 
@@ -284,6 +286,16 @@ def _section_data_quality(inputs: Dict[str, Any],
         + (f" ({_join(inputs['missing'], cap=4)})" if inputs["missing"] else ""),
         f"- Price refresh: {refresh_healthy}",
     ]
+    # Quarantine causes (when the cause report exists): stating the
+    # per-cause breakdown here keeps the journal audit from re-proposing
+    # a quarantine diagnostic that already runs nightly.
+    qrep = inputs.get("quarantine_causes")
+    if qrep and qrep.get("n_quarantined"):
+        cause_counts = qrep.get("cause_counts") or {}
+        cause_str = ", ".join(f"{v}x {k}"
+                              for k, v in sorted(cause_counts.items()))
+        lines.append(f"- Quarantine causes: {cause_str} — see "
+                     "quarantine-cause report")
     warnings = (inputs["summary"] or {}).get("warnings") or []
     for w in (concerns + warnings)[:5]:
         lines.append(f"- Warning: {w}")

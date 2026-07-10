@@ -382,6 +382,21 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         "weak_sector_overlap": weak_overlap,
         "sector_alignment_questionable": sector_alignment_questionable,
         "digest_programs": programs,
+        # Deliverable declarations (Phase 5.1 queue-quieting): when the
+        # digest textually states that a diagnostic already exists, the
+        # deterministic repair actions must not re-propose building it.
+        # Text-grounded on purpose — if the report stops being produced
+        # the declaration disappears and the action re-fires.
+        "options_coverage_report_referenced":
+            "options-coverage report" in lower,
+        "red_flags_line_present": "red flags in review order:" in lower,
+        "quarantine_report_referenced":
+            "see quarantine-cause report" in lower,
+        "quarantine_backfill_pending": "backfill_pending" in lower,
+        # A PLAN-style warning ("backfill plan: N tickers need ...") is
+        # actionable; a RESULT line ("Backfill: N succeeded") is not.
+        "backfill_plan_pending": bool(
+            re.search(r"backfill plan:\s*\d+\s+tickers?\s+need", lower)),
     }
 
 
@@ -894,11 +909,21 @@ def build_next_system_actions(
             "sectors are none and weak sectors overlap top-name sectors; "
             "no ranking or gate change."))
 
-    # P1 — data quality (backfill / quarantine / missing artifacts)
-    if (signals.get("quarantine_count") or 0) > 0 \
-            or signals.get("backfill_warning") \
-            or signals.get("missing_artifacts") \
-            or "data_quality" in flaw_areas:
+    # P1 — data quality (backfill / quarantine / missing artifacts).
+    # Suppressed when the digest declares the quarantine-cause report
+    # exists AND nothing is backfill-actionable (remaining quarantine is
+    # young listings / repaired names awaiting re-scan) — re-running the
+    # backfill would change nothing.
+    data_quality_covered = (
+        signals.get("quarantine_report_referenced")
+        and not signals.get("quarantine_backfill_pending")
+        and not signals.get("backfill_plan_pending")
+        and not signals.get("missing_artifacts"))
+    if ((signals.get("quarantine_count") or 0) > 0
+            or signals.get("backfill_warning")
+            or signals.get("missing_artifacts")
+            or "data_quality" in flaw_areas) \
+            and not data_quality_covered:
         detail = []
         if (signals.get("quarantine_count") or 0) > 0:
             detail.append(f"{signals['quarantine_count']} ticker(s) "
@@ -920,9 +945,12 @@ def build_next_system_actions(
             "bar-depth floor; quarantine report shows a reason and "
             "clearance condition for every quarantined ticker."))
 
-    # P2 — options coverage health
-    if signals.get("options_overlay_disabled") \
-            or "options_overlay" in flaw_areas:
+    # P2 — options coverage health.  Suppressed when the digest already
+    # cites the options-coverage report (the deliverable exists; the
+    # remaining gap is a provider-budget decision, not a diagnostic).
+    if (signals.get("options_overlay_disabled")
+            or "options_overlay" in flaw_areas) \
+            and not signals.get("options_coverage_report_referenced"):
         actions.append(_action(
             "P2", "options_overlay",
             "Report options coverage health: number of tickers with valid "
@@ -936,9 +964,12 @@ def build_next_system_actions(
             "per-ticker insufficiency reasons, and a required-vs-optional "
             "flag for every overlay consumer."))
 
-    # P2 — fundamental red flags in review ordering (display only)
-    if signals.get("dilution_red_flag") \
-            or "fundamental_overlay" in flaw_areas:
+    # P2 — fundamental red flags in review ordering (display only).
+    # Suppressed when the digest already carries the red-flags line —
+    # the surfacing exists; flags appearing is the feature working.
+    if (signals.get("dilution_red_flag")
+            or "fundamental_overlay" in flaw_areas) \
+            and not signals.get("red_flags_line_present"):
         actions.append(_action(
             "P2", "fundamental_overlay",
             "Surface fundamental red flags (severe dilution, negative "
@@ -979,11 +1010,31 @@ def _sanitize_actions(value: Any) -> List[Dict[str, str]]:
     return out
 
 
+def declared_covered_areas(signals: Dict[str, Any]) -> set:
+    """Areas whose deliverable the digest textually declares to exist —
+    neither the deterministic generator nor LLM proposals may re-propose
+    diagnostics for these (Phase 5.1 queue-quieting)."""
+    covered = set()
+    if signals.get("options_coverage_report_referenced"):
+        covered.add("options_overlay")
+    if signals.get("red_flags_line_present"):
+        covered.add("fundamental_overlay")
+    if signals.get("quarantine_report_referenced") \
+            and not signals.get("quarantine_backfill_pending") \
+            and not signals.get("backfill_plan_pending") \
+            and not signals.get("missing_artifacts"):
+        covered.add("data_quality")
+    return covered
+
+
 def merge_system_actions(
         deterministic: List[Dict[str, str]],
-        llm_proposed: List[Dict[str, str]]) -> List[Dict[str, str]]:
-    """Deterministic actions win; LLM extras only fill uncovered areas."""
-    covered = {a["area"] for a in deterministic}
+        llm_proposed: List[Dict[str, str]],
+        suppressed_areas: Optional[set] = None) -> List[Dict[str, str]]:
+    """Deterministic actions win; LLM extras only fill uncovered areas,
+    and never areas whose deliverable the digest declares to exist."""
+    suppressed = suppressed_areas or set()
+    covered = {a["area"] for a in deterministic} | suppressed
     merged = deterministic + [a for a in llm_proposed
                               if a["area"] not in covered]
     merged.sort(key=lambda a: a["priority"])  # P0 < P1 < P2 lexically
@@ -1612,7 +1663,8 @@ def sanitize_audit(audit: Dict[str, Any],
     # contract; sanitized LLM proposals only fill areas not already covered.
     clean["next_system_actions"] = merge_system_actions(
         build_next_system_actions(signals, clean["flaws_detected"]),
-        clean["next_system_actions"])
+        clean["next_system_actions"],
+        suppressed_areas=declared_covered_areas(signals))
     return clean
 
 

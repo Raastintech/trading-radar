@@ -338,6 +338,20 @@ def _fetch_and_write(ticker: str, min_bars: int) -> Tuple[bool, str, int]:
 
 # ── Planning phase ────────────────────────────────────────────────────────────
 
+def _young_listing_tickers() -> set:
+    """Tickers the quarantine cause report classified YOUNG_LISTING —
+    a prior backfill exhausted the provider's history, so re-selecting
+    them nightly wastes plan slots and keeps a false 'needs backfill'
+    warning alive.  Cache-only read; missing report = empty set."""
+    path = ROOT / "cache" / "research" / "quarantine_cause_report_latest.json"
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+        return {r.get("ticker") for r in report.get("tickers") or []
+                if r.get("cause") == "YOUNG_LISTING"}
+    except Exception:
+        return set()
+
+
 def build_plan(
     min_bars: int = DEFAULT_MIN_BARS,
     limit: int = DEFAULT_LIMIT,
@@ -367,6 +381,8 @@ def build_plan(
 
     provider_calls_planned = 0
 
+    young_listings = _young_listing_tickers()
+
     for ticker in candidates:
         bars_before, cache_src = _bar_count(ticker)
         already_recent = _recently_refreshed(ticker) and not force_refresh
@@ -385,6 +401,12 @@ def build_plan(
             entry["action"] = "skip_enough"
             entry["reason"] = f"{bars_before} bars >= {min_bars} target"
             skipped_enough.append(ticker)
+        elif ticker in young_listings:
+            entry["action"] = "skip_source_exhausted"
+            entry["reason"] = ("provider history exhausted (young listing) "
+                               "— bars accrue naturally; see "
+                               "quarantine-cause report")
+            skipped_recent.append(ticker)
         elif already_recent:
             entry["action"] = "skip_recent"
             entry["reason"] = f"deep parquet refreshed within {RECENT_REFRESH_DAYS}d"

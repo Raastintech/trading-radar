@@ -916,3 +916,76 @@ def test_honest_no_leadership_label_not_flagged_as_questionable():
     lying = make_analyst_digest(alignment="aligned")
     assert jar.extract_digest_signals(lying)[
         "sector_alignment_questionable"] is True
+
+
+# ── 13. queue quieting: declared deliverables suppress repair actions ────────
+
+
+DECLARATIONS = """
+- Quarantine causes: 3x YOUNG_LISTING, 2x REPAIRED — see quarantine-cause report
+- Warning: Options overlay: DISABLED — insufficient coverage (known structural cause: capped snapshot-collector universe, by design — see options-coverage report)
+  - Red flags in review order: SDGR (unprofitable, OM -64.7%)
+"""
+
+
+def _digest_without_plan_warning() -> str:
+    """Analyst digest minus the actionable backfill-plan warning — a
+    coherent post-backfill state where the cause report covers the rest."""
+    return make_analyst_digest().replace(
+        "- Warning: Targeted backfill plan: 8 tickers need >=300 bars "
+        "— run targeted-backfill --execute to fill\n", "")
+
+
+def test_declared_deliverables_suppress_deterministic_actions():
+    quiet = jar.audit_daily_digest(_digest_without_plan_warning()
+                                   + DECLARATIONS, use_llm=False)
+    areas = {a["area"] for a in quiet["next_system_actions"]}
+    assert "options_overlay" not in areas
+    assert "data_quality" not in areas
+    assert "fundamental_overlay" not in areas
+    # the still-live blockers keep their actions
+    assert "scanner_recall" in areas and "forward_evidence" in areas
+
+    loud = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    loud_areas = {a["area"] for a in loud["next_system_actions"]}
+    assert "options_overlay" in loud_areas  # no declaration -> fires
+
+
+def test_backfill_pending_keeps_data_quality_action():
+    actionable = DECLARATIONS.replace(
+        "3x YOUNG_LISTING, 2x REPAIRED",
+        "2x YOUNG_LISTING, 1x BACKFILL_PENDING")
+    audit = jar.audit_daily_digest(_digest_without_plan_warning()
+                                   + actionable, use_llm=False)
+    areas = {a["area"] for a in audit["next_system_actions"]}
+    assert "data_quality" in areas  # actionable cause -> still proposed
+
+
+def test_plan_warning_blocks_data_quality_suppression():
+    # a live "backfill plan: N tickers need" warning is actionable even
+    # when the quarantine report is referenced (non-quarantined names
+    # can need depth too)
+    audit = jar.audit_daily_digest(make_analyst_digest() + DECLARATIONS,
+                                   use_llm=False)
+    assert "data_quality" in {
+        a["area"] for a in audit["next_system_actions"]}
+
+
+def test_llm_cannot_reintroduce_suppressed_area(monkeypatch):
+    monkeypatch.setattr(jar, "_llm_audit", lambda text: {
+        "research_verdict": "RESEARCH_ONLY",
+        "alpha_discovery_quality": "MIXED",
+        "engine_health": "OPERATIONAL_WITH_BLOCKERS",
+        "promote_to_signal": False, "one_line_summary": "s",
+        "what_is_working": [], "flaws_detected": [],
+        "recommended_claude_code_tasks": [],
+        "next_system_actions": [
+            {"priority": "P2", "area": "options_overlay",
+             "task": "build an options coverage report", "why": "w",
+             "success_metric": "m"}],
+        "audit_source": "llm", "model": "test",
+    })
+    audit = jar.audit_daily_digest(_digest_without_plan_warning()
+                                   + DECLARATIONS)
+    assert "options_overlay" not in {
+        a["area"] for a in audit["next_system_actions"]}
