@@ -425,3 +425,53 @@ def test_alignment_verdicts_with_leadership():
     assert _alignment_label(["XLI"], ["XLK"], ["Energy"]) \
         .startswith("unconfirmed")
     assert _alignment_label([], [], ["Energy"]) == "unknown"
+
+
+# ── fundamental red flags in review order (P2 70884dde3217) ──────────────────
+
+from dashboards.research_command_center.journal_digest import (  # noqa: E402
+    _red_flags_for, _section_review_queue,
+)
+
+
+def test_red_flags_for_unprofitable_and_dilution(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    fundamentals = {
+        "SDGR": {"quality_label": "UNPROFITABLE_FUNDED",
+                 "operating_margin_pct": -64.65,
+                 "gross_margin_pct": 55.3, "dilution_3q_pct": 0.8},
+        "GRAL": {"quality_label": "UNPROFITABLE_FUNDED",
+                 "operating_margin_pct": -348.7,
+                 "gross_margin_pct": -14.8, "dilution_3q_pct": 15.9},
+        "FBIN": {"quality_label": "PROFITABLE_CASHGEN",
+                 "operating_margin_pct": 11.0,
+                 "gross_margin_pct": 44.0, "dilution_3q_pct": -2.1},
+        "MISS": {"fallback": True},
+    }
+    monkeypatch.setattr(jd, "build_fundamentals",
+                        lambda t, store: fundamentals.get(t, {"fallback": True}))
+    assert "unprofitable" in _red_flags_for("SDGR", None)[0]
+    gral = _red_flags_for("GRAL", None)
+    assert any("dilution +15.9" in f for f in gral)
+    assert any("negative GM" in f for f in gral)
+    assert _red_flags_for("FBIN", None) == []   # clean name: no flags
+    assert _red_flags_for("MISS", None) == []   # no data: no fabrication
+
+
+def test_review_queue_carries_red_flag_line(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    monkeypatch.setattr(jd, "build_fundamentals", lambda t, store: {
+        "quality_label": "UNPROFITABLE_FUNDED",
+        "operating_margin_pct": -50.0} if t == "SDGR"
+        else {"quality_label": "PROFITABLE_CASHGEN",
+              "operating_margin_pct": 10.0})
+    inputs = {"summary": {}, "radar": {}, "store": object()}
+    lines = _section_review_queue(inputs, ["FBIN", "SDGR"],
+                                  ["FBIN", "SDGR"], [])
+    text = "\n".join(lines)
+    assert "- Review first: FBIN, SDGR" in text
+    assert "Red flags in review order: SDGR (unprofitable, OM -50.0%)" \
+        in text
+    # ticker list line stays clean (audit regex parses it unchanged)
+    review_line = [l for l in lines if l.startswith("- Review first")][0]
+    assert "(" not in review_line

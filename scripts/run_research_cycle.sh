@@ -1305,6 +1305,19 @@ cmd_journal_audit() {
         "$PY" research/journal_audit_reviewer.py "$@"
 }
 
+cmd_options_coverage_report() {
+    # P2 options_overlay — options coverage health.  Cache-only, cred-
+    # free, read-only: per-watchlist-ticker coverage vs the latest
+    # options snapshot day, explicit insufficiency reason for every
+    # uncovered ticker (dominant: capped collection universe — design,
+    # not failure), overlay guard state, and a required-vs-optional flag
+    # for every options-consuming research surface.  Writes
+    # cache/research/options_coverage_report_latest.json + logs twin.
+    log "[CACHE] options coverage report (read-only)"
+    run_or_warn "options coverage report" \
+        "$PY" research/options_coverage_report.py "$@"
+}
+
 cmd_quarantine_report() {
     # P1 data-quality — quarantine cause report.  Cache-only, cred-free,
     # read-only: joins the radar's DATA_QUARANTINE list with price-cache
@@ -1551,6 +1564,8 @@ cmd_nightly() {
     cmd_targeted_backfill --dry-run --limit 50 --min-bars 300
     # P1 — per-ticker quarantine causes + clearance conditions (cache-only)
     cmd_quarantine_report
+    # P2 — options coverage health with per-ticker reasons (cache-only)
+    cmd_options_coverage_report
     # Provider health (FMP cache-state check + one tiny Tradier clock probe)
     # then the data-freshness audit — both previously had runner commands but
     # no cadence, so their sidecars went weeks stale (the freshness auditor
@@ -1719,6 +1734,7 @@ case "$SUB" in
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
     scanner-recall-cohorts)    cmd_scanner_recall_cohorts     "${POS[@]}" ;;
     quarantine-report)         cmd_quarantine_report          "${POS[@]}" ;;
+    options-coverage-report)   cmd_options_coverage_report    "${POS[@]}" ;;
     feedback-queue-review)     cmd_feedback_queue_review      "${POS[@]}" ;;
     feedback-queue-resolve)    cmd_feedback_queue_resolve     "${POS[@]}" ;;
     feedback-queue-dismiss)    cmd_feedback_queue_dismiss     "${POS[@]}" ;;

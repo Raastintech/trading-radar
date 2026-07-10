@@ -548,6 +548,28 @@ def _section_fundamentals(inputs: Dict[str, Any], top: List[str]) -> List[str]:
     return lines
 
 
+def _red_flags_for(ticker: str, store: ArtifactStore) -> List[str]:
+    """Compact fundamental red flags for review-queue annotation.
+    Display only — mirrors _fundamental_line's criteria plus the
+    unprofitable tier the audit uses; no score or ranking reads this."""
+    f = build_fundamentals(ticker, store)
+    if f.get("fallback"):
+        return []
+    flags: List[str] = []
+    if str(f.get("quality_label") or "") == "UNPROFITABLE_FUNDED":
+        flags.append("unprofitable")
+    om = f.get("operating_margin_pct")
+    if om is not None and om < 0:
+        flags.append(f"OM {om:+.1f}%")
+    gm = f.get("gross_margin_pct")
+    if gm is not None and gm < 0:
+        flags.append("negative GM")
+    dil = f.get("dilution_3q_pct")
+    if dil is not None and dil > 10:
+        flags.append(f"dilution {dil:+.1f}%/3q")
+    return flags
+
+
 def _section_review_queue(inputs: Dict[str, Any], top: List[str],
                           high: List[str],
                           reset_reclaim: List[str]) -> List[str]:
@@ -561,14 +583,31 @@ def _section_review_queue(inputs: Dict[str, Any], top: List[str],
     review_first = _dedupe(high + top[:5])
     watch_only = [t for t in _dedupe(reset_reclaim + top[5:])
                   if t not in review_first]
-    return [
+    lines = [
         "## 6. Journal Review Queue",
         f"- Review first: {_join(review_first, cap=6)}",
+    ]
+    # Fundamental red flags surfaced directly in review order (display
+    # only): the names a human reviews first should carry their
+    # dilution / negative-margin / unprofitable warnings inline instead
+    # of requiring a cross-reference to the overlay section.
+    store = inputs.get("store")
+    if store is not None:
+        notes = []
+        for t in review_first[:6]:
+            flags = _red_flags_for(t, store)
+            if flags:
+                notes.append(f"{t} ({', '.join(flags)})")
+        if notes:
+            lines.append("  - Red flags in review order: "
+                         + "; ".join(notes))
+    lines += [
         f"- Watch only: {_join(watch_only, cap=6)}",
         f"- Avoid for now / data issue: {_join(quarantine, cap=6)}",
         f"- Follow up later (extended/crowded — wait for reset): "
         f"{_join(extended, cap=6)}",
     ]
+    return lines
 
 
 def _section_final_finding(inputs: Dict[str, Any], status: str,
