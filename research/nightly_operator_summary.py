@@ -468,10 +468,18 @@ def _build_warnings(
         elif isinstance(w, dict):
             warnings.append(f"Provider: {w.get('message', str(w))}")
 
-    # Options coverage
+    # Options coverage.  The structural cause is documented in the
+    # options-coverage report: the snapshot collector's capped top-
+    # liquidity universe (~20 symbols, by design for IV-history) cannot
+    # cover the ~100-name watchlist — stating it here keeps the journal
+    # audit from re-proposing coverage diagnostics that already exist.
     opt_state = alpha_snap.get("options_state", "")
     if opt_state == "DISABLED":
-        warnings.append("Options overlay: DISABLED — insufficient coverage")
+        warnings.append(
+            "Options overlay: DISABLED — insufficient coverage "
+            "(known structural cause: capped snapshot-collector "
+            "universe, by design — see options-coverage report; "
+            "extending it is a provider-budget decision)")
 
     # High quarantine rate
     qt_count = alpha_snap.get("data_quarantine_count", 0)
