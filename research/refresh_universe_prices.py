@@ -1,25 +1,35 @@
 #!/usr/bin/env python3
 """
-research/refresh_universe_prices.py — Shallow price-cache refresh for the scan universe.
+research/refresh_universe_prices.py — same-session price refresh for the scan universe.
 
-Problem this solves (2026-07-02 staleness audit): nothing refreshes
-cache/prices/*.parquet for the research-scanner universe since the trading
-daemon's scan loop was decommissioned — 95% of parquets froze at 2026-06-12
-while SPY stayed current, so every RS/momentum figure the scanner computed
-was silently comparing 3-week-old ticker prices against today's SPY.
+Problem history:
+  * 2026-07-02 staleness audit: nothing refreshed cache/prices/*.parquet after
+    the trading daemon was decommissioned — 95% of parquets froze while SPY
+    stayed current, so scanner RS silently compared weeks-old ticker prices
+    against a fresh benchmark.
+  * 2026-07-10 pipeline review (P0): the original fix used a calendar-day
+    stale threshold (--stale-days 2), which still accepted bars one completed
+    session behind the benchmark on alternating premarket runs.
 
-This script re-warms the SHALLOW cache (cache/prices/) that the research
-scanner actually reads:
+This version enforces SAME-SESSION freshness:
 
-  1. Reads the current scan universe from
-     cache/research/research_universe_build_latest.json (universe_full).
-  2. Skips tickers whose parquet last bar is already within --stale-days
-     of today (default 2 calendar days — fresh through the last session).
-  3. Fetches daily bars from FMP (get_ticker_bars, one call per ticker) and
-     merge-writes via DataGatekeeper.put_prices (merge-on-write preserves
-     existing history; fresh bars win on overlap).
-  4. Stops at --max-calls provider calls (default 1100) so a bad universe
-     file cannot burn the FMP budget.
+  1. Derives the required completed US trading session from the project's
+     exchange calendar (core/market_session.py — holiday + early-close aware).
+  2. Benchmarks SPY / QQQ / IWM are always in the universe and refreshed FIRST.
+  3. Every eligible ticker whose parquet last bar is earlier than the required
+     session is refreshed (one FMP get_ticker_bars call each, merge-on-write).
+  4. After the refresh, every attempted ticker is RE-CHECKED; tickers still
+     behind the required session are reported as SESSION_MISMATCH so the
+     scanner can exclude them instead of comparing them against a fresher
+     benchmark.
+  5. Confirmed-dead symbols (research/dead_symbol_tombstones.py, repeated
+     hard failures on distinct days) are excluded from planning; refresh
+     outcomes feed the tombstone ledger (success revives, no-data failures
+     accumulate evidence — transport errors never count toward death).
+  6. Budget is explicit: the run stops at --max-calls; a truncated run is
+     flagged coverage_shortfall=true and the artifact records the FMP budget
+     configuration (FMP_MONTHLY_BUDGET=0 means the premium plan's cap is
+     UNCONFIRMED — this is surfaced, never silently treated as unlimited).
 
 RESEARCH-ONLY / DATA-COLLECTION-ONLY: no signals, no DB row writes outside
 the gatekeeper cache tables, no execution paths.
@@ -42,7 +52,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -70,6 +80,11 @@ os.environ.setdefault("ALPACA_PAPER", "true")
 import pandas as pd
 
 import core.config as cfg
+from core.market_session import required_market_session
+from research.dead_symbol_tombstones import (
+    HARD_FAILURE_STATUSES, confirmed_dead, record_failure, record_success,
+    summary as tombstone_summary,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s %(message)s")
 logger = logging.getLogger("refresh_universe_prices")
@@ -80,7 +95,12 @@ UNIVERSE_BUILD_JSON = RESEARCH_DIR / "research_universe_build_latest.json"
 OUT_JSON = RESEARCH_DIR / "universe_price_refresh_latest.json"
 OUT_TXT = cfg.LOG_DIR / "universe_price_refresh_latest.txt"
 
-DEFAULT_STALE_DAYS = 2       # parquet last bar within this many calendar days = fresh
+BENCHMARKS = ("SPY", "QQQ", "IWM")
+# Sector benchmarks used by scan_sector_leaders — must be on the same session
+# as SPY or the sector-RS ranking silently loses misaligned sectors.
+SECTOR_ETFS = ("XLB", "XLC", "XLE", "XLF", "XLI", "XLK",
+               "XLP", "XLRE", "XLU", "XLV", "XLY")
+ALWAYS_INCLUDE = BENCHMARKS + SECTOR_ETFS
 DEFAULT_MAX_CALLS = 1100     # provider-call ceiling per run
 FMP_BARS_DAYS = 320          # ~330 trading bars — covers MA200 / 252d lookbacks
 
@@ -90,8 +110,9 @@ def _is_offline_fmp() -> bool:
 
 
 def _load_universe() -> List[str]:
-    """Scan universe from the last universe build; SPY always included."""
-    tickers: List[str] = ["SPY"]
+    """Scan universe from the last universe build; benchmarks + sector ETFs
+    always included (and refreshed first)."""
+    tickers: List[str] = list(ALWAYS_INCLUDE)
     try:
         data = json.loads(UNIVERSE_BUILD_JSON.read_text())
         for entry in data.get("universe_full") or []:
@@ -99,11 +120,11 @@ def _load_universe() -> List[str]:
             if t and t not in tickers:
                 tickers.append(t)
     except Exception as exc:
-        logger.warning("universe build sidecar unreadable (%s) — SPY only", exc)
+        logger.warning("universe build sidecar unreadable (%s) — benchmarks only", exc)
     return tickers
 
 
-def _parquet_last_date(ticker: str) -> Optional[str]:
+def _parquet_last_date(ticker: str) -> Optional[date]:
     path = PRICE_DIR / f"{ticker.upper()}.parquet"
     if not path.exists():
         return None
@@ -111,24 +132,27 @@ def _parquet_last_date(ticker: str) -> Optional[str]:
         df = pd.read_parquet(path)
         if df.empty:
             return None
-        return str(pd.to_datetime(df.index).max().date())
+        return pd.to_datetime(df.index).max().date()
     except Exception:
         return None
 
 
 def _fetch_and_merge(ticker: str) -> Dict[str, Any]:
-    """One FMP call → merge-write shallow parquet. Returns result entry."""
+    """One FMP call → merge-write shallow parquet. Returns result entry with a
+    stable provider_status slug (ok / fmp_empty / no_date_column / transport_error)."""
     from core.data_gatekeeper import get_gatekeeper
     from core.fmp_client import get_fmp
 
-    entry: Dict[str, Any] = {"ticker": ticker, "ok": False, "bars_after": 0}
+    entry: Dict[str, Any] = {"ticker": ticker, "ok": False, "provider_status": "transport_error"}
     try:
         rows = get_fmp().get_ticker_bars(ticker, days=FMP_BARS_DAYS)
         if not rows:
+            entry["provider_status"] = "fmp_empty"
             entry["reason"] = "fmp_empty"
             return entry
         df = pd.DataFrame(rows)
         if "date" not in df.columns:
+            entry["provider_status"] = "no_date_column"
             entry["reason"] = "no_date_column"
             return entry
         df["date"] = pd.to_datetime(df["date"])
@@ -137,35 +161,52 @@ def _fetch_and_merge(ticker: str) -> Dict[str, Any]:
         cols = [c for c in ("open", "high", "low", "close", "volume") if c in df.columns]
         get_gatekeeper().put_prices(ticker, df[cols])
         entry["ok"] = True
+        entry["provider_status"] = "ok"
         entry["bars_fetched"] = len(df)
-        entry["bars_after"] = entry["bars_fetched"]
         entry["last_bar"] = str(df.index.max().date())
     except Exception as exc:
         entry["reason"] = f"error: {exc}"
     return entry
 
 
-def run(stale_days: int, max_calls: int, execute: bool, limit: Optional[int] = None) -> Dict[str, Any]:
+def run(max_calls: int, execute: bool, limit: Optional[int] = None,
+        session_override: Optional[str] = None) -> Dict[str, Any]:
+    required = (datetime.strptime(session_override, "%Y-%m-%d").date()
+                if session_override else required_market_session())
     universe = _load_universe()
     if limit:
-        universe = universe[:limit]
-    today = datetime.now(timezone.utc).date()
-    cutoff = today - timedelta(days=stale_days)
+        universe = [t for t in ALWAYS_INCLUDE] + [
+            t for t in universe if t not in ALWAYS_INCLUDE][: max(0, limit - len(ALWAYS_INCLUDE))]
+
+    dead = confirmed_dead()
+    excluded_dead = sorted(t for t in universe if t in dead and t not in ALWAYS_INCLUDE)
+    eligible = [t for t in universe if t not in dead or t in ALWAYS_INCLUDE]
 
     fresh: List[str] = []
     missing: List[str] = []
     stale: List[Dict[str, Any]] = []
-    for t in universe:
+    for t in eligible:
         last = _parquet_last_date(t)
         if last is None:
             missing.append(t)
             stale.append({"ticker": t, "last_bar": None})
-        elif datetime.strptime(last, "%Y-%m-%d").date() >= cutoff:
+        elif last >= required:
             fresh.append(t)
         else:
-            stale.append({"ticker": t, "last_bar": last})
+            stale.append({"ticker": t, "last_bar": str(last)})
 
-    to_fetch = stale[:max_calls]
+    # Benchmarks + sector ETFs refresh first — a stale benchmark poisons
+    # every RS figure downstream.
+    stale.sort(key=lambda r: (r["ticker"] not in ALWAYS_INCLUDE, r["ticker"]))
+
+    # Shared budget policy: a confirmed monthly cap truncates NON-benchmark
+    # work explicitly (benchmarks ride the reserve); an unconfirmed cap is
+    # surfaced as a warning, never silently treated as unlimited.
+    from research.fmp_budget import budget_report
+    budget = budget_report(planned_calls=len(stale), pipeline="refresh_universe_prices")
+    allowed = min(len(stale), max_calls,
+                  budget["allowed_calls"] if budget["budget_limited"] else len(stale))
+    to_fetch = stale[:allowed]
     truncated = len(stale) - len(to_fetch)
 
     results: List[Dict[str, Any]] = []
@@ -174,26 +215,75 @@ def run(stale_days: int, max_calls: int, execute: bool, limit: Optional[int] = N
         for i, item in enumerate(to_fetch):
             r = _fetch_and_merge(item["ticker"])
             results.append(r)
-            n_ok += 1 if r["ok"] else 0
-            n_fail += 0 if r["ok"] else 1
+            if r["ok"]:
+                n_ok += 1
+                record_success(r["ticker"])
+            else:
+                n_fail += 1
+                status = r.get("provider_status", "transport_error")
+                record_failure(r["ticker"], provider_status=status,
+                               reason=str(r.get("reason", "")))
             if (i + 1) % 100 == 0:
                 logger.info("refreshed %d/%d (ok=%d fail=%d)", i + 1, len(to_fetch), n_ok, n_fail)
     elif execute:
         logger.warning("FMP offline — cannot execute; falling back to dry-run report")
         execute = False
 
+    # ── Post-refresh RECHECK: who is still behind the required session? ──────
+    session_mismatch: List[Dict[str, Any]] = []
+    attempted = {r["ticker"] for r in results}
+    succeeded_syms = {r["ticker"] for r in results if r["ok"]}
+    for item in stale:
+        t = item["ticker"]
+        last = _parquet_last_date(t) if t in attempted else (
+            datetime.strptime(item["last_bar"], "%Y-%m-%d").date()
+            if item["last_bar"] else None)
+        if last is None or last < required:
+            session_mismatch.append({"ticker": t, "last_bar": str(last) if last else None,
+                                     "attempted": t in attempted})
+            # Delisted pattern: the provider answered (call succeeded) but
+            # the latest bar stays behind the session.  Hard tombstone
+            # evidence — CONFIRMED_DEAD after distinct-day repeats, never
+            # from one occurrence.
+            if t in succeeded_syms:
+                record_failure(t, provider_status="no_bar_for_session",
+                               reason=f"last_bar {last} < required {required}")
+
+    benchmark_session = {b: (str(_parquet_last_date(b)) if _parquet_last_date(b) else None)
+                         for b in BENCHMARKS}
+    benchmarks_aligned = all(v == str(required) for v in benchmark_session.values())
+
+    same_session_ready = len(fresh) + n_ok - sum(
+        1 for m in session_mismatch if m["attempted"])
+
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": "execute" if execute else "dry_run",
-        "params": {"stale_days": stale_days, "max_calls": max_calls, "fmp_bars_days": FMP_BARS_DAYS},
+        "params": {"max_calls": max_calls, "fmp_bars_days": FMP_BARS_DAYS,
+                   "freshness_rule": "same_completed_session (core/market_session.py)"},
+        # ── P0 spec metrics ──────────────────────────────────────────────────
+        "required_market_session": str(required),
+        "same_session_ready": same_session_ready,
+        "refresh_attempted": len(results),
+        "refresh_succeeded": n_ok,
+        "session_mismatch_excluded": len(session_mismatch),
+        "benchmark_session": benchmark_session,
+        "benchmarks_aligned": benchmarks_aligned,
+        # ── coverage / budget honesty ────────────────────────────────────────
         "universe_size": len(universe),
+        "eligible_size": len(eligible),
         "already_fresh": len(fresh),
         "stale_or_missing": len(stale),
         "missing_parquet": len(missing),
         "planned_calls": len(to_fetch),
         "truncated_by_budget": truncated,
-        "refreshed_ok": n_ok,
+        "coverage_shortfall": truncated > 0,
         "refresh_failed": n_fail,
+        "session_mismatch_sample": session_mismatch[:50],
+        "excluded_dead_symbols": excluded_dead,
+        "excluded_dead_count": len(excluded_dead),
+        "tombstones": tombstone_summary(),
+        "fmp_budget": budget,
         "failed": [r for r in results if not r["ok"]][:50],
         "research_only": True,
         "no_trade_recommendation": True,
@@ -202,14 +292,20 @@ def run(stale_days: int, max_calls: int, execute: bool, limit: Optional[int] = N
     OUT_JSON.write_text(json.dumps(payload, indent=2))
 
     lines = [
-        "UNIVERSE PRICE REFRESH (shallow cache/prices/)",
+        "UNIVERSE PRICE REFRESH (same-session rule, shallow cache/prices/)",
         f"generated_at: {payload['generated_at']}   mode: {payload['mode']}",
-        f"universe={len(universe)}  fresh={len(fresh)}  stale/missing={len(stale)} (missing parquet: {len(missing)})",
-        f"planned_calls={len(to_fetch)}  truncated_by_budget={truncated}",
-        f"refreshed_ok={n_ok}  refresh_failed={n_fail}",
+        f"required_market_session: {required}   benchmarks_aligned: {benchmarks_aligned} {benchmark_session}",
+        f"universe={len(universe)} eligible={len(eligible)} fresh={len(fresh)} stale/missing={len(stale)} (missing parquet: {len(missing)})",
+        f"planned_calls={len(to_fetch)}  truncated_by_budget={truncated}  coverage_shortfall={payload['coverage_shortfall']}",
+        f"refresh_attempted={len(results)}  refresh_succeeded={n_ok}  refresh_failed={n_fail}",
+        f"session_mismatch_excluded={len(session_mismatch)}  dead_excluded={len(excluded_dead)}",
+        f"fmp_budget: {payload['fmp_budget']['budget_cap_status']} (month={payload['fmp_budget']['calls_used_month']})",
     ]
     if payload["failed"]:
-        lines.append("failures (first 10): " + ", ".join(f"{r['ticker']}({r.get('reason','?')})" for r in payload["failed"][:10]))
+        lines.append("failures (first 10): " + ", ".join(
+            f"{r['ticker']}({r.get('reason','?')})" for r in payload["failed"][:10]))
+    if not benchmarks_aligned and execute:
+        lines.append("WARNING: benchmark session mismatch — downstream scan must be BLOCKED")
     OUT_TXT.parent.mkdir(parents=True, exist_ok=True)
     OUT_TXT.write_text("\n".join(lines) + "\n")
     for ln in lines:
@@ -218,18 +314,19 @@ def run(stale_days: int, max_calls: int, execute: bool, limit: Optional[int] = N
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Refresh shallow price cache for the scan universe (FMP)")
-    ap.add_argument("--stale-days", type=int, default=DEFAULT_STALE_DAYS,
-                    help=f"Parquet last bar within N calendar days = fresh (default {DEFAULT_STALE_DAYS})")
+    ap = argparse.ArgumentParser(
+        description="Same-session refresh of the shallow price cache for the scan universe (FMP)")
     ap.add_argument("--max-calls", type=int, default=DEFAULT_MAX_CALLS,
                     help=f"Provider-call ceiling per run (default {DEFAULT_MAX_CALLS})")
     ap.add_argument("--limit", type=int, default=None,
                     help="Only consider the first N universe tickers (testing)")
+    ap.add_argument("--session", type=str, default=None,
+                    help="Override the required market session (YYYY-MM-DD, testing)")
     ap.add_argument("--execute", action="store_true", default=False,
                     help="Actually fetch from FMP. Without this flag the run is a dry-run report.")
     args = ap.parse_args(argv)
-    payload = run(stale_days=args.stale_days, max_calls=args.max_calls,
-                  execute=args.execute, limit=args.limit)
+    payload = run(max_calls=args.max_calls, execute=args.execute,
+                  limit=args.limit, session_override=args.session)
     return 0 if payload["refresh_failed"] == 0 else 1
 
 

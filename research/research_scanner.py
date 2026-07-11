@@ -44,7 +44,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -227,6 +227,14 @@ logger = logging.getLogger("research_scanner")
 _MAX_STALE_DAYS: Optional[int] = None
 _STALE_SKIPPED: Set[str] = set()
 
+# P0 same-session gate (2026-07-10 pipeline review): the PRIMARY validity rule.
+# When set (main() sets it to core.market_session.required_market_session()),
+# any ticker whose last bar predates the required completed session is excluded
+# with SESSION_MISMATCH instead of being compared against a fresher benchmark.
+# None = no gate (unit-test default, same pattern as _MAX_STALE_DAYS).
+_REQUIRED_SESSION: Optional[date] = None
+_SESSION_MISMATCH_SKIPPED: Set[str] = set()
+
 # Price-series sanity guard (2026-07-02): FMP EOD history for some micro-caps
 # mixes adjusted/unadjusted prints — e.g. repeated same-week x10 up / x0.1 down
 # flips, or isolated x25-x37 single-day jumps from unadjusted reverse splits.
@@ -284,6 +292,15 @@ def _load_cached_frame(symbol: str) -> Optional[pd.DataFrame]:
             df = combined.sort_index()
         except Exception:
             df = df_shallow if len(df_shallow) >= len(df_deep) else df_deep
+
+    if _REQUIRED_SESSION is not None and df is not None:
+        try:
+            last = pd.to_datetime(df.index).max().date()
+            if last < _REQUIRED_SESSION:
+                _SESSION_MISMATCH_SKIPPED.add(sym)
+                return None
+        except Exception:
+            pass
 
     if _MAX_STALE_DAYS is not None and df is not None:
         try:
@@ -771,8 +788,22 @@ def _build_universe(
         "alphabetical_fallback": 0,
     }
 
+    # P2 hygiene: confirmed-dead symbols (repeated hard refresh failures on
+    # distinct days — research/dead_symbol_tombstones.py) never enter the
+    # scan universe.  Excluded count is reported, never silent.
+    try:
+        from research.dead_symbol_tombstones import confirmed_dead
+        dead_symbols: Set[str] = confirmed_dead()
+    except Exception:
+        dead_symbols = set()
+    dead_excluded: List[str] = []
+
     def _add(t: str, source: str) -> bool:
         u = (t or "").upper().strip()
+        if u and u in dead_symbols:
+            if u not in dead_excluded:
+                dead_excluded.append(u)
+            return False
         if u and u not in seen and _is_valid_equity_symbol(u):
             seen.add(u)
             universe.append(u)
@@ -866,6 +897,8 @@ def _build_universe(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_universe_size": len(final),
         "source_counts": counts,
+        "dead_symbol_excluded_count": len(dead_excluded),
+        "dead_symbol_excluded": sorted(dead_excluded)[:50],
         "used_alphabetical_fallback": used_alphabetical,
         "ranked_fill_candidates_considered": ranked_meta.get("candidates_considered", 0),
         "ranked_fill_candidates_scored": ranked_meta.get("candidates_scored", 0),
@@ -2038,12 +2071,130 @@ def _apply_catalyst_sanity(item: Dict[str, Any]) -> Dict[str, Any]:
 # ── Main scanner ─────────────────────────────────────────────────────────────
 
 
+def _ticker_last_bar_date(symbol: str) -> Optional[str]:
+    """Last bar date (YYYY-MM-DD) from the merged deep+shallow read, ignoring
+    the session/stale gates — used for as-of reporting, not validity."""
+    path = PRICE_DIR / f"{symbol.upper()}.parquet"
+    deep = DEEP_PRICE_DIR / f"{symbol.upper()}.parquet"
+    best: Optional[date] = None
+    for p in (path, deep):
+        if not p.exists():
+            continue
+        try:
+            idx = pd.read_parquet(p, columns=[]).index
+            if len(idx):
+                d = pd.to_datetime(idx).max().date()
+                best = d if best is None or d > best else best
+        except Exception:
+            continue
+    return str(best) if best else None
+
+
+def _load_scan_manifest() -> Optional[Dict[str, Any]]:
+    """Validated scan-universe manifest written by
+    research/scan_universe_manifest.py (cache-only read)."""
+    path = RESEARCH_DIR / "scan_universe_manifest_latest.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _scan_integrity(universe_size: int,
+                    manifest: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """P0 scan-integrity verdict.  Separates market-data session freshness
+    from artifact freshness: a scan is not FRESH merely because it just ran.
+    Readiness policy (deterministic, configured thresholds) is shared with
+    the manifest builder — research/scan_readiness.py:
+
+      READY    — full same-session alignment (pre-approved dead/unsupported
+                 removals excepted).
+      DEGRADED — benchmarks aligned; a bounded fraction excluded.
+      BLOCKED  — a required benchmark misaligned, or aligned coverage below
+                 the configured floor.
+      UNGATED  — no session gate set (unit tests / explicit override).
+    """
+    required = _REQUIRED_SESSION
+    benchmark_session = {b: _ticker_last_bar_date(b) for b in ("SPY", "QQQ", "IWM")}
+    manifest_fields = {
+        "manifest_hash": (manifest or {}).get("universe_hash"),
+        "manifest_readiness": (manifest or {}).get("scan_readiness"),
+        "manifest_generated_at": (manifest or {}).get("generated_at"),
+    }
+    if required is None:
+        return {"readiness": "UNGATED", "required_market_session": None,
+                "benchmark_session": benchmark_session,
+                "benchmarks_aligned": None, "session_mismatch_excluded": 0,
+                "same_session_coverage_pct": None,
+                "readiness_reasons": ["session gate disabled"],
+                **manifest_fields}
+    aligned = all(v == str(required) for v in benchmark_session.values())
+    mism = len(_SESSION_MISMATCH_SKIPPED)
+    coverage = (round(100.0 * (universe_size - mism) / universe_size, 1)
+                if universe_size else 0.0)
+    from research.scan_readiness import readiness_verdict
+    readiness, reasons = readiness_verdict(
+        universe_size=universe_size, excluded_count=mism,
+        benchmarks_aligned=aligned)
+    if not aligned:
+        reasons = ["benchmark session mismatch: " + ", ".join(
+            f"{b}={v}" for b, v in benchmark_session.items()
+            if v != str(required))]
+    # When the scan consumed a validated manifest, the combined verdict
+    # never exceeds the manifest's: names the manifest excluded (e.g.
+    # no_bar_for_session pending tombstone confirmation) keep the scan
+    # DEGRADED until they are removed under the approved dead-symbol
+    # policy — READY is earned, not inherited.
+    rank = {"READY": 0, "DEGRADED": 1, "BLOCKED": 2}
+    m_readiness = manifest_fields.get("manifest_readiness")
+    if m_readiness in rank and rank[m_readiness] > rank.get(readiness, 0):
+        readiness = m_readiness
+        reasons = list(reasons) + [
+            f"manifest readiness {m_readiness}: "
+            + "; ".join((manifest or {}).get("readiness_reasons") or [])]
+    return {"readiness": readiness,
+            "required_market_session": str(required),
+            "benchmark_session": benchmark_session,
+            "benchmarks_aligned": aligned,
+            "session_mismatch_excluded": mism,
+            "same_session_coverage_pct": coverage,
+            "readiness_reasons": reasons,
+            **manifest_fields}
+
+
 def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CAP) -> Dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     logger.info("Research Scanner Engine %s starting (offline=%s)", VERSION, offline)
 
-    universe, universe_build_info = _build_universe(cap=universe_cap)
-    logger.info("Universe: %d tickers", len(universe))
+    # Module-level skip registries are per-run state — reset so repeated
+    # in-process builds (tests) don't accumulate.
+    _STALE_SKIPPED.clear()
+    _SESSION_MISMATCH_SKIPPED.clear()
+    _DATA_SUSPECT_SKIPPED.clear()
+
+    # P0 follow-up: consume the VALIDATED scan-universe manifest when one
+    # exists for the required session — the exact universe the manifest
+    # builder delta-refreshed and revalidated.  The manifest already wrote
+    # the universe build log; the artifact stamps the manifest hash so every
+    # scan is traceable to the universe + session that produced it.
+    # Fallback (no/mismatched manifest, or ungated test runs): build the
+    # universe in-process exactly as before.
+    manifest = _load_scan_manifest()
+    manifest_valid = bool(
+        _REQUIRED_SESSION is not None and manifest
+        and manifest.get("required_market_session") == str(_REQUIRED_SESSION)
+        and manifest.get("final_universe"))
+    if manifest_valid:
+        universe = list(manifest["final_universe"])[:universe_cap]
+        universe_build_info: Dict[str, Any] = {}
+        logger.info("Universe: %d tickers (validated manifest %s)",
+                    len(universe), manifest.get("universe_hash"))
+    else:
+        manifest = None
+        universe, universe_build_info = _build_universe(cap=universe_cap)
+        logger.info("Universe: %d tickers", len(universe))
 
     spy_df = _load_cached_frame("SPY")
     spy_closes = _closes(spy_df)
@@ -2122,6 +2273,17 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
     for i, item in enumerate(watchlist):
         watchlist[i] = _apply_catalyst_sanity(item)
 
+    # P0 per-candidate as-of transparency: every displayed candidate carries
+    # its own bar date, the benchmark bar date, and the same-session verdict.
+    spy_as_of = _ticker_last_bar_date("SPY")
+    for item in watchlist:
+        bar_as_of = _ticker_last_bar_date(item["ticker"])
+        item["bar_as_of_date"] = bar_as_of
+        item["benchmark_as_of_date"] = spy_as_of
+        item["same_session"] = (
+            bar_as_of is not None and bar_as_of == spy_as_of
+            and (_REQUIRED_SESSION is None or bar_as_of == str(_REQUIRED_SESSION)))
+
     # Label summary
     label_counts: Dict[str, int] = {}
     for item in watchlist:
@@ -2139,6 +2301,13 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
         "system_mode": SYSTEM_MODE,
         "research_only": True,
         "universe_size": len(universe),
+        # P0: one canonical market as-of date for the whole scan.
+        "market_as_of_date": str(_REQUIRED_SESSION) if _REQUIRED_SESSION else None,
+        "required_market_session": str(_REQUIRED_SESSION) if _REQUIRED_SESSION else None,
+        "session_mismatch_excluded_count": len(_SESSION_MISMATCH_SKIPPED),
+        "session_mismatch_excluded_sample": sorted(_SESSION_MISMATCH_SKIPPED)[:50],
+        "scan_universe_manifest_hash": (manifest or {}).get("universe_hash"),
+        "scan_integrity": _scan_integrity(len(universe), manifest=manifest),
         "stale_price_skip_days": _MAX_STALE_DAYS,
         "stale_price_skipped_count": len(_STALE_SKIPPED),
         "stale_price_skipped_sample": sorted(_STALE_SKIPPED)[:25],
@@ -2363,12 +2532,27 @@ def main(argv: Optional[List[str]] = None) -> None:
                         help=f"Universe size cap (default {DEFAULT_UNIVERSE_CAP})")
     parser.add_argument("--print", dest="print_text", action="store_true")
     parser.add_argument("--max-stale-days", type=int, default=7,
-                        help="Skip tickers whose last cached bar is older than N calendar days "
-                             "(prevents stale-vs-current-SPY RS distortion; 0 disables). Default 7.")
+                        help="Secondary coarse backstop: skip tickers whose last cached bar is "
+                             "older than N calendar days (0 disables). Default 7. The PRIMARY "
+                             "validity rule is the same-session gate.")
+    parser.add_argument("--session", type=str, default=None,
+                        help="Override the required market session (YYYY-MM-DD, testing/replay)")
+    parser.add_argument("--no-session-gate", action="store_true", default=False,
+                        help="Disable the same-session gate (readiness reports UNGATED)")
     args = parser.parse_args(argv)
 
-    global _MAX_STALE_DAYS
+    global _MAX_STALE_DAYS, _REQUIRED_SESSION
     _MAX_STALE_DAYS = args.max_stale_days if args.max_stale_days > 0 else None
+
+    # P0 primary validity rule: same completed session (holiday-aware),
+    # not calendar age.  --session overrides for testing/replay.
+    if args.session:
+        _REQUIRED_SESSION = datetime.strptime(args.session, "%Y-%m-%d").date()
+    elif args.no_session_gate:
+        _REQUIRED_SESSION = None
+    else:
+        from core.market_session import required_market_session
+        _REQUIRED_SESSION = required_market_session()
 
     print(RESEARCH_ONLY_BANNER)
 
