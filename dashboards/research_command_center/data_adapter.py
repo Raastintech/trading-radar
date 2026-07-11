@@ -113,6 +113,10 @@ class ArtifactStore:
         return self.research_dir / "quarantine_cause_report_latest.json"
 
     @property
+    def latest_scan_programs_json(self) -> Path:
+        return self.research_dir / "latest_scan_programs_latest.json"
+
+    @property
     def price_refresh_json(self) -> Path:
         return self.research_dir / "universe_price_refresh_latest.json"
 
@@ -246,6 +250,24 @@ def build_research_programs(
         "programs": programs,
         "label_routing": label_routing,
     }
+
+
+def build_latest_research_scan(
+        store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Latest-scan candidates grouped by research program.  Cache-only
+    read of the sidecar written by research/latest_scan_programs.py —
+    strictly the most recent production scan, never historical
+    aggregates.  research_only is re-forced true per candidate at
+    display time."""
+    store = store or ArtifactStore()
+    payload = _load_json(store.latest_scan_programs_json)
+    if payload is None or not payload.get("present"):
+        return {"present": False, "research_only": True}
+    for block in (payload.get("programs") or {}).values():
+        for c in block.get("candidates") or []:
+            c["research_only"] = True
+    payload["age_hours"] = _age_hours(payload.get("generated_at"))
+    return payload
 
 
 def build_scan_integrity(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
@@ -429,6 +451,7 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "warnings": (summary or {}).get("warnings") or [],
         "journal_audit": build_journal_audit(store),
         "research_programs": build_research_programs(store),
+        "latest_research_scan": build_latest_research_scan(store),
         "missing_artifacts": missing,
         "fallback": MISSING_ARTIFACT if missing else None,
         "generated_at": (scanner or {}).get("generated_at"),

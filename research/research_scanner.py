@@ -2385,34 +2385,17 @@ def _format_text(s: Dict[str, Any]) -> str:
             f"score={item['research_score']:5.1f}  cat={item['category']}"
         )
 
-    # Phase 5.1 — research program view: candidates never print as bare
-    # ticker names; each one explains its program, holding period, and
-    # hypothesis.  Display-boundary only — no scoring or ranking change.
+    # Latest-scan candidates by research program: candidates never
+    # print as bare tickers — each carries program, holding period,
+    # status vs the previous scan, detection reason, lifecycle, and the
+    # pre-registered program verdict.  Display boundary only — no
+    # scoring or ranking change.
     try:
-        from research.research_programs import classify_label
-        prog_verdicts: Dict[str, Any] = {}
-        try:
-            prog_report = json.loads(
-                (RESEARCH_DIR / "research_program_validation_latest.json")
-                .read_text(encoding="utf-8"))
-            prog_verdicts = {
-                pid: p.get("verdict")
-                for pid, p in (prog_report.get("programs") or {}).items()}
-        except Exception:
-            prog_verdicts = {}
-        lines += ["", "=== RESEARCH PROGRAM VIEW (top candidates) ==="]
-        for item in s.get("watchlist", [])[:8]:
-            route = classify_label(item.get("watchlist_label") or "")
-            hold = route.get("expected_holding_period_td") or "?"
-            lines += [
-                f"  {item['ticker']:6s}  program={route['program']:<10s}"
-                f" hold={hold}td"
-                f"  status={prog_verdicts.get(route['program'], 'UNKNOWN')}",
-                f"          hypothesis: {route.get('hypothesis') or 'n/a'}",
-                "          research_only: YES",
-            ]
+        from research.latest_scan_programs import (
+            build_latest_scan, render_terminal)
+        lines += ["", render_terminal(build_latest_scan(scanner_doc=s))]
     except Exception:
-        lines.append("  (program view unavailable)")
+        lines.append("  (latest-scan program view unavailable)")
 
     for cat_key, cat_name in [
         ("early_accumulation", "EARLY ACCUMULATION"),

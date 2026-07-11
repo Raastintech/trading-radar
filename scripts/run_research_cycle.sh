@@ -1370,6 +1370,19 @@ cmd_scanner_recall_cohorts() {
         "$PY" research/scanner_recall_cohorts.py "$@"
 }
 
+cmd_latest_scan_programs() {
+    # Latest-scan candidates by research program.  Cache-only, read-only
+    # visibility layer: candidates strictly from the newest scanner
+    # artifact, NEW/REPEAT/RETURNING/EXITED vs the previous scan, program
+    # routing with deterministic primary + secondary matches, lifecycle,
+    # per-candidate evidence maturity, and pre-registered verdicts.  No
+    # selection, threshold, ranking, or gate change.  Writes
+    # cache/research/latest_scan_programs_latest.json + logs twin.
+    log "[CACHE] latest-scan candidates by program (read-only)"
+    run_or_warn "latest scan programs" \
+        "$PY" research/latest_scan_programs.py "$@"
+}
+
 cmd_research_programs() {
     # Phase 5 — horizon-aligned research-program validation.  Cache-only,
     # cred-free, READ-ONLY on the engine: routes every watchlist label to
@@ -1461,6 +1474,9 @@ cmd_premarket() {
     cmd_scan_universe_manifest
     cmd_market_heartbeat
     cmd_research_scanner
+    # Latest-scan program view right after the scanner so every
+    # downstream reader (radar, digest, command center) sees it fresh.
+    cmd_latest_scan_programs
     cmd_research_coverage
     cmd_research_changes
     cmd_research_forward_tracker
@@ -1767,6 +1783,7 @@ case "$SUB" in
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
+    latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
     discovery-bootstrap)       cmd_discovery_bootstrap        "${POS[@]}" ;;
     scan-universe-manifest)    cmd_scan_universe_manifest     "${POS[@]}" ;;
     scanner-recall-cohorts)    cmd_scanner_recall_cohorts     "${POS[@]}" ;;

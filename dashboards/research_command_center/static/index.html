@@ -17,6 +17,11 @@
 *{box-sizing:border-box} html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--text);font:12.5px/1.4 "SF Mono","Cascadia Code",Menlo,Consolas,monospace;display:flex;overflow:hidden}
 
+.prog-wrap.primary-program .card{border:1px solid var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
+.prog-wrap.primary-program h3::after{content:" · PRIMARY PROGRAM";font-size:9px;color:var(--amber)}
+.cand-row{border-top:1px solid var(--border);padding:5px 0}
+.cand-row .dim{color:var(--dim)}
+
 /* ── app shell: fixed sidebar ── */
 #sidebar{width:var(--sidew);min-width:var(--sidew);background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;transition:width .15s,min-width .15s}
 body.side-collapsed #sidebar{width:var(--sidew-c);min-width:var(--sidew-c)}
@@ -371,6 +376,36 @@ function programCard(pid,p,routing){
     <div class="note" style="color:var(--dim)">labels: ${esc(labels.join(", ")||"—")}</div>`);
 }
 
+function candidateRows(block,cap){
+  // Latest-scan candidates: strictly the most recent production scan.
+  // HIGH priority never means validated alpha — verdicts stay visible.
+  const cands=(block.candidates||[]).slice(0,cap||8);
+  if(!cands.length)
+    return `<div class="note">No candidates detected in the latest scan.</div>`;
+  const rows=cands.map(c=>{
+    const mat=Object.entries(c.evidence_maturity||{})
+      .map(([h,st])=>`${h}:${st==="MATURED"?"✓":st==="PENDING"?"…":"–"}`).join(" ");
+    const sec=(c.secondary_programs||[]).length
+      ?` <span class="bdg n" title="${esc(c.routing_reason||"")}">+${esc((c.secondary_programs||[]).join(","))}</span>`:"";
+    const asof=c.bar_as_of_date
+      ?`bar ${esc(c.bar_as_of_date)} · bench ${esc(c.benchmark_as_of_date||"?")} · `
+       +(c.same_session?`<span class="bdg g">same-session</span>`:`<span class="bdg a">SESSION_MISMATCH</span>`)
+       +(c.source_scan_generated_at?` · scanned ${esc(String(c.source_scan_generated_at).slice(0,16))}Z`:"")
+      :"";
+    return `<div class="cand-row">
+      <div><b>${esc(c.ticker)}</b> <span class="bdg ${c.scan_status==="NEW"?"a":"n"}">${esc(c.scan_status)}</span>${sec}
+        <span class="dim"> ${esc(c.holding_period||"")} · ${esc(c.label||"")}${c.priority?" · "+esc(c.priority):""}</span></div>
+      <div class="note">${esc(c.detection_reason||"")}</div>
+      <div class="dim" style="font-size:10px">lifecycle ${esc(c.lifecycle_stage||"?")} · ${mat} · ${esc(c.program_verdict||"")} · research-only</div>
+      ${asof?`<div class="dim" style="font-size:10px">${asof}</div>`:""}
+    </div>`;
+  }).join("");
+  const extra=(block.candidates||[]).length-cands.length;
+  const exited=(block.exited||[]).length
+    ?`<details class="dim" style="font-size:10px"><summary>exited since previous scan (${block.exited.length})</summary>${esc(block.exited.map(e=>e.ticker).join(", "))}</details>`:"";
+  return rows+(extra>0?`<div class="dim" style="font-size:10px">… and ${extra} more</div>`:"")+exited;
+}
+
 function scanIntegrityCard(si){
   // P0 Scan Integrity: separates artifact freshness from market-data session
   // freshness from universe coverage.  Never shows FRESH on recency alone.
@@ -394,14 +429,31 @@ function scanIntegrityCard(si){
     ${kvRow("FMP budget",esc(String((si.refresh||{}).fmp_budget_status||"—")))}
   </div>`)}
 
-function researchProgramsSection(rp){
+function latestScanCard(pid,ls){
+  const block=((ls||{}).programs||{})[pid];
+  if(!ls||!ls.present||!block)
+    return `<div class="note">No latest-scan data — run ./scripts/run_research_cycle.sh latest-scan-programs</div>`;
+  const counts=`new ${block.new_count||0} · repeat ${block.repeat_count||0} · returning ${block.returning_count||0} · exited ${block.exited_count||0}`;
+  const warns=(ls.integrity_warnings||[]).map(w=>`<div class="note" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join("")
+    ||(ls.scan_stale?`<div class="note" style="color:var(--amber)">⚠ scan stale (${ls.scan_age_hours}h old) — rerun research-scanner</div>`:"");
+  const asof=ls.market_as_of_date?`<div class="dim" style="font-size:10px">market as-of ${esc(ls.market_as_of_date)} · universe hash ${ls.manifest_hash_match===true?"match":ls.manifest_hash_match===false?"MISMATCH":"?"} · readiness ${esc(ls.scan_readiness||"?")}</div>`:"";
+  return `<h4 style="margin:8px 0 4px">Latest ${esc(pid)} candidates <span class="dim" style="font-weight:normal">(${counts})</span></h4>${asof}${warns}${candidateRows(block)}`;
+}
+
+function researchProgramsSection(rp,ls){
   if(!rp||!rp.present)
     return card("Research programs",
       `<div class="note">No program validation yet — run ./scripts/run_research_cycle.sh research-programs</div>`);
   const progs=rp.programs||{};
   return ["TACTICAL","SWING","LONG_TERM"]
     .filter(pid=>progs[pid])
-    .map(pid=>programCard(pid,progs[pid],rp.label_routing)).join("");
+    .map(pid=>{
+      const emphasis=pid==="SWING"?" primary-program":"";
+      const base=programCard(pid,progs[pid],rp.label_routing);
+      // splice the latest-scan block into the card body (before closing div)
+      const inner=base.replace(/<\/div>$/, latestScanCard(pid,ls)+"</div>");
+      return `<div class="prog-wrap${emphasis}">${inner}</div>`;
+    }).join("");
 }
 
 function renderHome(){
@@ -447,7 +499,7 @@ function renderHome(){
     </div>
     <h2 class="pg" style="margin-top:14px">Research Programs — Tactical / Swing / Long-Term</h2>
     <div class="cards">
-      ${researchProgramsSection(s.research_programs)}
+      ${researchProgramsSection(s.research_programs, s.latest_research_scan)}
     </div>
     ${card(`Warnings — last nightly run <span class="bdg ${(s.warnings||[]).length?"a":"n"}">${(s.warnings||[]).length}</span>`,
       `<div class="warnlist">

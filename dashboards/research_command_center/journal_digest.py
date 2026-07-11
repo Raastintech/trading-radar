@@ -107,6 +107,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     truth = _load_json(store.moment_of_truth_json)
     programs = _load_json(store.research_programs_json)
     quarantine_causes = _load_json(store.quarantine_report_json)
+    latest_scan = _load_json(store.latest_scan_programs_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -134,6 +135,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "truth": truth,
         "programs": programs,
         "quarantine_causes": quarantine_causes,
+        "latest_scan": latest_scan,
         "missing": missing,
     }
 
@@ -568,6 +570,57 @@ def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _section_latest_scan_programs(inputs: Dict[str, Any]) -> List[str]:
+    """Latest-scan candidates per program (what the most recent cycle
+    detected) — deliberately separate from the forward-evidence and
+    program-maturity summaries above it."""
+    lines = ["## 4c. Latest Scan by Research Program"]
+    payload = inputs.get("latest_scan")
+    if not payload or not payload.get("present"):
+        lines.append("- Latest-scan sidecar missing — run "
+                     "./scripts/run_research_cycle.sh latest-scan-programs")
+        return lines
+    lines.append(
+        f"- Market as-of: {payload.get('market_as_of_date') or 'unknown'} "
+        f"| universe hash match: {payload.get('manifest_hash_match')} "
+        f"| scan readiness: {payload.get('scan_readiness') or 'unknown'}")
+    for w in payload.get("integrity_warnings") or []:
+        lines.append(f"- Warning: {w}")
+    if payload.get("scan_stale") and not payload.get("integrity_warnings"):
+        lines.append(f"- Warning: latest scan is STALE "
+                     f"({payload.get('scan_age_hours')}h old)")
+    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+        block = (payload.get("programs") or {}).get(pid) or {}
+        n = block.get("candidate_count", 0)
+        lines.append(
+            f"- {pid}: {n} candidates | new {block.get('new_count', 0)} "
+            f"| repeat {block.get('repeat_count', 0)} | returning "
+            f"{block.get('returning_count', 0)} | exited "
+            f"{block.get('exited_count', 0)}")
+        if not n:
+            lines.append("  - No candidates detected in the latest scan.")
+            continue
+        for c in (block.get("candidates") or [])[:3]:
+            session_tag = ("same-session" if c.get("same_session")
+                           else "SESSION_MISMATCH"
+                           if c.get("same_session") is False else "session ?")
+            lines.append(
+                f"  - {c['ticker']} [{c['scan_status']}] hold "
+                f"{c.get('holding_period')} | "
+                f"lifecycle {c.get('lifecycle_stage') or '?'} | verdict "
+                f"{c.get('program_verdict')} | bar "
+                f"{c.get('bar_as_of_date') or '?'} vs bench "
+                f"{c.get('benchmark_as_of_date') or '?'} ({session_tag}) | "
+                f"{(c.get('detection_reason') or '')[:70]}")
+        exited = [e.get("ticker") for e in block.get("exited") or []][:6]
+        if exited:
+            lines.append(f"  - Exited since previous scan: "
+                         f"{', '.join(exited)}"
+                         + (" (+more)" if block.get("exited_count", 0) > 6
+                            else ""))
+    return lines
+
+
 def _fundamental_line(ticker: str, store: ArtifactStore) -> str:
     f = build_fundamentals(ticker, store)
     if f.get("fallback"):
@@ -704,6 +757,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_sector_regime(inputs, top) + [""]
         + _section_forward(inputs) + [""]
         + _section_research_programs(inputs) + [""]
+        + _section_latest_scan_programs(inputs) + [""]
         + _section_fundamentals(inputs, top) + [""]
         + _section_review_queue(inputs, top, high, reset_reclaim) + [""]
         + _section_final_finding(inputs, status, high, concerns) + [""]

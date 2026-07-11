@@ -968,6 +968,11 @@ class DataLayer:
         if self._stale("research_programs"):
             self._set("research_programs",
                       self._fetch_risk_sidecar("research_program_validation_latest.json"))
+        # Latest-scan candidates by program (cache-only; sidecar written by
+        # ./scripts/run_research_cycle.sh latest-scan-programs)
+        if self._stale("latest_scan_programs"):
+            self._set("latest_scan_programs",
+                      self._fetch_risk_sidecar("latest_scan_programs_latest.json"))
 
     # ── fetchers ──────────────────────────────────────────────────────────────
 
@@ -3227,6 +3232,41 @@ class PB:  # PanelBuilder — all static
                          style="dim")
                 t.append(verdict, style=style)
                 t.append(f" ({matured})", style="dim")
+        # Latest-scan candidates per program — top names from the most
+        # recent production scan.  Cache-only read of the sidecar written
+        # by research/latest_scan_programs.py; display order is that
+        # module's research_score rank, never recomputed here.
+        ls = data.get("latest_scan_programs") or {}
+        ls_blocks = ls.get("programs") or {}
+        if ls.get("present") and ls_blocks:
+            t.append("\n latest scan ", style="dim")
+            n_warn = len(ls.get("integrity_warnings") or [])
+            if n_warn:
+                t.append(f"⚠ {n_warn} integrity warning"
+                         f"{'s' if n_warn != 1 else ''}  ",
+                         style="bold yellow")
+            elif ls.get("scan_stale"):
+                t.append(f"⚠ {ls.get('scan_age_hours')}h old  ",
+                         style="bold yellow")
+            first = True
+            for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+                block = ls_blocks.get(pid) or {}
+                n = block.get("candidate_count") or 0
+                if not first:
+                    t.append("  ·  ", style="dim")
+                first = False
+                t.append(f"{pid} ", style="bold")
+                t.append(str(n), style="bold cyan")
+                new_n = block.get("new_count") or 0
+                if new_n:
+                    t.append(f" (+{new_n} new)", style="green")
+                tops = [c.get("ticker")
+                        for c in (block.get("candidates") or [])[:4]
+                        if c.get("ticker")]
+                if tops:
+                    t.append(": " + " ".join(tops), style="white")
+                if n > len(tops):
+                    t.append(f" +{n - len(tops)}", style="dim")
         return Panel(t, box=box.SIMPLE, padding=(0, 1))
 
     @staticmethod
@@ -7800,7 +7840,7 @@ def build_scanner(state, data, claude):
     """
     body = Layout()
     body.split_column(
-        Layout(PB.scanner_board_strip(data), name="strip", size=4),
+        Layout(PB.scanner_board_strip(data), name="strip", size=5),
         Layout(name="row1"),
         Layout(name="row2"),
     )
