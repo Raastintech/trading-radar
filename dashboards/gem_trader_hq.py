@@ -3181,6 +3181,19 @@ class PB:  # PanelBuilder — all static
             t.append(f"  ·  stale-px skipped {n_stale}", style="dim yellow" if n_stale else "dim")
         if n_suspect is not None:
             t.append(f"  ·  bad-feed skipped {n_suspect}", style="dim red" if n_suspect else "dim")
+        # P0 scan integrity: market-data session freshness is separate from
+        # artifact age — a recent board is not FRESH if bars are mixed-session.
+        si = sc.get("scan_integrity") or {}
+        if si:
+            readiness = si.get("readiness") or "?"
+            style = {"READY": "bold green", "DEGRADED": "bold yellow",
+                     "BLOCKED": "bold red"}.get(readiness, "dim")
+            t.append(f"  ·  session {si.get('required_market_session') or '?'} ",
+                     style="dim")
+            t.append(readiness, style=style)
+            mism = si.get("session_mismatch_excluded")
+            if mism:
+                t.append(f" ({mism} mismatch-excluded)", style="dim yellow")
         t.append("  ·  ×N = in N categories", style="dim")
         # Phase 5.1 — research-program routing line: which program each
         # horizon belongs to and its pre-registered validation verdict.

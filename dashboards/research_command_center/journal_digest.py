@@ -192,6 +192,31 @@ def _data_quality_concern(inputs: Dict[str, Any]) -> Tuple[bool, List[str]]:
         concerns.append(
             f"Stale+suspect skips {skipped}/{universe_size} exceed "
             f"{SKIP_FRACTION_CONCERN:.0%} of universe")
+    # P0 scan integrity (2026-07-10): mixed-session comparisons are a
+    # CRITICAL data-quality flaw — a scan whose benchmarks are off the
+    # required session, or that lost material coverage to SESSION_MISMATCH
+    # exclusions, must surface as a concern regardless of artifact age.
+    si = status.get("scan_integrity") or {}
+    if si.get("readiness") == "BLOCKED":
+        concerns.append(
+            "CRITICAL: benchmark session mismatch — scan is BLOCKED "
+            f"(required session {si.get('required_market_session')}, "
+            f"benchmarks {si.get('benchmark_session')})")
+    mism = si.get("session_mismatch_excluded") or 0
+    if universe_size and mism / universe_size > SKIP_FRACTION_CONCERN:
+        concerns.append(
+            f"SESSION_MISMATCH exclusions {mism}/{universe_size} exceed "
+            f"{SKIP_FRACTION_CONCERN:.0%} of universe")
+    # The frozen legacy snapshot itself is expected (gated consumers degrade
+    # visibly) — it becomes a concern only when a scan ran without the
+    # session gate, because then nothing guards against stale context.
+    legacy = ((si.get("stale_source_consumers") or {})
+              .get("legacy_universe_snapshot") or {})
+    if legacy.get("stale") and si.get("readiness") in ("UNGATED", "UNKNOWN"):
+        concerns.append(
+            "CRITICAL: scan ran ungated while frozen universe snapshot is "
+            f"stale (as-of {legacy.get('source_as_of')}, "
+            f"{legacy.get('source_age_sessions')} sessions old)")
     return bool(concerns), concerns
 
 
@@ -276,16 +301,38 @@ def _section_data_quality(inputs: Dict[str, Any],
         frac = ((stale or 0) + (suspect or 0)) / universe_size
         refresh_healthy = ("healthy" if frac <= SKIP_FRACTION_CONCERN
                            else f"degraded ({frac:.1%} of universe skipped)")
+    si = status.get("scan_integrity") or {}
+    aligned_pct = si.get("same_session_coverage_pct")
     lines = [
         "## 1. Data Quality",
         f"- Freshness: {status.get('data_freshness')} "
-        f"(scanner age {_fmt(status.get('scanner_age_hours'), 'h')})",
+        f"(scanner artifact age {_fmt(status.get('scanner_age_hours'), 'h')})",
+        f"- Required market session: {si.get('required_market_session') or 'unknown'} "
+        f"| scan readiness: {si.get('readiness') or 'unknown'} "
+        f"| benchmarks aligned: {si.get('benchmarks_aligned')}",
+        f"- Same-session candidate alignment: "
+        f"{f'{aligned_pct}%' if aligned_pct is not None else 'unknown'} "
+        f"| session-mismatch excluded: {_fmt(si.get('session_mismatch_excluded'))}",
         f"- Stale-price skipped: {_fmt(stale)} | suspect-feed skipped: "
         f"{_fmt(suspect)} | quarantined: {_fmt(status.get('quarantine_count'))}",
         f"- Missing artifacts: {len(inputs['missing'])}"
         + (f" ({_join(inputs['missing'], cap=4)})" if inputs["missing"] else ""),
         f"- Price refresh: {refresh_healthy}",
     ]
+    legacy = ((si.get("stale_source_consumers") or {})
+              .get("legacy_universe_snapshot") or {})
+    if legacy.get("stale") is not None:
+        lines.append(
+            "- Frozen-source status: legacy universe snapshot "
+            + (f"STALE (as-of {legacy.get('source_as_of')}, "
+               f"{legacy.get('source_age_sessions')} sessions) — consumers gated"
+               if legacy.get("stale") else "fresh"))
+    cov = si.get("universe_coverage_pct")
+    if cov is not None:
+        newly = si.get("newly_admitted_today") or []
+        lines.append(
+            f"- Discovery-universe coverage: {cov}% of eligible market"
+            + (f" | newly admitted: {_join(newly, cap=6)}" if newly else ""))
     # Quarantine causes (when the cause report exists): stating the
     # per-cause breakdown here keeps the journal audit from re-proposing
     # a quarantine diagnostic that already runs nightly.

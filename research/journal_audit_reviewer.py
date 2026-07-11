@@ -152,6 +152,16 @@ _MOMENT_OF_TRUTH_RE = re.compile(
     r"moment-of-truth verdict:\s*([A-Z_]+)", re.IGNORECASE)
 _MATURED_RE = re.compile(
     r"matured\s+(5d|10d|20d):\s*([^|\n]+)", re.IGNORECASE)
+_SESSION_READINESS_RE = re.compile(
+    r"scan readiness:\s*(\w+)", re.IGNORECASE)
+_REQUIRED_SESSION_RE = re.compile(
+    r"required market session:\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
+_BENCH_ALIGNED_RE = re.compile(
+    r"benchmarks aligned:\s*(\w+)", re.IGNORECASE)
+_SESSION_MISMATCH_RE = re.compile(
+    r"session-mismatch excluded:\s*(\d+)", re.IGNORECASE)
+_FROZEN_SOURCE_RE = re.compile(
+    r"frozen-source status:.*?\bSTALE\b", re.IGNORECASE)
 _STALE_SKIPPED_RE = re.compile(
     r"stale-price skipped:\s*(\d+)", re.IGNORECASE)
 _SUSPECT_SKIPPED_RE = re.compile(
@@ -360,6 +370,21 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         "freshness_stale": bool(re.search(r"freshness:\s*stale", lower)),
         "nightly_failed": bool(re.search(r"nightly status\s+(fail|error)",
                                          lower)),
+        # P0 scan-integrity signals (2026-07-10): mixed-session comparisons
+        # and stale contextual modules are CRITICAL data-quality flaws.
+        "scan_readiness": (
+            _SESSION_READINESS_RE.search(text).group(1).upper()
+            if _SESSION_READINESS_RE.search(text) else None),
+        "required_market_session": (
+            _REQUIRED_SESSION_RE.search(text).group(1)
+            if _REQUIRED_SESSION_RE.search(text) else None),
+        "benchmarks_aligned": (
+            _BENCH_ALIGNED_RE.search(text).group(1).lower() == "true"
+            if _BENCH_ALIGNED_RE.search(text) else None),
+        "session_mismatch_count": (
+            int(_SESSION_MISMATCH_RE.search(text).group(1))
+            if _SESSION_MISMATCH_RE.search(text) else None),
+        "frozen_source_stale": bool(_FROZEN_SOURCE_RE.search(text)),
         # analyst context (deterministic pre-parse)
         "high_priority_tickers": high_priority,
         "review_first_tickers": review_first,
@@ -714,6 +739,34 @@ def build_fallback_audit(digest_text: str,
             "Nightly run failed or scanner artifacts are stale.",
             "Everything downstream of the scanner reads outdated state.",
             "Re-run the nightly cycle and check the research timer logs."))
+    # P0 scan integrity (2026-07-10): mixed-session comparisons are CRITICAL.
+    if sig.get("benchmarks_aligned") is False or sig.get("scan_readiness") == "BLOCKED":
+        flaws.append(_flaw(
+            "CRITICAL", "data_quality",
+            "Mixed-session scan: benchmark bars are not on the required "
+            f"market session ({sig.get('required_market_session') or 'unknown'}).",
+            "Every relative-strength and momentum figure compares candidate "
+            "and benchmark prices from different sessions — the rankings "
+            "are not trustworthy.",
+            "Re-run refresh-universe-prices and the scanner; verify the "
+            "benchmark parquets reach the required session."))
+    if (sig.get("session_mismatch_count") or 0) > 50:
+        flaws.append(_flaw(
+            "HIGH", "data_quality",
+            f"{sig['session_mismatch_count']} candidates were excluded with "
+            "SESSION_MISMATCH.",
+            "Coverage is materially reduced; the scan is honest but sees "
+            "only part of the universe.",
+            "Check the refresh step's failures/budget and the dead-symbol "
+            "tombstone ledger for the excluded names."))
+    if sig.get("frozen_source_stale") and sig.get("scan_readiness") in (None, "UNGATED", "UNKNOWN"):
+        flaws.append(_flaw(
+            "CRITICAL", "data_quality",
+            "A stale contextual module (frozen universe snapshot) may be "
+            "feeding apparently-current output while the scan ran ungated.",
+            "Stale context silently distorts posture/breadth/labels.",
+            "Verify the P0-B freshness gates are active and the scanner "
+            "runs with the session gate enabled."))
 
     # engine health
     if sig["empty"]:
@@ -1275,6 +1328,15 @@ Grading rules:
   Long-Term).  Never blend them into one global performance conclusion.
   program_verdicts must restate the digest's "Research Programs" section
   verdicts exactly; overall_engine only restates the safety verdict.
+- MIXED-SESSION comparisons are a CRITICAL data-quality flaw: if the
+  digest shows benchmarks not aligned to the required market session,
+  scan readiness BLOCKED, or a large SESSION_MISMATCH exclusion count,
+  report a CRITICAL "data_quality" flaw — every RS/momentum figure in
+  that scan compares prices from different sessions.
+- STALE CONTEXTUAL MODULES are a CRITICAL data-quality flaw: if a
+  frozen/stale source (e.g. the legacy universe snapshot) appears to feed
+  apparently-current output rather than being gated UNAVAILABLE, report
+  it as CRITICAL.
 - If Phase 4B is BLOCKED, research_verdict must be "RESEARCH_ONLY".
 - If forward evidence is MIXED, INCONCLUSIVE, or NEED_MORE_DATA,
   alpha_discovery_quality must not be "STRONG".

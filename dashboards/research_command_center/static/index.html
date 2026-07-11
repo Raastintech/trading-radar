@@ -228,11 +228,12 @@ function heat(v){
    green = healthy · amber = caution or intentional safety gate (Phase 4B
    BLOCKED is a gate, not a failure → amber) · red = failure · gray =
    missing / immature / pending. Unknown values default to gray. */
-const BADGE_GREEN=["PASS","READY","FRESH","RESEARCH_ONLY","OK","UNBLOCKED","PROMISING"];
+const BADGE_GREEN=["PASS","READY","FRESH","RESEARCH_ONLY","OK","UNBLOCKED","PROMISING","SAME-SESSION"];
 const BADGE_AMBER=["BLOCKED","NEED_MORE_DATA","INCONCLUSIVE","MIXED","PARTIAL","STALE",
   "SUSPECT","DATA_QUARANTINE","IMMATURE_FORWARD_EVIDENCE","WARN","QUARANTINE",
   "STALE_PRICE","INSUFFICIENT_HISTORY","BENCHMARK_MISSING","SUSPECT_FEED",
-  "TOO_EARLY","EARLY_SIGNAL","NO_FORWARD_EDGE","CONFLICTED"];
+  "TOO_EARLY","EARLY_SIGNAL","NO_FORWARD_EDGE","CONFLICTED",
+  "DEGRADED","SESSION_MISMATCH","UNGATED","UNAVAILABLE_STALE_SOURCE"];
 const BADGE_RED=["FAIL","MISSING","ERROR"];
 function badgeClass(v){
   const u=String(v??"").toUpperCase();
@@ -299,13 +300,18 @@ function renderHeader(){
     chip("REGIME", s.market_regime??"?","info"),
   ];
   // Row 2: data-hygiene chips, grouped + slightly smaller.
+  const si=s.scan_integrity||{};
   const data=[
     `<span class="grp">Data:</span>`,
     chipB("FRESHNESS", s.data_freshness??"?"),
+    chipB("SCAN", si.readiness??"?"),
+    chip("SESSION", si.required_market_session??"?", si.benchmarks_aligned===false?"warn":"info"),
     chip("STALE SKIPPED", s.stale_skipped??"—",(s.stale_skipped||0)>0?"warn":""),
     chip("SUSPECT SKIPPED", s.suspect_skipped??"—",(s.suspect_skipped||0)>0?"warn":""),
     chip("QUARANTINE", s.quarantine_count??"—",(s.quarantine_count||0)>0?"warn":""),
   ];
+  if((si.session_mismatch_excluded||0)>0)
+    data.push(chip("SESSION MISMATCH", si.session_mismatch_excluded,"warn"));
   if((s.missing_artifacts||[]).length)
     data.push(chip("MISSING ARTIFACTS", s.missing_artifacts.join(", "),"bad"));
   $("#gheader").innerHTML=
@@ -365,6 +371,29 @@ function programCard(pid,p,routing){
     <div class="note" style="color:var(--dim)">labels: ${esc(labels.join(", ")||"—")}</div>`);
 }
 
+function scanIntegrityCard(si){
+  // P0 Scan Integrity: separates artifact freshness from market-data session
+  // freshness from universe coverage.  Never shows FRESH on recency alone.
+  if(!si)return card("Scan integrity",`<div class="note">No scan-integrity data yet — rerun the scanner.</div>`);
+  const bs=si.benchmark_session||{};
+  const bench=Object.entries(bs).map(([k,v])=>`${k} ${v??"?"}`).join(" · ")||"—";
+  const ssc=si.stale_source_consumers||{};
+  const legacy=ssc.legacy_universe_snapshot||{};
+  const newly=(si.newly_admitted_today||[]);
+  return card(`Scan integrity ${badge(si.readiness)}`,`<div class="kv">
+    ${kvRow("Market as-of session",si.required_market_session??"—")}
+    ${kvRow("Benchmarks",`${bench} ${si.benchmarks_aligned===true?badge("OK"):si.benchmarks_aligned===false?badge("MISMATCH"):""}`)}
+    ${kvRow("Same-session coverage",si.same_session_coverage_pct!=null?si.same_session_coverage_pct+"%":"—",(si.session_mismatch_excluded||0)>0?"warn":"")}
+    ${kvRow("Session-mismatch excluded",si.session_mismatch_excluded??"—",(si.session_mismatch_excluded||0)>0?"warn":"")}
+    ${kvRow("Artifact generated",si.artifact_age_hours!=null?si.artifact_age_hours+"h ago":"—")}
+    ${kvRow("Universe manifest",(si.manifest||{}).hash?`<span class="dim">#${esc(si.manifest.hash)}</span> · delta ${si.manifest.delta_refresh_succeeded??"?"}/${si.manifest.delta_refresh_needed??"?"} refreshed · ${si.manifest.aligned_final_universe_count??"?"} aligned`:"— (run scan-universe-manifest)")}
+    ${kvRow("Universe coverage",si.universe_coverage_pct!=null?si.universe_coverage_pct+"% of eligible market":"— (run discovery-bootstrap)")}
+    ${kvRow("Newly admitted",newly.length?esc(newly.slice(0,8).join(", "))+(newly.length>8?" …":""):"none")}
+    ${kvRow("Dead symbols excluded",si.dead_symbol_exclusions??"—")}
+    ${kvRow("Legacy snapshot",legacy.stale===true?`${badge("UNAVAILABLE_STALE_SOURCE")} <span class="dim">as-of ${esc(legacy.source_as_of||"?")} (${legacy.source_age_sessions??"?"} sessions)</span>`:legacy.stale===false?badge("FRESH"):"—")}
+    ${kvRow("FMP budget",esc(String((si.refresh||{}).fmp_budget_status||"—")))}
+  </div>`)}
+
 function researchProgramsSection(rp){
   if(!rp||!rp.present)
     return card("Research programs",
@@ -406,6 +435,7 @@ function renderHome(){
         ${kvRow("Quarantine",s.quarantine_count??"—",(s.quarantine_count||0)>0?"warn":"")}
         ${kvRow("Insufficient history",qb.INSUFFICIENT_HISTORY??"—")}
       </div>`)}
+      ${scanIntegrityCard(s.scan_integrity)}
       ${card("Candidate summary",`<div class="kv">
         ${kvRow("Total candidates",`<span class="big">${rows.length}</span>`)}
         ${kvRow("High priority",nHP,nHP>0?"ok":"")}

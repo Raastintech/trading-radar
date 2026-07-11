@@ -112,6 +112,26 @@ class ArtifactStore:
     def quarantine_report_json(self) -> Path:
         return self.research_dir / "quarantine_cause_report_latest.json"
 
+    @property
+    def price_refresh_json(self) -> Path:
+        return self.research_dir / "universe_price_refresh_latest.json"
+
+    @property
+    def discovery_coverage_json(self) -> Path:
+        return self.research_dir / "discovery_coverage_latest.json"
+
+    @property
+    def alpha_board_json(self) -> Path:
+        return self.research_dir / "alpha_discovery_board_latest.json"
+
+    @property
+    def scan_manifest_json(self) -> Path:
+        return self.research_dir / "scan_universe_manifest_latest.json"
+
+    @property
+    def legacy_universe_snapshot_json(self) -> Path:
+        return self.root / "cache" / "universe" / "universe_snapshot_latest.json"
+
 
 def _load_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
@@ -228,6 +248,105 @@ def build_research_programs(
     }
 
 
+def build_scan_integrity(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Scan Integrity model (P0, 2026-07-10 pipeline repair).
+
+    Separates three things the old single FRESH/STALE label conflated:
+      * artifact freshness        — when the scan artifact was generated
+      * market-data session freshness — whether candidate + benchmark bars
+        are all on the required completed trading session
+      * universe coverage         — how much of the eligible market the
+        discovery pool actually covers
+
+    Readiness (READY / DEGRADED / BLOCKED) comes from the scanner's own
+    scan_integrity block — the authority — enriched with refresh, discovery
+    and stale-source detail.  Cache-only reads; degrades to explicit unknowns.
+    """
+    store = store or ArtifactStore()
+    scanner = _load_json(store.scanner_json) or {}
+    refresh = _load_json(store.price_refresh_json) or {}
+    discovery = _load_json(store.discovery_coverage_json) or {}
+    board = _load_json(store.alpha_board_json) or {}
+    manifest = _load_json(store.scan_manifest_json) or {}
+
+    integrity = scanner.get("scan_integrity") or {}
+    readiness = integrity.get("readiness") or "UNKNOWN"
+
+    # Stale-source consumers: the legacy universe snapshot's status per the
+    # P0-B gates.  The adapter is a pure artifact reader (no core imports),
+    # so staleness comes from artifacts: the alpha board self-reports its
+    # legacy-snapshot verdict (incl. session age), and the fallback is an
+    # ISO-date comparison against the scanner's required session.
+    snap = _load_json(store.legacy_universe_snapshot_json) or {}
+    snap_as_of = str(snap.get("generated_at") or "")[:10] or None
+    board_seed = (board.get("seed_source_info") or {})
+    board_legacy = board_seed.get("legacy_snapshot") or {}
+    snap_age_sessions = board_legacy.get("source_age_sessions")
+    snap_stale = None  # None = snapshot absent (nothing to leak), not stale
+    if snap:
+        if isinstance(board_legacy.get("stale"), bool):
+            snap_stale = board_legacy["stale"]
+        else:
+            required = (integrity.get("required_market_session")
+                        or scanner.get("required_market_session"))
+            if snap_as_of and required:
+                snap_stale = snap_as_of < str(required)  # ISO dates compare
+    stale_source_consumers = {
+        "legacy_universe_snapshot": {
+            "source_as_of": snap_as_of,
+            "source_age_sessions": snap_age_sessions,
+            "stale": snap_stale,
+        },
+        "alpha_discovery_seed_source": board_seed.get("seed_source") or "unknown",
+        "alpha_discovery_legacy_status": (board_seed.get("legacy_snapshot") or {}).get("status"),
+        "gated_consumers": ["market_posture", "regime_breadth", "liquid_top_lens_tier"],
+    }
+
+    return {
+        "readiness": readiness,
+        "readiness_reasons": integrity.get("readiness_reasons") or [],
+        # market-data session freshness
+        "required_market_session": integrity.get("required_market_session")
+        or scanner.get("required_market_session"),
+        "benchmark_session": integrity.get("benchmark_session") or {},
+        "benchmarks_aligned": integrity.get("benchmarks_aligned"),
+        "same_session_coverage_pct": integrity.get("same_session_coverage_pct"),
+        "session_mismatch_excluded": integrity.get("session_mismatch_excluded"),
+        # artifact freshness (separate axis)
+        "artifact_generated_at": scanner.get("generated_at"),
+        "artifact_age_hours": (round(_age_hours(scanner.get("generated_at")), 1)
+                               if _age_hours(scanner.get("generated_at")) is not None else None),
+        # refresh detail
+        "refresh": {
+            "required_market_session": refresh.get("required_market_session"),
+            "refresh_attempted": refresh.get("refresh_attempted"),
+            "refresh_succeeded": refresh.get("refresh_succeeded"),
+            "coverage_shortfall": refresh.get("coverage_shortfall"),
+            "fmp_budget_status": (refresh.get("fmp_budget") or {}).get("budget_cap_status"),
+        },
+        # validated scan-universe manifest (P0 follow-up)
+        "manifest": {
+            "hash": integrity.get("manifest_hash")
+            or scanner.get("scan_universe_manifest_hash"),
+            "readiness": manifest.get("scan_readiness"),
+            "delta_refresh_needed": manifest.get("delta_refresh_needed"),
+            "delta_refresh_succeeded": manifest.get("delta_refresh_succeeded"),
+            "aligned_final_universe_count": manifest.get("aligned_final_universe_count"),
+            "excluded_by_reason": {
+                k: len(v) for k, v in (manifest.get("excluded_by_reason") or {}).items()},
+        },
+        # universe coverage (discovery)
+        "universe_coverage_pct": discovery.get("coverage_pct"),
+        "eligible_security_master_count": discovery.get("eligible_security_master_count"),
+        "missing_history_count": discovery.get("missing_history_count"),
+        "newly_admitted_today": discovery.get("newly_admitted_today") or [],
+        # hygiene
+        "dead_symbol_exclusions": (refresh.get("excluded_dead_count")
+                                   or (scanner.get("scan_integrity") or {}).get("dead_symbol_excluded_count")),
+        "stale_source_consumers": stale_source_consumers,
+    }
+
+
 def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     """Top status strip model.  Every field degrades to an explicit unknown."""
     store = store or ArtifactStore()
@@ -264,9 +383,23 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     }
 
     scanner_age_h = _age_hours((scanner or {}).get("generated_at"))
-    freshness = "UNKNOWN"
+    artifact_freshness = "UNKNOWN"
     if scanner_age_h is not None:
-        freshness = "FRESH" if scanner_age_h <= FRESHNESS_STALE_HOURS else "STALE"
+        artifact_freshness = "FRESH" if scanner_age_h <= FRESHNESS_STALE_HOURS else "STALE"
+
+    # P0: a scan is not FRESH merely because the artifact is recent — the
+    # combined label also requires same-session market data (scan integrity
+    # READY).  DEGRADED surfaces reduced-but-honest coverage.
+    scan_integrity = build_scan_integrity(store)
+    readiness = scan_integrity.get("readiness")
+    if artifact_freshness == "FRESH" and readiness == "READY":
+        freshness = "FRESH"
+    elif artifact_freshness == "FRESH" and readiness == "DEGRADED":
+        freshness = "DEGRADED"
+    elif artifact_freshness == "FRESH" and readiness == "BLOCKED":
+        freshness = "BLOCKED"
+    else:
+        freshness = artifact_freshness  # STALE / UNKNOWN, or UNGATED runs
 
     quarantine = (radar or {}).get("quarantine_breakdown") or {}
 
@@ -287,6 +420,8 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "benchmark_readiness": (summary or {}).get("forward_evidence", {}).get(
             "benchmark_readiness") or "UNKNOWN",
         "data_freshness": freshness,
+        "artifact_freshness": artifact_freshness,
+        "scan_integrity": scan_integrity,
         "scanner_age_hours": round(scanner_age_h, 1) if scanner_age_h is not None else None,
         "stale_skipped": (scanner or {}).get("stale_price_skipped_count"),
         "suspect_skipped": (scanner or {}).get("data_suspect_skipped_count"),
