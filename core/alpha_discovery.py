@@ -377,6 +377,152 @@ def _baseline_seed_rows(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+# ── P0-B seed-source migration (2026-07-10 pipeline review) ─────────────────
+# The legacy universe snapshot froze at 2026-06-12 when the trading daemon was
+# decommissioned, so every board built from it scored June-12 returns/volumes
+# and could never admit a symbol the daemon hadn't seen.  The canonical seed
+# source is now the research pipeline's dynamic universe artifact + the
+# maintained price cache; the legacy snapshot is used only for the optional
+# sleeve-resemblance labels, and only while it is session-fresh (it never is,
+# post-decommission — the labels degrade to UNAVAILABLE_STALE_SOURCE).
+
+_UNIVERSE_BUILD_JSON = cfg.CACHE_DIR / "research" / "research_universe_build_latest.json"
+_SHALLOW_PRICE_DIR = cfg.CACHE_DIR / "prices"
+_SEED_MAX_SYMBOLS = 1500
+
+
+def _seed_rows_from_price_cache(
+    universe_build_path: Optional[Path] = None,
+    price_dir: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Seed rows computed from the canonical dynamic universe + price cache.
+
+    Produces the exact row shape `_baseline_seed_rows` produced (same
+    UNIVERSE_DEFINITION floors, same field names) so `_prelim_rank`,
+    `_profile_filter`, and every score block downstream are unchanged.
+    ``bars_stale`` is session-aware: a bar behind the required completed
+    session marks the row stale (and it is dropped, same as legacy).
+    ``scores`` is empty — legacy strategy scores existed only in the frozen
+    snapshot and are not fabricated.
+    """
+    import pandas as pd
+    from core.market_session import required_market_session
+
+    build_path = universe_build_path or _UNIVERSE_BUILD_JSON
+    pdir = price_dir or _SHALLOW_PRICE_DIR
+    try:
+        build = json.loads(build_path.read_text(encoding="utf-8"))
+        tickers = [str(e.get("ticker") or "").upper()
+                   for e in (build.get("universe_full") or [])]
+    except Exception:
+        return []
+    required = required_market_session()
+
+    rows: List[Dict[str, Any]] = []
+    for symbol in tickers[:_SEED_MAX_SYMBOLS]:
+        if not symbol or symbol in _KNOWN_INSTRUMENTS:
+            continue
+        path = pdir / f"{symbol}.parquet"
+        if not path.exists():
+            continue
+        try:
+            df = pd.read_parquet(path)
+            if df is None or df.empty or "close" not in df.columns:
+                continue
+            closes = df["close"].dropna()
+            if len(closes) < 21:
+                continue
+            vols = df["volume"].dropna() if "volume" in df.columns else None
+            price = float(closes.iloc[-1])
+            if vols is None or len(vols) < 21:
+                continue
+            v20 = float(vols.iloc[-20:].mean())
+            v5 = float(vols.iloc[-5:].mean())
+            c20 = closes.iloc[-20:]
+            avg_dvol = float((c20 * vols.iloc[-20:].values).mean())
+            volume_ratio_5d = (v5 / v20) if v20 > 0 else 1.0
+            current_dvol = avg_dvol * max(volume_ratio_5d, 0.1)
+            ret5 = (price / float(closes.iloc[-6]) - 1.0) * 100.0
+            ret20 = (price / float(closes.iloc[-21]) - 1.0) * 100.0
+            atr_pct = None
+            if all(c in df.columns for c in ("high", "low")):
+                h = df["high"].astype(float)
+                l = df["low"].astype(float)
+                pc = df["close"].astype(float).shift(1)
+                tr = pd.concat([h - l, (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1)
+                atr14 = tr.rolling(14).mean().iloc[-1]
+                if pd.notna(atr14) and price > 0:
+                    atr_pct = float(atr14) / price * 100.0
+            last_bar = pd.to_datetime(df.index).max().date()
+            row = {
+                "symbol": symbol,
+                "price": price,
+                "avg_dollar_volume_20": avg_dvol,
+                "current_dollar_volume": current_dvol,
+                "return_5d_pct": ret5,
+                "return_20d_pct": ret20,
+                "volume_ratio_5d": volume_ratio_5d,
+                "atr_pct_14": _f(atr_pct),
+                "bars_stale": last_bar < required,
+                "last_bar_date": str(last_bar),
+                "scores": {},
+            }
+        except Exception:
+            continue
+        if row["price"] < UNIVERSE_DEFINITION["price_floor"]:
+            continue
+        if row["avg_dollar_volume_20"] < UNIVERSE_DEFINITION["avg_dollar_volume_floor"]:
+            continue
+        if row["current_dollar_volume"] < UNIVERSE_DEFINITION["current_dollar_volume_floor"]:
+            continue
+        if row["bars_stale"]:
+            continue
+        rows.append(row)
+    return rows
+
+
+def _resolve_seed_source(
+    snapshot_path: Optional[Path] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, Any]]:
+    """Return (seed_rows, resemblance_map, seed_source_info).
+
+    Canonical source first (dynamic universe + price cache).  The legacy
+    snapshot contributes only sleeve-resemblance labels, and only while
+    session-fresh; a stale snapshot is surfaced as UNAVAILABLE_STALE_SOURCE
+    and never silently feeds apparently-current output.  When neither source
+    is usable the caller must fail closed (empty rows)."""
+    from core.market_session import source_staleness
+
+    snap = _load_snapshot(snapshot_path)
+    stale_info = source_staleness(snap.get("generated_at") if snap else None)
+
+    rows = _seed_rows_from_price_cache()
+    if rows:
+        if snap and not stale_info["stale"]:
+            resemblance = _best_resemblance_map(snap)
+            legacy_status = "FRESH"
+        else:
+            resemblance = {}
+            legacy_status = "UNAVAILABLE_STALE_SOURCE"
+        return rows, resemblance, {
+            "seed_source": "universe_build+price_cache",
+            "legacy_snapshot": {"status": legacy_status, **stale_info},
+        }
+
+    if snap and not stale_info["stale"]:
+        rows = _baseline_seed_rows(snap)
+        return rows, _best_resemblance_map(snap), {
+            "seed_source": "legacy_universe_snapshot",
+            "legacy_snapshot": {"status": "FRESH", **stale_info},
+        }
+
+    return [], {}, {
+        "seed_source": "none",
+        "status": "UNAVAILABLE_STALE_SOURCE",
+        "legacy_snapshot": {"status": "UNAVAILABLE_STALE_SOURCE", **stale_info},
+    }
+
+
 def _prelim_rank(row: Dict[str, Any]) -> float:
     return (
         _norm(row["return_20d_pct"], -10, 30) * 35.0
@@ -986,11 +1132,12 @@ def prewarm_alpha_discovery_enrichment(
     profile_limit: int = 240,
     fundamentals_limit: int = 160,
 ) -> Dict[str, Any]:
-    snapshot = _load_snapshot(snapshot_path)
-    if not snapshot:
+    seed_rows, _, seed_source_info = _resolve_seed_source(snapshot_path)
+    if not seed_rows:
         return {
             "built_at": datetime.utcnow().isoformat(),
-            "error": "universe snapshot unavailable",
+            "error": "UNAVAILABLE_STALE_SOURCE — no session-fresh seed source",
+            "seed_source_info": seed_source_info,
             "seed_rows": 0,
             "candidate_band": 0,
             "profile_target": 0,
@@ -1000,7 +1147,6 @@ def prewarm_alpha_discovery_enrichment(
             "symbols": [],
         }
 
-    seed_rows = _baseline_seed_rows(snapshot)
     seed_rows.sort(key=_prelim_rank, reverse=True)
     candidate_band = seed_rows[: max(0, seed_limit)]
 
@@ -1026,6 +1172,7 @@ def prewarm_alpha_discovery_enrichment(
 
     summary = {
         "built_at": datetime.utcnow().isoformat(),
+        "seed_source_info": seed_source_info,
         "seed_rows": len(seed_rows),
         "candidate_band": len(candidate_band),
         "profile_target": min(len(candidate_band), max(0, profile_limit)),
@@ -1061,16 +1208,16 @@ def build_alpha_discovery_board(
     use_tradier: bool = True,
     snapshot_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    snapshot = _load_snapshot(snapshot_path)
-    if not snapshot:
-        return {"version": ALPHA_DISCOVERY_VERSION, "error": "universe snapshot unavailable", "items": []}
+    seed_rows, resemblance_map, seed_source_info = _resolve_seed_source(snapshot_path)
+    if not seed_rows:
+        return {"version": ALPHA_DISCOVERY_VERSION,
+                "error": "UNAVAILABLE_STALE_SOURCE — no session-fresh seed source",
+                "seed_source_info": seed_source_info, "items": []}
 
     enrichment_cache = load_alpha_discovery_enrichment()
     effective_profile_limit = max(profile_limit, int(enrichment_cache.get("profile_target") or 0))
     effective_fundamentals_limit = max(fundamentals_limit, int(enrichment_cache.get("fundamentals_target") or 0))
 
-    resemblance_map = _best_resemblance_map(snapshot)
-    seed_rows = _baseline_seed_rows(snapshot)
     seed_rows.sort(key=_prelim_rank, reverse=True)
 
     profiles: Dict[str, Optional[Dict[str, Any]]] = {}
@@ -1358,6 +1505,7 @@ def build_alpha_discovery_board(
         "built_at": datetime.utcnow().isoformat(),
         "subtitle": "Early Opportunity / Buyable Pullback / Sponsor Confirmation",
         "universe_definition": UNIVERSE_DEFINITION,
+        "seed_source_info": seed_source_info,
         "methodology": {
             "positive_blocks": [
                 "business_inflection",

@@ -206,6 +206,20 @@ def _candidates_liquid(top_n: int) -> List[Dict[str, str]]:
         # Fall back to legacy path if the universe builder ever writes flat.
         legacy = CACHE_DIR / "universe_snapshot.json"
         snap = _read_json(legacy)
+    # P0-B hard freshness gate (2026-07-10): the legacy snapshot froze at the
+    # decommission; a June-12 liquidity ranking must not silently pick the
+    # "liquid top" coverage tier.  The tier is skipped (visibly) when stale.
+    try:
+        from core.market_session import source_staleness
+        staleness = source_staleness((snap or {}).get("generated_at"))
+        if staleness["stale"]:
+            logger.info(
+                "liquid-top tier UNAVAILABLE_STALE_SOURCE (source_as_of=%s, "
+                "%s sessions old) — coverage tier skipped",
+                staleness["source_as_of"], staleness["source_age_sessions"])
+            return []
+    except Exception:
+        return []
     cands = snap.get("strategy_candidates") or []
     # Dedupe by symbol while keeping the row with the largest ADV (some
     # symbols appear once per strategy).

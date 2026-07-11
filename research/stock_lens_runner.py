@@ -152,6 +152,31 @@ def _load_market_posture() -> Optional[Dict[str, Any]]:
     snapshot = _load_json(UNIVERSE_SNAPSHOT_PATH)
     if not snapshot:
         return None
+
+    # P0-B hard freshness gate (2026-07-10): the legacy universe snapshot
+    # froze at the 2026-06-13 decommission.  A stale snapshot must not emit
+    # an apparently-current Market Posture — the layer goes UNAVAILABLE with
+    # its source date and session age instead.
+    from core.market_session import source_staleness
+    staleness = source_staleness(snapshot.get("generated_at"))
+    if staleness["stale"]:
+        logger.info(
+            "Market Posture UNAVAILABLE_STALE_SOURCE (source_as_of=%s, %s sessions old)",
+            staleness["source_as_of"], staleness["source_age_sessions"])
+        return {
+            "state": "UNAVAILABLE_STALE_SOURCE",
+            "bias": None,
+            "confidence": None,
+            "focus_names": [],
+            "ready_long_names": [],
+            "data_quality": (
+                f"UNAVAILABLE_STALE_SOURCE — universe snapshot "
+                f"source_as_of: {staleness['source_as_of']}, "
+                f"source_age_sessions: {staleness['source_age_sessions']}"),
+            "source_as_of": staleness["source_as_of"],
+            "source_age_sessions": staleness["source_age_sessions"],
+        }
+
     try:
         out = build_research_bte(
             universe_snapshot=snapshot,

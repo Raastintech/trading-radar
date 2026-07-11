@@ -520,9 +520,26 @@ def _load_universe_snapshot() -> Optional[Dict[str, Any]]:
     if not UNIVERSE_SNAPSHOT_PATH.exists():
         return None
     try:
-        return json.loads(UNIVERSE_SNAPSHOT_PATH.read_text())
+        snap = json.loads(UNIVERSE_SNAPSHOT_PATH.read_text())
     except Exception:
         return None
+    # P0-B hard freshness gate (2026-07-10): the legacy snapshot froze at the
+    # 2026-06-13 decommission.  Stale MA flags must not feed the universe-
+    # breadth feature — the breadth lens degrades to available=False (its
+    # designed degradation path) instead of emitting June-12 breadth as
+    # current.
+    try:
+        from core.market_session import source_staleness
+        staleness = source_staleness(snap.get("generated_at") if isinstance(snap, dict) else None)
+        if staleness["stale"]:
+            logger.info(
+                "universe-breadth snapshot UNAVAILABLE_STALE_SOURCE "
+                "(source_as_of=%s, %s sessions old) — breadth degrades to unavailable",
+                staleness["source_as_of"], staleness["source_age_sessions"])
+            return None
+    except Exception:
+        return None
+    return snap
 
 
 # ── Rendering ───────────────────────────────────────────────────────────────
