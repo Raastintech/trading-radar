@@ -489,6 +489,46 @@ class FMPClient:
             logger.debug("get_company_profile failed %s: %s", ticker, exc)
             return None
 
+    # ── Security master (company screener) ──────────────────────────────────
+
+    def get_company_screener(
+        self,
+        *,
+        exchanges: str = "NYSE,NASDAQ,AMEX",
+        price_more_than: float = 5.0,
+        volume_more_than: int = 300_000,
+        limit: int = 5000,
+    ) -> List[Dict]:
+        """
+        US-listed common-stock security master via the FMP company screener.
+        Excludes ETFs and funds; actively-trading only.  Cached 24 h — the
+        discovery-bootstrap process needs this at most once per day.
+
+        Returns a list of rows with at least: symbol, companyName, marketCap,
+        sector, price, volume, exchangeShortName.
+        """
+        key = f"fmp:screener:{exchanges}:{price_more_than}:{volume_more_than}:{limit}"
+        cached = self._gate.get(key, TTL_FUNDAMENTALS)
+        if cached is not None:
+            return cached
+        try:
+            data = self._get("/company-screener", params={
+                "exchange": exchanges,
+                "priceMoreThan": price_more_than,
+                "volumeMoreThan": volume_more_than,
+                "isEtf": "false",
+                "isFund": "false",
+                "isActivelyTrading": "true",
+                "country": "US",
+                "limit": limit,
+            })
+            rows = data if isinstance(data, list) else []
+            self._gate.put(key, rows)
+            return rows
+        except Exception as exc:
+            logger.warning("get_company_screener failed: %s", exc)
+            return []
+
     # ── Sector P/E ratios ─────────────────────────────────────────────────────
 
     def get_sector_pe(self) -> List[Dict]:

@@ -1109,6 +1109,28 @@ cmd_refresh_universe_prices() {
     run_or_warn "universe price refresh" "$PY" research/refresh_universe_prices.py --execute "$@"
 }
 
+cmd_discovery_bootstrap() {
+    # P1 — open candidate discovery safely.  Security master (FMP company
+    # screener, cached 24h) → eligibility/liquidity filter → existing-history
+    # check → budgeted resumable bootstrap of missing eligible names →
+    # coverage report.  New parquets enter the scanner's ranked fill on its
+    # next run.  Confirmed-dead symbols excluded; no scoring/threshold change.
+    log "[PROVIDER] discovery bootstrap (security master + missing-history backfill)"
+    run_or_warn "discovery bootstrap" "$PY" research/universe_discovery_bootstrap.py --execute "$@"
+}
+
+cmd_scan_universe_manifest() {
+    # P0 follow-up — canonical validated scan-universe manifest.  Builds the
+    # provisional scanner universe (unchanged floors/rank/cap), adds
+    # benchmarks + sector ETFs, delta-refreshes exactly the symbols missing
+    # the required session (bounded; budget-aware), revalidates once, and
+    # writes the manifest + universe hash the scanner consumes.  Newly
+    # ranked or bootstrapped names are refreshed BEFORE scoring instead of
+    # deferred to the next cycle.
+    log "[PROVIDER] scan-universe manifest (bounded delta refresh + validation)"
+    run_or_warn "scan universe manifest" "$PY" research/scan_universe_manifest.py --execute "$@"
+}
+
 cmd_research_scanner() {
     # Phase 4B/4C — Research Scanner + Watchlist Scorer.  RESEARCH-ONLY / CACHE-
     # FIRST.  Runs six scanner categories (Early Accumulation, Beaten-Down
@@ -1433,6 +1455,10 @@ cmd_premarket() {
     # so only tickers that missed it get a provider call; fundamentals /
     # profile caches (24h TTL) are still warm from the nightly.
     cmd_refresh_universe_prices
+    # P0 — validated scan-universe manifest: delta-refreshes the exact
+    # final universe (names that newly ranked in overnight) so the
+    # premarket scan starts fully same-session.
+    cmd_scan_universe_manifest
     cmd_market_heartbeat
     cmd_research_scanner
     cmd_research_coverage
@@ -1550,6 +1576,15 @@ cmd_nightly() {
     # symbols the 03:30 ET pre-warm covers.  Tickers already fresh are
     # skipped, so the steady-state cost is one call per universe ticker/day.
     cmd_refresh_universe_prices
+    # P1 — discovery bootstrap AFTER the refresh (refresh gets budget
+    # priority) and BEFORE the scanner so newly-bootstrapped parquets enter
+    # tonight's ranked fill.  Budgeted (default 150 calls/day) + resumable
+    # queue — never blocks the scan.
+    cmd_discovery_bootstrap
+    # P0 — validated scan-universe manifest AFTER bootstrap, BEFORE the
+    # scanner: delta-refreshes the exact final universe (new entrants
+    # included) so the scan starts fully same-session instead of DEGRADED.
+    cmd_scan_universe_manifest
     cmd_research_scanner
     cmd_research_coverage
     cmd_research_changes
@@ -1732,6 +1767,8 @@ case "$SUB" in
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
+    discovery-bootstrap)       cmd_discovery_bootstrap        "${POS[@]}" ;;
+    scan-universe-manifest)    cmd_scan_universe_manifest     "${POS[@]}" ;;
     scanner-recall-cohorts)    cmd_scanner_recall_cohorts     "${POS[@]}" ;;
     quarantine-report)         cmd_quarantine_report          "${POS[@]}" ;;
     options-coverage-report)   cmd_options_coverage_report    "${POS[@]}" ;;
