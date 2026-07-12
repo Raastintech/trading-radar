@@ -162,7 +162,8 @@ def test_scan_status_classification(payload):
 
 
 def test_terminal_output_carries_required_fields(payload):
-    txt = lsp.render_terminal(payload)
+    # verbose mode preserves the full per-candidate metadata block
+    txt = lsp.render_terminal(payload, verbose=True)
     assert "SWING — 1 candidate" in txt
     assert "hold=45-60td" in txt
     assert "reason=reason for FBIN" in txt
@@ -198,7 +199,7 @@ def test_digest_lists_latest_candidates_separately(payload):
         _section_latest_scan_programs)
     lines = _section_latest_scan_programs({"latest_scan": payload})
     text = "\n".join(lines)
-    assert text.startswith("## 4c. Latest Scan by Research Program")
+    assert text.startswith("## 4d. Latest Scan by Research Program")
     assert "FBIN [REPEAT]" in text
     assert "Exited since previous scan: GONE" in text
     # forward-evidence style aggregates do not belong here
@@ -325,7 +326,8 @@ def test_every_candidate_carries_all_required_fields(payload):
 
 
 def test_terminal_shows_candidate_as_of_dates(payload):
-    txt = lsp.render_terminal(payload)
+    # as-of dates are part of the verbose per-candidate block
+    txt = lsp.render_terminal(payload, verbose=True)
     assert "bar=2026-07-09" in txt
     assert "bench=2026-07-09" in txt
     assert "same-session" in txt

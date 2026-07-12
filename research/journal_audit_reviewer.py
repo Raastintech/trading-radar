@@ -68,7 +68,8 @@ ENGINE_HEALTH = ("OPERATIONAL", "OPERATIONAL_WITH_BLOCKERS", "DEGRADED",
 SEVERITIES = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 FLAW_AREAS = ("scanner_recall", "data_quality", "forward_evidence",
               "fundamental_overlay", "options_overlay", "regime_filter",
-              "ranking_logic", "journal_wording", "other")
+              "ranking_logic", "journal_wording", "high_conviction_selection",
+              "other")
 
 # candidate_quality_summary — balanced analyst interpretation of the board.
 CANDIDATE_QUALITY_LEVELS = ("IMPROVING_BUT_UNPROVEN", "WEAK", "MIXED",
@@ -664,6 +665,161 @@ def _flaw(severity: str, area: str, issue: str, why: str,
             "why_it_matters": why, "suggested_fix": fix}
 
 
+# High-Conviction Alpha Shortlist line, emitted by
+# journal_digest._section_high_conviction (stable machine format):
+#   "  1. NVO [HIGH_CONVICTION] SWING score 81.4 (quality 100.0, growth
+#    66.0, momentum 90.0, value 80.0) — ...why... | risk: ... | dead-horse LOW"
+_HC_LINE_RE = re.compile(
+    r"^\s*\d+\.\s+([A-Z0-9.\-]+)\s+\[([A-Z_]+)\]\s+(\w+)\s+score\s+([\d.]+)\s+"
+    r"\(quality\s+(\S+),\s+growth\s+(\S+),\s+momentum\s+(\S+),\s+value\s+(\S+)\)"
+    r"(.*)$")
+
+
+def extract_high_conviction_signals(digest_text: str) -> Dict[str, Any]:
+    """Parse the High-Conviction Alpha Shortlist section from the digest
+    text.  Text-only (no artifact reads) so the auditor keeps its
+    cred-free, deterministic contract."""
+    members: List[Dict[str, Any]] = []
+    in_section = False
+    for raw in (digest_text or "").splitlines():
+        line = raw.rstrip()
+        if line.startswith("## "):
+            in_section = "High-Conviction Alpha Shortlist" in line
+            continue
+        if not in_section:
+            continue
+        m = _HC_LINE_RE.match(line)
+        if not m:
+            continue
+
+        def _f(v: str) -> Optional[float]:
+            try:
+                return float(v)
+            except ValueError:
+                return None
+
+        tail = m.group(9) or ""
+        dh = None
+        dm = re.search(r"dead-horse\s+(\w+)", tail)
+        if dm:
+            dh = dm.group(1).upper()
+        risk_txt = ""
+        rm = re.search(r"\|\s*risk:\s*(.+?)(?:\s*\|\s*dead-horse|\s*$)", tail)
+        if rm:
+            risk_txt = rm.group(1).lower()
+        members.append({
+            "ticker": m.group(1),
+            "classification": m.group(2),
+            "program": m.group(3),
+            "score": _f(m.group(4)),
+            "quality": _f(m.group(5)),
+            "growth": _f(m.group(6)),
+            "momentum": _f(m.group(7)),
+            "value_raw": m.group(8),
+            "dead_horse": dh,
+            "risk_text": risk_txt,
+        })
+    return {"members": members}
+
+
+def build_emerging_outlier_flaws(digest_text: str) -> List[Dict[str, str]]:
+    """Deterministic checks on the Emerging Outlier Watch section: the lane
+    must not admit a HIGH business-deterioration name, and the digest itself
+    surfaces per-name AUDIT FLAG lines the auditor promotes to findings.
+    Text-only; keeps the auditor cred-free."""
+    flaws: List[Dict[str, str]] = []
+    in_section = False
+    for raw in (digest_text or "").splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            in_section = "Emerging Outlier Watch" in line
+            continue
+        if not in_section:
+            continue
+        # per-name deterioration risk on a watch line
+        m = re.search(r"-\s+([A-Z0-9.\-]+)\s+\([A-Z_]+\):.*"
+                      r"business-deterioration\s+(HIGH)", line)
+        if m:
+            flaws.append(_flaw(
+                "HIGH", "high_conviction_selection",
+                f"Emerging Outlier {m.group(1)} entered with HIGH "
+                "business-deterioration risk.",
+                "The emerging lane must exclude multi-signal severe "
+                "deterioration — this is a gate violation.",
+                "Fix the deterioration gate in "
+                "research/emerging_outlier_watch.py."))
+        if line.startswith("- AUDIT FLAG:"):
+            flaws.append(_flaw(
+                "MEDIUM", "high_conviction_selection",
+                "Emerging Outlier lane audit flag: "
+                + line[len("- AUDIT FLAG:"):].strip(),
+                "The emerging lane admitted a name that fails its own "
+                "evidence bar (momentum-only or non-substantive).",
+                "Review research/emerging_outlier_watch.py admission rules."))
+    return flaws
+
+
+def build_high_conviction_flaws(digest_text: str) -> List[Dict[str, str]]:
+    """Deterministic checks on the shortlist: dead-horse names that slipped
+    in, momentum-dominated selections, missing quality/growth/value inputs,
+    and any fundamental red flag (dilution / negative gross margin / heavy
+    debt) inside a shortlisted name.  The LLM may add to these but may not
+    remove them or promote a rejected name."""
+    hc = extract_high_conviction_signals(digest_text)
+    flaws: List[Dict[str, str]] = []
+    for c in hc["members"]:
+        tk = c["ticker"]
+        if c["dead_horse"] and c["dead_horse"] not in ("LOW", None):
+            flaws.append(_flaw(
+                "HIGH", "high_conviction_selection",
+                f"Shortlisted {tk} carries dead-horse risk "
+                f"{c['dead_horse']}.",
+                "A name with elevated dead-horse risk should not sit in the "
+                "high-conviction shortlist — price interest may be "
+                "disconnected from deteriorating fundamentals.",
+                "Review the dead-horse gate; a HIGH name must be excluded and "
+                "a MEDIUM name demoted below high conviction."))
+        # missing quality / growth / value inputs → score built on partial
+        # coverage (never impute; the audit surfaces the gap)
+        missing = [n for n, v in (("quality", c["quality"]),
+                                  ("growth", c["growth"]))
+                   if v is None]
+        value_missing = c["value_raw"] in ("VALUATION_UNAVAILABLE", "n/a",
+                                           "None")
+        if missing:
+            flaws.append(_flaw(
+                "MEDIUM", "high_conviction_selection",
+                f"Shortlisted {tk} is missing {', '.join(missing)} "
+                "input(s).",
+                "A composite built on incomplete fundamentals can overstate "
+                "conviction; missing factors must be reported, not imputed.",
+                "Confirm the coverage cap held and the missing factors are "
+                "shown explicitly on the candidate."))
+        # momentum-dominated: strong price momentum with no fundamental base
+        if (c["momentum"] is not None and c["momentum"] >= 80
+                and (c["quality"] is None or value_missing)
+                and (c["growth"] is None)):
+            flaws.append(_flaw(
+                "HIGH", "high_conviction_selection",
+                f"Shortlisted {tk} looks momentum-dominated (momentum "
+                f"{c['momentum']} with weak/absent fundamental support).",
+                "The shortlist must distinguish a strong signal from a strong "
+                "candidate; RS alone should not qualify a name.",
+                "Verify the single-component cap and program burden gate "
+                "applied to this name."))
+        if "negative gross margin" in c["risk_text"] \
+                or "extreme dilution" in c["risk_text"]:
+            flaws.append(_flaw(
+                "CRITICAL", "high_conviction_selection",
+                f"Shortlisted {tk} shows a hard-exclusion red flag "
+                "(negative gross margin or extreme dilution).",
+                "These are gate violations — such a name must not appear in "
+                "the shortlist at all.",
+                "Fix the hard-exclusion gate in "
+                "research/high_conviction_alpha.py."))
+    return flaws
+
+
 def build_fallback_audit(digest_text: str,
                          reason: str = "llm_unavailable") -> Dict[str, Any]:
     """Deterministic audit from the digest text alone.  Used whenever the
@@ -767,6 +923,11 @@ def build_fallback_audit(digest_text: str,
             "Stale context silently distorts posture/breadth/labels.",
             "Verify the P0-B freshness gates are active and the scanner "
             "runs with the session gate enabled."))
+
+    # High-Conviction Alpha Shortlist checks — deterministic, always run
+    # (independent of the LLM path).  These verify the shortlist did not
+    # let a momentum-only / dead-horse / red-flag name through.
+    flaws.extend(build_high_conviction_flaws(digest_text))
 
     # engine health
     if sig["empty"]:
@@ -1248,6 +1409,14 @@ _SYSTEM_PROMPT = (
     "  - Never propose changing scanner scores, rankings, gates, "
     "artifacts, watchlists, or execution logic yourself — only describe "
     "what a human should review or correct later.\n"
+    "  - For the High-Conviction Alpha Shortlist section: review whether "
+    "selections are consistent with their factors — whether weak "
+    "fundamentals are overruled by momentum, whether valuation is ignored, "
+    "whether extended names were promoted instead of routed to "
+    "'quality but extended', whether any high dead-horse-risk name entered, "
+    "and whether missing data distorted a score.  You MAY demote or flag a "
+    "shortlisted name; you may NOT promote a rejected name or alter its "
+    "deterministic score.\n"
     "Output must be a single strict JSON object, no markdown fences, no "
     "prose outside the JSON.")
 
@@ -1753,6 +1922,22 @@ def audit_daily_digest(digest_text: str, *,
                 reason=f"{type(exc).__name__}: {exc}"[:200])
     else:
         audit = build_fallback_audit(digest_text, reason="llm_disabled")
+
+    # Deterministic High-Conviction Shortlist flaws are enforced on EVERY
+    # path: the LLM may add findings but can never drop these, and it can
+    # never promote a rejected name or alter the deterministic score.
+    hc_flaws = (build_high_conviction_flaws(digest_text)
+                + build_emerging_outlier_flaws(digest_text))
+    if hc_flaws:
+        existing = audit.get("flaws_detected") or []
+        seen = {(f.get("severity"), f.get("issue")) for f in existing
+                if isinstance(f, dict)}
+        merged = list(existing)
+        for f in hc_flaws:
+            if (f["severity"], f["issue"]) not in seen:
+                merged.append(f)
+                seen.add((f["severity"], f["issue"]))
+        audit["flaws_detected"] = merged
 
     clean = sanitize_audit(audit, signals)
     clean["generated_at"] = datetime.now(timezone.utc).isoformat()

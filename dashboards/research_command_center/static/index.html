@@ -19,8 +19,42 @@ body{background:var(--bg);color:var(--text);font:12.5px/1.4 "SF Mono","Cascadia 
 
 .prog-wrap.primary-program .card{border:1px solid var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
 .prog-wrap.primary-program h3::after{content:" · PRIMARY PROGRAM";font-size:9px;color:var(--amber)}
-.cand-row{border-top:1px solid var(--border);padding:5px 0}
+.cand-row{border-top:1px solid var(--border);padding:6px 0}
 .cand-row .dim{color:var(--dim)}
+/* cross-horizon badge (+SWING etc.) — informational blue */
+.bdg.c{color:var(--accent);border-color:rgba(90,162,255,.5);background:rgba(90,162,255,.10)}
+.score{color:var(--text);font-weight:700;font-size:11px;padding:1px 6px;border:1px solid var(--border);border-radius:3px;background:var(--panel2)}
+.prog-head{font-size:11px;color:var(--dim);margin:2px 0 6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.prog-toolbar{display:flex;gap:6px;align-items:center;margin:6px 0;flex-wrap:wrap}
+.prog-toolbar select,.prog-toolbar button{background:var(--panel2);border:1px solid var(--border);color:var(--dim);border-radius:4px;font:inherit;font-size:10px;padding:2px 7px;cursor:pointer}
+.prog-toolbar button:hover,.prog-toolbar select:hover{color:var(--text)}
+.prog-toolbar button.on{color:var(--accent);border-color:var(--accent)}
+details.cand-det,details.prog-det,details.issue-det{margin-top:4px;font-size:10.5px}
+details.cand-det summary,details.prog-det summary,details.issue-det summary{cursor:pointer;color:var(--dim);font-size:10px}
+details.cand-det summary:hover,details.prog-det summary:hover,details.issue-det summary:hover{color:var(--text)}
+details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:6px 8px}
+.page-note{font-size:10px;color:var(--dim);margin:0 0 8px;padding:5px 8px;border:1px dashed var(--border);border-radius:4px}
+/* high-conviction shortlist */
+.hc-wrap{border:1px solid var(--accent);border-radius:8px;padding:12px 14px;margin-bottom:14px;background:linear-gradient(180deg,rgba(90,162,255,.05),transparent)}
+.hc-wrap h2{margin:0 0 2px;font-size:14px;color:var(--accent)}
+.hc-sub{font-size:10px;color:var(--dim);margin:0 0 8px;letter-spacing:.4px}
+.hc-card{border-top:1px solid var(--border);padding:7px 0}
+.hc-card .hdr{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.hc-card .rank{color:var(--dim)} .hc-card .tk{color:var(--accent);font-weight:700;font-size:13px}
+.hc-card .sc{font-weight:700;color:var(--text)}
+.hc-comp{font-size:10px;color:var(--dim);margin:2px 0 0 16px;display:flex;gap:10px;flex-wrap:wrap}
+.hc-comp b{color:var(--text)}
+.hc-why{font-size:10.5px;color:var(--text);margin:2px 0 0 16px}
+.hc-risk{font-size:10px;color:var(--amber);margin:1px 0 0 16px}
+.dh-LOW{color:var(--pos)} .dh-MEDIUM{color:var(--amber)} .dh-HIGH{color:var(--neg)} .dh-UNKNOWN{color:var(--dim)}
+/* emerging outlier watch (separate, higher-risk, collapsed lane) */
+.eo-wrap{border:1px dashed var(--amber);border-radius:8px;padding:10px 14px;margin-bottom:14px;background:var(--amber-bg)}
+.eo-wrap summary{cursor:pointer;color:var(--amber);font-size:13px;font-weight:700}
+.eo-sub{font-size:10px;color:var(--dim);margin:4px 0 8px}
+.eo-card{border-top:1px solid var(--border);padding:6px 0;font-size:11px}
+.eo-card .tk{color:var(--amber);font-weight:700}
+.eo-line{color:var(--dim);font-size:10.5px;margin:2px 0 0 14px}
+.eo-line b{color:var(--text)}
 
 /* ── app shell: fixed sidebar ── */
 #sidebar{width:var(--sidew);min-width:var(--sidew);background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;transition:width .15s,min-width .15s}
@@ -353,9 +387,75 @@ function journalAuditCard(a){
     <div class="warnlist">${flaws}</div>`);
 }
 
-function programCard(pid,p,routing){
-  // Phase 5.1 — one card per research program: holding period, maturity,
-  // pre-registered verdict, and which labels route here.  Research-only.
+/* ── research-program presentation (cosmetic layer only) ──
+   Everything below renders fields the engine already produced.  Ordering
+   comes from the adapter's display split (existing score primary); the
+   filters and caps are view state — they never touch artifacts. */
+const VERDICT_LABELS={  // mirrors presentation.VERDICT_DISPLAY_LABELS
+  INSUFFICIENT_MATURE_EVIDENCE:"Insufficient evidence",
+  PROMISING_BUT_UNPROVEN:"Promising, unproven",
+  VALIDATED_EDGE:"Validated edge",
+  NO_EVIDENCE_OF_EDGE:"No evidence of edge",
+};
+const verdictLabel=v=>VERDICT_LABELS[v]||v||"—";
+let PROGVIEW={};  // pid -> {cap, filter} — presentation state only
+function progView(pid){return PROGVIEW[pid]||(PROGVIEW[pid]={cap:5,filter:"all"});}
+
+function candFilter(c,f){
+  switch(f){
+    case "new":return c.scan_status==="NEW";
+    case "returning":return c.scan_status==="RETURNING";
+    case "high":return ["HIGH_PRIORITY_RESEARCH","TOP_RESEARCH"].includes(c.priority);
+    case "reset":return ["RESET_WATCH","RECLAIM_WATCH"].includes(c.priority);
+    case "noext":return c.priority!=="EXTENDED_CROWDED";
+    default:return true;
+  }
+}
+
+function candBadges(c){
+  return ((c.display||{}).badges||[]).map(b=>{
+    const cls=b.tone==="positive"?"g":b.tone==="caution"?"a":"c";
+    const title=b.text.startsWith("+")?` title="${esc(c.routing_reason||"secondary program match")}"`:"";
+    return `<span class="bdg ${cls}"${title}>${esc(b.text)}</span>`;
+  }).join(" ");
+}
+
+function candidateCard(c,pos,hideReason){
+  const d=c.display||{};
+  const horizons=Object.entries(c.evidence_maturity||{})
+    .map(([h,st])=>`${h} ${st}`).join(" · ")||"—";
+  const session=c.same_session===true?`<span class="bdg g">same-session</span>`
+    :c.same_session===false?`<span class="bdg a">SESSION_MISMATCH</span>`:"—";
+  return `<div class="cand-row">
+    <div>${pos?`<span class="dim">${pos}.</span> `:""}<b>${esc(c.ticker)}</b>
+      ${c.research_score!=null?` <span class="score">Score ${esc(c.research_score)}</span>`:""}
+      <span class="bdg n">${esc(c.scan_status)}</span> ${candBadges(c)}
+      <span class="dim" style="font-size:10px"> ${esc(c.holding_period||"")} · ${esc(c.label||"")}</span></div>
+    ${hideReason?"":`<div class="dim" style="margin:2px 0 0 14px">${esc(d.short_reason||c.detection_reason||"")}</div>`}
+    <div class="dim" style="font-size:10px;margin-left:14px">${esc(d.evidence_summary||"Evidence: ?")} · <span title="canonical: ${esc(c.program_verdict||"?")}">${esc(d.verdict_label||verdictLabel(c.program_verdict))}</span></div>
+    <details class="cand-det" style="margin-left:14px"><summary>full details</summary>
+      <div class="kv">
+        ${kvRow("Detection reason",esc(c.detection_reason||"—"))}
+        ${kvRow("Hypothesis",esc(c.research_hypothesis||"—"))}
+        ${kvRow("Programs",esc(c.program)+((c.secondary_programs||[]).length?" (+ "+esc(c.secondary_programs.join(", "))+")":""))}
+        ${kvRow("Routing",esc(c.routing_reason||"—"))}
+        ${kvRow("Lifecycle",esc(c.lifecycle_stage||"—"))}
+        ${kvRow("Priority",esc(c.priority||"—"))}
+        ${kvRow("Confidence",esc(c.confidence||"—")+" · data "+esc(c.data_confidence||"—"))}
+        ${kvRow("Quality",esc(c.fundamental_quality||"—"))}
+        ${kvRow("Evidence horizons",esc(horizons))}
+        ${kvRow("Program verdict",esc(c.program_verdict||"—"))}
+        ${kvRow("Bar / benchmark as-of",esc(c.bar_as_of_date||"?")+" / "+esc(c.benchmark_as_of_date||"?")+" · "+session)}
+        ${kvRow("Scanned",esc(String(c.source_scan_generated_at||"—").slice(0,16)))}
+        ${kvRow("Benchmark set",esc(c.current_benchmark||"—"))}
+        ${kvRow("Status",badge("RESEARCH_ONLY"))}
+      </div>
+    </details>
+  </div>`;
+}
+
+function programDetails(pid,p,routing,ls){
+  // Everything the compact header no longer shows, one click away.
   const labels=Object.entries(routing||{})
     .filter(([,r])=>r.program===pid).map(([l])=>l);
   const matured=(p.matured_horizons_td||[]).map(h=>`${h}d`).join(" ")||"none";
@@ -363,47 +463,59 @@ function programCard(pid,p,routing){
     ?`<div class="note">⚠ primary horizons not collected: ${esc((p.primary_not_collected_td||[]).join(", "))}td</div>`:"";
   const diag=(p.diagnostic_signal&&p.diagnostic_signal!=="NONE")
     ?kvRow("Diagnostic read",badge(p.diagnostic_signal)):"";
-  return card(`${esc(p.name||pid)}`,
-    `<div class="kv">
-      ${kvRow("Holding period",esc((p.expected_holding_period_td||"?")+" trading days"))}
-      ${kvRow("Validation",badge(p.verdict||"UNKNOWN"))}
+  const scanMeta=ls&&ls.present?kvRow("Scan",
+    `${esc(String(ls.scan_timestamp||"—").slice(0,16))} · market as-of ${esc(ls.market_as_of_date||"?")} · hash ${ls.manifest_hash_match===true?"match":ls.manifest_hash_match===false?"MISMATCH":"?"}`):"";
+  return `<details class="prog-det"><summary>Program details</summary>
+    <div class="kv" style="margin-top:5px">
+      ${kvRow("Validation (canonical)",badge(p.verdict||"UNKNOWN"))}
       ${kvRow("Episodes",esc(String(p.n_episodes??"—")))}
       ${kvRow("Matured horizons",esc(matured))}
       ${diag}
+      ${scanMeta}
     </div>
     ${gaps}
     <div class="note">${esc(p.verdict_reason||"")}</div>
-    <div class="note" style="color:var(--dim)">labels: ${esc(labels.join(", ")||"—")}</div>`);
+    <div class="note" style="color:var(--dim)">labels: ${esc(labels.join(", ")||"—")}</div>
+  </details>`;
 }
 
-function candidateRows(block,cap){
-  // Latest-scan candidates: strictly the most recent production scan.
-  // HIGH priority never means validated alpha — verdicts stay visible.
-  const cands=(block.candidates||[]).slice(0,cap||8);
-  if(!cands.length)
-    return `<div class="note">No candidates detected in the latest scan.</div>`;
-  const rows=cands.map(c=>{
-    const mat=Object.entries(c.evidence_maturity||{})
-      .map(([h,st])=>`${h}:${st==="MATURED"?"✓":st==="PENDING"?"…":"–"}`).join(" ");
-    const sec=(c.secondary_programs||[]).length
-      ?` <span class="bdg n" title="${esc(c.routing_reason||"")}">+${esc((c.secondary_programs||[]).join(","))}</span>`:"";
-    const asof=c.bar_as_of_date
-      ?`bar ${esc(c.bar_as_of_date)} · bench ${esc(c.benchmark_as_of_date||"?")} · `
-       +(c.same_session?`<span class="bdg g">same-session</span>`:`<span class="bdg a">SESSION_MISMATCH</span>`)
-       +(c.source_scan_generated_at?` · scanned ${esc(String(c.source_scan_generated_at).slice(0,16))}Z`:"")
-      :"";
-    return `<div class="cand-row">
-      <div><b>${esc(c.ticker)}</b> <span class="bdg ${c.scan_status==="NEW"?"a":"n"}">${esc(c.scan_status)}</span>${sec}
-        <span class="dim"> ${esc(c.holding_period||"")} · ${esc(c.label||"")}${c.priority?" · "+esc(c.priority):""}</span></div>
-      <div class="note">${esc(c.detection_reason||"")}</div>
-      <div class="dim" style="font-size:10px">lifecycle ${esc(c.lifecycle_stage||"?")} · ${mat} · ${esc(c.program_verdict||"")} · research-only</div>
-      ${asof?`<div class="dim" style="font-size:10px">${asof}</div>`:""}
-    </div>`;
-  }).join("");
-  const extra=(block.candidates||[]).length-cands.length;
+function candidateList(pid,block){
+  const view=progView(pid);
+  const cands=block.candidates||[];
+  const disp=block.display||{};
+  const orderIdx=(disp.top_idx||[]).concat(disp.more_idx||[]);
+  // ordered clean candidates (adapter split); fall back to artifact order
+  const clean=orderIdx.length?orderIdx.map(i=>cands[i])
+    :cands.filter(c=>!((c.display||{}).data_issue));
+  const issues=(disp.data_issue_idx||[]).map(i=>cands[i]);
+  const filtered=clean.filter(c=>candFilter(c,view.filter));
+  const shown=filtered.slice(0,view.cap);
+  const hideReason=!!disp.common_reason;
+  const rows=shown.length
+    ?shown.map((c,i)=>candidateCard(c,i+1,hideReason)).join("")
+    :`<div class="note">No candidates match the current view filter.</div>`;
+  const commonNote=hideReason
+    ?`<div class="dim" style="font-size:10px;margin:2px 0">common detection reason: ${esc(disp.common_reason)}</div>`:"";
+  const more=filtered.length-shown.length;
+  const controls=`<div class="prog-toolbar">
+    <select class="prog-filter" data-pid="${pid}">
+      ${[["all","All"],["new","New only"],["returning","Returning only"],
+         ["high","High priority"],["reset","Reset watch"],
+         ["noext","Exclude extended/crowded"]]
+        .map(([v,l])=>`<option value="${v}" ${view.filter===v?"selected":""}>${l}</option>`).join("")}
+    </select>
+    <button class="prog-cap ${view.cap===5?"on":""}" data-pid="${pid}" data-cap="5">Top 5</button>
+    <button class="prog-cap ${view.cap===10?"on":""}" data-pid="${pid}" data-cap="10">Top 10</button>
+    <button class="prog-cap ${view.cap>=99999?"on":""}" data-pid="${pid}" data-cap="99999">View all ${cands.length-issues.length}</button>
+    ${more>0?`<span class="dim" style="font-size:10px">… ${more} more hidden</span>`:""}
+  </div>`;
+  const issueRows=issues.length
+    ?`<details class="issue-det"><summary>⚠ Data issues — ${issues.length} candidate${issues.length>1?"s":""} (excluded from top list)</summary>
+        ${issues.map(c=>candidateCard(c,null,false)).join("")}
+      </details>`:"";
   const exited=(block.exited||[]).length
-    ?`<details class="dim" style="font-size:10px"><summary>exited since previous scan (${block.exited.length})</summary>${esc(block.exited.map(e=>e.ticker).join(", "))}</details>`:"";
-  return rows+(extra>0?`<div class="dim" style="font-size:10px">… and ${extra} more</div>`:"")+exited;
+    ?`<details class="issue-det"><summary>Exited since previous scan (${block.exited.length})</summary><span class="dim">${esc(block.exited.map(e=>e.ticker).join(", "))}</span></details>`:"";
+  return controls+commonNote+rows+issueRows+exited;
 }
 
 function scanIntegrityCard(si){
@@ -429,15 +541,143 @@ function scanIntegrityCard(si){
     ${kvRow("FMP budget",esc(String((si.refresh||{}).fmp_budget_status||"—")))}
   </div>`)}
 
-function latestScanCard(pid,ls){
+function programSection(pid,p,routing,ls){
   const block=((ls||{}).programs||{})[pid];
-  if(!ls||!ls.present||!block)
-    return `<div class="note">No latest-scan data — run ./scripts/run_research_cycle.sh latest-scan-programs</div>`;
-  const counts=`new ${block.new_count||0} · repeat ${block.repeat_count||0} · returning ${block.returning_count||0} · exited ${block.exited_count||0}`;
-  const warns=(ls.integrity_warnings||[]).map(w=>`<div class="note" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join("")
-    ||(ls.scan_stale?`<div class="note" style="color:var(--amber)">⚠ scan stale (${ls.scan_age_hours}h old) — rerun research-scanner</div>`:"");
-  const asof=ls.market_as_of_date?`<div class="dim" style="font-size:10px">market as-of ${esc(ls.market_as_of_date)} · universe hash ${ls.manifest_hash_match===true?"match":ls.manifest_hash_match===false?"MISMATCH":"?"} · readiness ${esc(ls.scan_readiness||"?")}</div>`:"";
-  return `<h4 style="margin:8px 0 4px">Latest ${esc(pid)} candidates <span class="dim" style="font-weight:normal">(${counts})</span></h4>${asof}${warns}${candidateRows(block)}`;
+  // Compact header: holding period, counts, validation, top evidence,
+  // scan-integrity badge.  Everything else lives in "Program details".
+  const matured=(p.matured_horizons_td||[]);
+  const topEv=matured.length
+    ?`Top evidence: ${matured[matured.length-1]}d, n=${p.n_episodes??"?"}`
+    :"Top evidence: none matured yet";
+  const counts=block
+    ?`${block.candidate_count||0} active · ${block.new_count||0} new · ${block.repeat_count||0} repeat · ${block.returning_count||0} returning · ${block.exited_count||0} exited`
+    :"no latest-scan data";
+  const head=`<div class="prog-head">
+    <span class="chip info"><b>${esc(p.expected_holding_period_td||"?")} trading days</b></span>
+    <span>${counts}</span>
+    <span title="canonical: ${esc(p.verdict||"UNKNOWN")}">Validation: ${badge(verdictLabel(p.verdict))}</span>
+    <span>${topEv}</span>
+    ${ls&&ls.scan_readiness?`<span title="scan integrity">${badge(ls.scan_readiness)}</span>`:""}
+  </div>`;
+  const body=block
+    ?candidateList(pid,block)
+    :`<div class="note">No latest-scan data — run ./scripts/run_research_cycle.sh latest-scan-programs</div>`;
+  return card(`${esc(p.name||pid)}`,
+    head+body+programDetails(pid,p,routing,ls));
+}
+
+/* ── High-Conviction Alpha Shortlist ──
+   Selective quality+growth+value+momentum layer above the program views.
+   Cache-only render of the shortlist sidecar; membership is never
+   validated alpha and never a trade signal. */
+const HC_CLASS_LABELS={HIGH_CONVICTION:"HIGH CONVICTION",PROMISING:"PROMISING",
+  WATCH_FOR_ENTRY:"WATCH FOR ENTRY",QUALITY_BUT_EXTENDED:"QUALITY BUT EXTENDED",
+  IMPROVING_BUT_UNPROVEN:"IMPROVING BUT UNPROVEN"};
+function dhBadge(r){return `<span class="dh-${esc(r||"UNKNOWN")}">dead-horse ${esc(r||"?")}</span>`;}
+function hcCard(c,rank){
+  const cs=c.component_scores||{};
+  const val=cs.value_score!=null?`<b>${cs.value_score}</b>`:esc(c.valuation_status||"n/a");
+  const clsCls=c.classification==="HIGH_CONVICTION"?"g":
+    c.classification==="PROMISING"?"g":c.classification==="WATCH_FOR_ENTRY"?"a":"n";
+  return `<div class="hc-card">
+    <div class="hdr">
+      ${rank?`<span class="rank">${rank}.</span>`:""}
+      <span class="tk">${esc(c.ticker)}</span>
+      <span class="sc">${c.high_conviction_score}</span>
+      <span class="bdg ${clsCls}">${esc(HC_CLASS_LABELS[c.classification]||c.classification)}</span>
+      <span class="dim" style="font-size:10px">${esc(c.program)} · ${esc(c.holding_period||"")}</span>
+      ${dhBadge(c.dead_horse_risk)}
+      ${c.same_session===true?`<span class="bdg g">same-session</span>`:c.same_session===false?`<span class="bdg a">SESSION_MISMATCH</span>`:""}
+    </div>
+    <div class="hc-comp">
+      <span>quality <b>${cs.quality_score??"—"}</b></span>
+      <span>growth <b>${cs.growth_score??"—"}</b></span>
+      <span>fund-mom <b>${cs.fundamental_momentum_score??"—"}</b></span>
+      <span>momentum <b>${cs.price_momentum_score??"—"}</b></span>
+      <span>value ${val}</span>
+      <span>risk <b>${cs.risk_integrity_score??"—"}</b></span>
+    </div>
+    <div class="hc-why">${esc((c.why_selected||[]).join(", ")||"—")}</div>
+    ${(c.main_risks||[]).length?`<div class="hc-risk">Risk: ${esc(c.main_risks.join(", "))}</div>`:""}
+  </div>`;
+}
+function highConvictionSection(hc){
+  if(!hc||!hc.present){
+    return `<div class="hc-wrap">
+      <h2>High-Conviction Alpha Shortlist</h2>
+      <div class="hc-sub">Quality + Growth + Value + Momentum · research-only</div>
+      <div class="note">No shortlist yet — run ./scripts/run_research_cycle.sh high-conviction-alpha</div>
+    </div>`;
+  }
+  const cts=hc.counts||{};
+  const fwd=hc.forward_validation||{};
+  const shortlist=hc.shortlist||[];
+  const ext=hc.quality_but_extended||[];
+  const rej=hc.rejected||[];
+  const body=shortlist.length
+    ?shortlist.map((c,i)=>hcCard(c,i+1)).join("")
+    :`<div class="note" style="color:var(--amber)">NO_HIGH_CONVICTION_CANDIDATES — no stock met the qualification standards in the latest scan.</div>`;
+  const extSec=ext.length
+    ?`<details class="prog-det" open><summary>Quality but Extended — ${ext.length} (wait for reset)</summary>
+        ${ext.slice(0,10).map(c=>hcCard(c)).join("")}</details>`:"";
+  const rejSec=rej.length
+    ?`<details class="issue-det"><summary>Rejected by Quality/Risk — ${rej.length}</summary>
+        ${rej.map(c=>`<div class="hc-card"><div class="hdr"><span class="tk">${esc(c.ticker)}</span>
+          <span class="dim" style="font-size:10px">${esc(c.program)} · score ${c.high_conviction_score}</span></div>
+          <div class="hc-risk">${esc((c.exclusions||[]).join("; "))}</div></div>`).join("")}</details>`:"";
+  return `<div class="hc-wrap">
+    <h2>High-Conviction Alpha Shortlist</h2>
+    <div class="hc-sub">Quality + Growth + Value + Momentum · research-only · membership is not validated alpha</div>
+    <div class="prog-head">
+      <span>evaluated ${cts.evaluated||0} · qualified ${cts.qualified||0} · extended ${cts.quality_but_extended||0} · rejected ${cts.rejected||0}</span>
+      ${fwd.verdict?`<span title="${esc(fwd.verdict_reason||"")}">Forward: ${badge(fwd.verdict)}</span>`:""}
+    </div>
+    ${(hc.integrity_warnings||[]).map(w=>`<div class="note" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join("")}
+    ${body}
+    ${extSec}
+    ${rejSec}
+  </div>`;
+}
+
+/* ── Emerging Outlier Watch ──
+   A SEPARATE, higher-risk, collapsed lane below the shortlist. Pre-profit /
+   turnaround names with multi-factor emergence evidence. Never mixed into
+   the high-conviction ranking. Research-only. */
+function emergingOutlierSection(eo){
+  if(!eo||!eo.present){
+    return `<details class="eo-wrap"><summary>Emerging Outlier Watch — none</summary>
+      <div class="eo-sub">Separate higher-risk lane · research-only</div>
+      <div class="note">${eo&&eo.watch_status==="NO_EMERGING_OUTLIERS"
+        ?"NO_EMERGING_OUTLIERS — nothing met the multi-factor emergence bar.":
+        "No emerging-outlier data — run ./scripts/run_research_cycle.sh emerging-outlier"}</div>
+    </details>`;
+  }
+  const fwd=eo.forward_validation||{};
+  const watch=eo.watch||[];
+  const cards=watch.map(w=>{
+    const dims=(w.emergence_dimensions||[]).map(d=>esc(d.dimension.toLowerCase())).join(", ");
+    const runway=w.cash_runway_quarters!=null?`~${Math.round(w.cash_runway_quarters)}q runway`:"";
+    const dil=w.dilution_3q_pct!=null?`dilution ${w.dilution_3q_pct>0?"+":""}${Math.round(w.dilution_3q_pct)}%/3q`:"";
+    const risk=[runway,dil].filter(Boolean).join(", ")||"unprofitable";
+    const dr=w.business_deterioration_risk||"UNKNOWN";
+    return `<div class="eo-card">
+      <div><span class="tk">${esc(w.ticker)}</span>
+        <span class="dim">${esc(w.program)} · ${esc(w.holding_period||"")}</span>
+        <span class="dh-${esc(dr)}">business-deterioration ${esc(dr)}</span>
+        ${w.same_session===true?`<span class="bdg g">same-session</span>`:""}</div>
+      <div class="eo-line"><b>Why watched:</b> ${dims}</div>
+      <div class="eo-line"><b>Why not high conviction:</b> ${esc(w.why_not_high_conviction||"")}</div>
+      <div class="eo-line"><b>Main risk:</b> ${esc(risk)}</div>
+      <div class="eo-line">${esc(w.lifecycle_reason||"")}</div>
+    </div>`;
+  }).join("");
+  return `<details class="eo-wrap">
+    <summary>Emerging Outlier Watch — ${watch.length} (higher-risk emerging lane)</summary>
+    <div class="eo-sub">Separate from the shortlist · pre-profit / turnaround names with multi-factor
+      emergence evidence · research-only, not validated alpha
+      ${fwd.verdict?`· forward: <b>${esc(fwd.verdict)}</b>`:""}</div>
+    ${watch.length?cards:`<div class="note">NO_EMERGING_OUTLIERS</div>`}
+  </details>`;
 }
 
 function researchProgramsSection(rp,ls){
@@ -449,11 +689,19 @@ function researchProgramsSection(rp,ls){
     .filter(pid=>progs[pid])
     .map(pid=>{
       const emphasis=pid==="SWING"?" primary-program":"";
-      const base=programCard(pid,progs[pid],rp.label_routing);
-      // splice the latest-scan block into the card body (before closing div)
-      const inner=base.replace(/<\/div>$/, latestScanCard(pid,ls)+"</div>");
-      return `<div class="prog-wrap${emphasis}">${inner}</div>`;
+      return `<div class="prog-wrap${emphasis}">${programSection(pid,progs[pid],rp.label_routing,ls)}</div>`;
     }).join("");
+}
+
+function wireProgramControls(){
+  // Presentation-only view state: filters and caps re-render the home
+  // page; artifacts, scores, and rankings are never touched.
+  document.querySelectorAll(".prog-filter").forEach(sel=>sel.onchange=()=>{
+    progView(sel.dataset.pid).filter=sel.value; renderHome();
+  });
+  document.querySelectorAll(".prog-cap").forEach(btn=>btn.onclick=()=>{
+    progView(btn.dataset.pid).cap=Number(btn.dataset.cap); renderHome();
+  });
 }
 
 function renderHome(){
@@ -497,7 +745,13 @@ function renderHome(){
       </div>`)}
       ${journalAuditCard(s.journal_audit)}
     </div>
+    ${highConvictionSection(s.high_conviction)}
+    ${emergingOutlierSection(s.emerging_outlier)}
     <h2 class="pg" style="margin-top:14px">Research Programs — Tactical / Swing / Long-Term</h2>
+    <div class="page-note">All candidates are research-only and program evidence remains unvalidated unless stated otherwise.</div>
+    ${((s.latest_research_scan||{}).integrity_warnings||[])
+      .map(w=>`<div class="note" style="color:var(--amber);margin:0 0 8px">⚠ ${esc(w)}</div>`).join("")
+      ||((s.latest_research_scan||{}).scan_stale?`<div class="note" style="color:var(--amber);margin:0 0 8px">⚠ scan stale (${(s.latest_research_scan||{}).scan_age_hours}h old) — rerun research-scanner</div>`:"")}
     <div class="cards">
       ${researchProgramsSection(s.research_programs, s.latest_research_scan)}
     </div>
@@ -517,6 +771,7 @@ function renderHome(){
     c.onclick=go;
     c.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};
   });
+  wireProgramControls();
 }
 
 /* ── leaderboard ── */

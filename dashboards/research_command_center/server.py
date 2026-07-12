@@ -41,8 +41,10 @@ if str(HERE.parents[1]) not in sys.path:
 from dashboards.research_command_center.data_adapter import (  # noqa: E402
     ArtifactStore,
     build_data_quality,
+    build_emerging_outlier,
     build_forward_cohorts,
     build_fundamentals,
+    build_high_conviction,
     build_leaderboard,
     build_sector_compass,
     build_social_overview,
@@ -161,6 +163,10 @@ class Handler(BaseHTTPRequestHandler):
                 })
             elif path == "/api/leaderboard":
                 self._json(build_leaderboard(self.store))
+            elif path == "/api/high-conviction":
+                self._json(build_high_conviction(self.store))
+            elif path == "/api/emerging-outlier":
+                self._json(build_emerging_outlier(self.store))
             elif path.startswith("/api/ticker/"):
                 ticker = path.rsplit("/", 1)[-1]
                 self._json(build_ticker_detail(ticker, self.store))

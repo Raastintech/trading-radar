@@ -108,6 +108,9 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     programs = _load_json(store.research_programs_json)
     quarantine_causes = _load_json(store.quarantine_report_json)
     latest_scan = _load_json(store.latest_scan_programs_json)
+    high_conviction = _load_json(store.high_conviction_json)
+    emerging_outlier = _load_json(store.emerging_outlier_json)
+    filter_audit = _load_json(store.filter_audit_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -136,6 +139,9 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "programs": programs,
         "quarantine_causes": quarantine_causes,
         "latest_scan": latest_scan,
+        "high_conviction": high_conviction,
+        "emerging_outlier": emerging_outlier,
+        "filter_audit": filter_audit,
         "missing": missing,
     }
 
@@ -570,11 +576,160 @@ def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _section_high_conviction(inputs: Dict[str, Any]) -> List[str]:
+    """High-Conviction Alpha Shortlist — the selective quality/growth/
+    value/momentum layer.  Membership is NOT validated alpha; the
+    rejected high-score names are surfaced with reasons so the operator
+    sees WHY a strong-signal name did not qualify."""
+    lines = ["## 4b1. High-Conviction Alpha Shortlist"]
+    hc = inputs.get("high_conviction")
+    if not hc or not hc.get("present"):
+        lines.append("- Shortlist sidecar missing — run "
+                     "./scripts/run_research_cycle.sh high-conviction-alpha")
+        return lines
+    cts = hc.get("counts") or {}
+    lines.append(
+        f"- Evaluated {cts.get('evaluated', 0)} | qualified "
+        f"{cts.get('qualified', 0)} | quality-but-extended "
+        f"{cts.get('quality_but_extended', 0)} | rejected "
+        f"{cts.get('rejected', 0)}")
+    lines.append("- Membership is research-only and NOT validated alpha.")
+    shortlist = hc.get("shortlist") or []
+    if not shortlist:
+        lines.append("- NO_HIGH_CONVICTION_CANDIDATES — nothing met the "
+                     "qualification standards in the latest scan.")
+    for i, s in enumerate(shortlist, 1):
+        cs = s.get("component_scores") or {}
+        val = (cs.get("value_score") if cs.get("value_score") is not None
+               else s.get("valuation_status"))
+        lines.append(
+            f"  {i}. {s['ticker']} [{s['classification']}] "
+            f"{s['program']} score {s['high_conviction_score']} "
+            f"(quality {cs.get('quality_score')}, growth "
+            f"{cs.get('growth_score')}, momentum "
+            f"{cs.get('price_momentum_score')}, value {val}) — "
+            f"{', '.join(s.get('why_selected') or []) or '—'}"
+            + (f" | risk: {', '.join(s['main_risks'])}"
+               if s.get("main_risks") else "")
+            + f" | dead-horse {s.get('dead_horse_risk')}")
+    ext = hc.get("quality_but_extended") or []
+    if ext:
+        lines.append("- Quality but extended (wait for reset): "
+                     + ", ".join(f"{c['ticker']} "
+                                 f"({c['high_conviction_score']})"
+                                 for c in ext[:8]))
+    # rejected high-score names + why (the whole point: strong signal that
+    # did not clear the quality/risk bar)
+    rej = sorted((hc.get("rejected") or []),
+                 key=lambda c: -(c.get("research_score") or 0))
+    high_signal_rejects = [c for c in rej
+                           if (c.get("research_score") or 0) >= 90][:6]
+    if high_signal_rejects:
+        lines.append("- Strong-signal names rejected by quality/risk:")
+        for c in high_signal_rejects:
+            lines.append(f"  - {c['ticker']} (scan score "
+                         f"{c.get('research_score')}): "
+                         f"{'; '.join(c.get('exclusions') or [])}")
+    fwd = inputs.get("high_conviction") or {}
+    fv = _load_json(inputs["store"].high_conviction_forward_json) \
+        if inputs.get("store") else None
+    if fv and fv.get("present"):
+        lines.append(f"- Forward validation (separate hypothesis): "
+                     f"{fv.get('verdict')} — {fv.get('verdict_reason')}")
+    return lines
+
+
+def _section_emerging_outlier(inputs: Dict[str, Any]) -> List[str]:
+    """Emerging Outlier Watch — the separate, higher-risk lane for credible
+    pre-profit / turnaround names.  Never merged with the shortlist; the
+    audit flags below check it did not admit a momentum-only or
+    high-deterioration name."""
+    lines = ["## 4b2. Emerging Outlier Watch"]
+    eo = inputs.get("emerging_outlier")
+    if not eo or not eo.get("present"):
+        lines.append("- Emerging-outlier sidecar missing — run "
+                     "./scripts/run_research_cycle.sh emerging-outlier")
+        return lines
+    watch = eo.get("watch") or []
+    lines.append(f"- Evaluated {eo.get('counts', {}).get('evaluated', 0)} | "
+                 f"emerging outliers {len(watch)} | separate higher-risk "
+                 "lane, research-only (not validated alpha).")
+    if not watch:
+        lines.append("- NO_EMERGING_OUTLIERS — nothing met the multi-factor "
+                     "emergence bar.")
+    for w in watch[:8]:
+        dims = ", ".join(d["dimension"].lower()
+                         for d in w.get("emergence_dimensions") or [])
+        lines.append(
+            f"  - {w['ticker']} ({w['program']}): {w.get('why_not_high_conviction')}"
+            f" — why watched: {dims}"
+            f" | business-deterioration {w.get('business_deterioration_risk')}")
+    if len(watch) > 8:
+        lines.append(f"  - … and {len(watch) - 8} more")
+    # audit deterministic flags for this lane
+    flags = _emerging_audit_flags(watch)
+    for f in flags:
+        lines.append(f"- AUDIT FLAG: {f}")
+    fa = inputs.get("filter_audit")
+    if fa and fa.get("present"):
+        oa = fa.get("one_rule_away") or {}
+        lines.append(
+            f"- V1 filter audit: {fa.get('n_candidates')} evaluated | "
+            f"one-rule-away {oa.get('count', 0)} "
+            f"{oa.get('by_gate', {})} | gate decomposition matches V1: "
+            f"{fa.get('gate_decomposition_matches_v1')}")
+    return lines
+
+
+def _emerging_audit_flags(watch: List[Dict[str, Any]]) -> List[str]:
+    """Deterministic checks the digest surfaces (mirrored by the journal
+    auditor): the lane must not admit momentum-only names, high-
+    deterioration names, or names lacking substantive evidence."""
+    flags: List[str] = []
+    for w in watch:
+        if w.get("business_deterioration_risk") == "HIGH":
+            flags.append(f"{w['ticker']} entered with HIGH "
+                         "business-deterioration risk")
+        if (w.get("n_substantive_dimensions") or 0) < 1:
+            flags.append(f"{w['ticker']} lacks substantive "
+                         "(fundamental/balance) emergence evidence")
+    return flags
+
+
+def _section_top_candidates(inputs: Dict[str, Any]) -> List[str]:
+    """Concise top-candidates recap (one line per program, existing
+    score/priority order, one short reason each).  Purely a reading aid
+    placed before the full latest-scan section — the detailed records
+    below remain the audit copy."""
+    lines = ["## 4c. Top Candidates by Program"]
+    payload = inputs.get("latest_scan")
+    if not payload or not payload.get("present"):
+        lines.append("- Latest-scan sidecar missing — run "
+                     "./scripts/run_research_cycle.sh latest-scan-programs")
+        return lines
+    from dashboards.research_command_center.presentation import (
+        short_reason, split_candidates)
+    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+        block = (payload.get("programs") or {}).get(pid) or {}
+        top, _, issues = split_candidates(block, top_n=3)
+        if not top:
+            lines.append(f"- {pid}: no candidates in the latest scan.")
+            continue
+        bits = [f"{c['ticker']} (score {c.get('research_score')}, "
+                f"{c['scan_status']}) — {short_reason(c, 60)}"
+                for c in top]
+        lines.append(f"- {pid}: " + "; ".join(bits))
+        if issues:
+            lines.append(f"  - {pid} data issues (excluded from top): "
+                         + ", ".join(c["ticker"] for c in issues))
+    return lines
+
+
 def _section_latest_scan_programs(inputs: Dict[str, Any]) -> List[str]:
     """Latest-scan candidates per program (what the most recent cycle
     detected) — deliberately separate from the forward-evidence and
     program-maturity summaries above it."""
-    lines = ["## 4c. Latest Scan by Research Program"]
+    lines = ["## 4d. Latest Scan by Research Program"]
     payload = inputs.get("latest_scan")
     if not payload or not payload.get("present"):
         lines.append("- Latest-scan sidecar missing — run "
@@ -757,6 +912,9 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_sector_regime(inputs, top) + [""]
         + _section_forward(inputs) + [""]
         + _section_research_programs(inputs) + [""]
+        + _section_high_conviction(inputs) + [""]
+        + _section_emerging_outlier(inputs) + [""]
+        + _section_top_candidates(inputs) + [""]
         + _section_latest_scan_programs(inputs) + [""]
         + _section_fundamentals(inputs, top) + [""]
         + _section_review_queue(inputs, top, high, reset_reclaim) + [""]

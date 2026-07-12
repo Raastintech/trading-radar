@@ -1383,6 +1383,55 @@ cmd_latest_scan_programs() {
         "$PY" research/latest_scan_programs.py "$@"
 }
 
+cmd_high_conviction_alpha() {
+    # High-Conviction Alpha Shortlist — selective quality/growth/value/
+    # momentum qualification layer ABOVE the Tactical/Swing/Long-Term
+    # program views.  Cache-only, cred-free, READ-ONLY on the engine:
+    # reads the routed-candidate sidecar + raw scanner technicals + cached
+    # fundamental overlay, then scores each candidate across eight
+    # pre-registered factors with explicit missingness (missing factors are
+    # excluded, never imputed), deterministic dead-horse detection, hard
+    # gates, and classification.  A small shortlist (0-10 names) is written
+    # to cache/research/high_conviction_alpha_latest.json + log twin; the
+    # members are historized to the SEPARATE forward hypothesis ledger and
+    # the forward-validation sidecar is refreshed.  Changes NO scanner
+    # threshold, ranking, routing, gate, or program verdict.  Membership is
+    # NOT validated alpha and never a trade recommendation.
+    log "[CACHE] high-conviction alpha shortlist (read-only qualification)"
+    run_or_warn "high-conviction alpha shortlist" \
+        "$PY" research/high_conviction_alpha.py "$@"
+    run_or_warn "high-conviction forward validation" \
+        "$PY" research/high_conviction_forward.py
+}
+
+cmd_emerging_outlier() {
+    # Emerging Outlier Watch — a SEPARATE research lane for credible
+    # pre-profit / turnaround companies that fail the mature-company
+    # standards of the high-conviction shortlist but show multi-factor
+    # emergence evidence (accelerating growth, unit economics, funded
+    # runway, controlled dilution) with non-HIGH business-deterioration
+    # risk.  Never overrides an integrity/liquidity failure; momentum or
+    # social attention alone is never sufficient.  Reuses the FROZEN V1
+    # evaluation read-only; historizes its OWN forward hypothesis.  Writes
+    # cache/research/emerging_outlier_watch_latest.json (+ forward sidecar).
+    log "[CACHE] emerging outlier watch (separate research lane)"
+    run_or_warn "emerging outlier watch" \
+        "$PY" research/emerging_outlier_watch.py "$@"
+}
+
+cmd_high_conviction_filter_audit() {
+    # High-Conviction Alpha V1 filter-severity / recall / bias audit.
+    # DIAGNOSTIC ONLY: gate review matrix, one-rule-away decomposition
+    # (consistency-guarded against V1), market-cap / lifecycle / sector
+    # bias, missingness states, sector-applicability flags, and shadow
+    # sensitivity stress tests — all read-only over the frozen V1 layer.
+    # Recommends no rule change from a single scan and never auto-removes a
+    # gate.  Writes cache/research/high_conviction_filter_audit_latest.json.
+    log "[CACHE] high-conviction V1 filter audit (diagnostic, read-only)"
+    run_or_warn "high-conviction filter audit" \
+        "$PY" research/high_conviction_filter_audit.py "$@"
+}
+
 cmd_research_programs() {
     # Phase 5 — horizon-aligned research-program validation.  Cache-only,
     # cred-free, READ-ONLY on the engine: routes every watchlist label to
@@ -1632,6 +1681,19 @@ cmd_nightly() {
     # tracker so the digest/audit read fresh horizon-aligned per-program
     # verdicts.  Cache-only, read-only, pre-registered gates.
     cmd_research_programs
+    # High-Conviction Alpha Shortlist — runs after program routing +
+    # validation so it can consume the routed candidates and the fresh
+    # fundamental overlay.  Selective quality/growth/value/momentum
+    # qualification layer; cache-only, read-only; historizes its own
+    # separate forward hypothesis.  Must precede the operator summary /
+    # digest / audit so they surface tonight's shortlist.
+    cmd_high_conviction_alpha
+    # Emerging Outlier Watch — separate lane for credible pre-profit /
+    # turnaround names; runs after the shortlist so it sees the same frozen
+    # V1 evaluation.  Then the V1 filter audit (diagnostic) so the operator
+    # summary / digest can surface both.
+    cmd_emerging_outlier
+    cmd_high_conviction_filter_audit
     # Nightly Operator Summary — runs LAST so it reads every sidecar the
     # nightly cycle just refreshed.  Cache-only; no provider calls.
     # No strategy abbreviations or trade language in output.
@@ -1784,6 +1846,9 @@ case "$SUB" in
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
     latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
+    high-conviction-alpha)     cmd_high_conviction_alpha      "${POS[@]}" ;;
+    emerging-outlier)          cmd_emerging_outlier           "${POS[@]}" ;;
+    filter-audit)              cmd_high_conviction_filter_audit "${POS[@]}" ;;
     discovery-bootstrap)       cmd_discovery_bootstrap        "${POS[@]}" ;;
     scan-universe-manifest)    cmd_scan_universe_manifest     "${POS[@]}" ;;
     scanner-recall-cohorts)    cmd_scanner_recall_cohorts     "${POS[@]}" ;;

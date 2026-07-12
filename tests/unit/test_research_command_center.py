@@ -479,6 +479,43 @@ def test_sidebar_collapse_control():
     assert "side-collapsed" in html
 
 
+def test_program_sections_use_compact_presentation():
+    """Cosmetic simplification: compact program headers, top-5 default,
+    expandable details, data-issue separation, verdict display labels,
+    presentation-only filters, and the page-level research-only note."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    # compact header + top-N controls
+    assert "prog-head" in html
+    assert "prog-filter" in html and "prog-cap" in html
+    assert "View all" in html
+    # cleaner verdict labels mirrored client-side, canonical preserved
+    assert "Insufficient evidence" in html
+    assert "VERDICT_LABELS" in html
+    assert "canonical:" in html
+    # expandable detail + data-issue subsection
+    assert "full details" in html
+    assert "Program details" in html
+    assert "Data issues —" in html
+    # page-level note stated once (not per card)
+    assert ("All candidates are research-only and program evidence remains "
+            "unvalidated") in html
+    # filters re-render the page, never re-fetch/rewrite artifacts
+    assert "wireProgramControls" in html
+    assert "compact evidence" not in html  # sanity: no leftover placeholder
+
+
+def test_program_filters_are_presentation_state_only():
+    """The filter/cap handlers only mutate PROGVIEW view-state and
+    re-render — they must not POST, fetch, or write anything."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    start = html.index("function wireProgramControls")
+    end = html.index("function", start + 1)
+    body = html[start:end]
+    assert "renderHome()" in body
+    for forbidden in ("fetch(", "POST", "XMLHttpRequest", ".json("):
+        assert forbidden not in body, forbidden
+
+
 def test_placeholder_pages_are_honest():
     """Later-phase stubs say 'pending approval' and never imply alpha proof."""
     from dashboards.research_command_center.server import STUB_PAGES

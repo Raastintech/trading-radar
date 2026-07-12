@@ -24,6 +24,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dashboards.research_command_center.presentation import (
+    decorate_scan_payload)
+
 ROOT = Path(__file__).resolve().parents[2]
 
 RESEARCH_ONLY_FOOTER = "Research only — not a signal or recommendation."
@@ -115,6 +118,26 @@ class ArtifactStore:
     @property
     def latest_scan_programs_json(self) -> Path:
         return self.research_dir / "latest_scan_programs_latest.json"
+
+    @property
+    def high_conviction_json(self) -> Path:
+        return self.research_dir / "high_conviction_alpha_latest.json"
+
+    @property
+    def high_conviction_forward_json(self) -> Path:
+        return self.research_dir / "high_conviction_forward_latest.json"
+
+    @property
+    def emerging_outlier_json(self) -> Path:
+        return self.research_dir / "emerging_outlier_watch_latest.json"
+
+    @property
+    def emerging_outlier_forward_json(self) -> Path:
+        return self.research_dir / "emerging_outlier_forward_latest.json"
+
+    @property
+    def filter_audit_json(self) -> Path:
+        return self.research_dir / "high_conviction_filter_audit_latest.json"
 
     @property
     def price_refresh_json(self) -> Path:
@@ -266,6 +289,60 @@ def build_latest_research_scan(
     for block in (payload.get("programs") or {}).values():
         for c in block.get("candidates") or []:
             c["research_only"] = True
+    payload["age_hours"] = _age_hours(payload.get("generated_at"))
+    # Cosmetic display metadata (badges, compact evidence label, top-N
+    # split, data-issue separation) — additive, in-memory only; canonical
+    # fields and candidate order are untouched.
+    return decorate_scan_payload(payload)
+
+
+def build_high_conviction(
+        store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """High-Conviction Alpha Shortlist for the dashboard.  Cache-only read
+    of the sidecar written by research/high_conviction_alpha.py — the
+    dashboard never runs the qualification itself.  ``research_only`` is
+    re-forced true on every record; membership is never validated alpha."""
+    store = store or ArtifactStore()
+    payload = _load_json(store.high_conviction_json)
+    if payload is None or not payload.get("present"):
+        return {"present": False, "research_only": True,
+                "shortlist_status": (payload or {}).get(
+                    "shortlist_status") or "NO_HIGH_CONVICTION_CANDIDATES"}
+    for key in ("shortlist", "quality_but_extended", "improving_but_unproven",
+                "rejected"):
+        for c in payload.get(key) or []:
+            c["research_only"] = True
+    # attach the separate forward-validation verdict for context (display
+    # only — it is a distinct hypothesis, never merged with the shortlist)
+    fwd = _load_json(store.high_conviction_forward_json) or {}
+    payload["forward_validation"] = {
+        "present": bool(fwd.get("present")),
+        "verdict": fwd.get("verdict"),
+        "verdict_reason": fwd.get("verdict_reason"),
+        "n_history_rows": fwd.get("n_history_rows"),
+    }
+    payload["age_hours"] = _age_hours(payload.get("generated_at"))
+    return payload
+
+
+def build_emerging_outlier(
+        store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Emerging Outlier Watch for the dashboard.  Cache-only read of the
+    sidecar written by research/emerging_outlier_watch.py — a SEPARATE,
+    higher-risk lane, never merged into the high-conviction shortlist.
+    research_only is re-forced on every record."""
+    store = store or ArtifactStore()
+    payload = _load_json(store.emerging_outlier_json)
+    if payload is None or not payload.get("present"):
+        return {"present": False, "research_only": True,
+                "watch_status": (payload or {}).get("watch_status")
+                or "NO_EMERGING_OUTLIERS", "watch": []}
+    for w in payload.get("watch") or []:
+        w["research_only"] = True
+    fwd = _load_json(store.emerging_outlier_forward_json) or {}
+    payload["forward_validation"] = {
+        "present": bool(fwd.get("present")), "verdict": fwd.get("verdict"),
+        "verdict_reason": fwd.get("verdict_reason")}
     payload["age_hours"] = _age_hours(payload.get("generated_at"))
     return payload
 
@@ -450,6 +527,8 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "quarantine_count": sum(quarantine.values()) if quarantine else None,
         "warnings": (summary or {}).get("warnings") or [],
         "journal_audit": build_journal_audit(store),
+        "high_conviction": build_high_conviction(store),
+        "emerging_outlier": build_emerging_outlier(store),
         "research_programs": build_research_programs(store),
         "latest_research_scan": build_latest_research_scan(store),
         "missing_artifacts": missing,

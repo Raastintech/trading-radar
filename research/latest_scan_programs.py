@@ -393,12 +393,9 @@ def build_latest_scan(root: Optional[Path] = None,
 # ── rendering ────────────────────────────────────────────────────────────────
 
 
-def render_terminal(payload: Dict[str, Any],
-                    cap: int = TERMINAL_CAP) -> str:
-    if not payload.get("present"):
-        return ("=== LATEST RESEARCH CANDIDATES BY PROGRAM ===\n"
-                "  (no successful scan artifact)")
-    lines = ["=== LATEST RESEARCH CANDIDATES BY PROGRAM ==="]
+def _session_header_lines(payload: Dict[str, Any]) -> List[str]:
+    """Scan-integrity header shared by the compact and verbose renders —
+    session linkage and warnings are safety-critical, never elided."""
     session_bits = [
         f"market as-of {payload.get('market_as_of_date') or '?'}"]
     if payload.get("manifest_hash_match") is not None:
@@ -408,9 +405,79 @@ def render_terminal(payload: Dict[str, Any],
             + f" ({payload.get('scanner_manifest_hash') or '?'})")
     if payload.get("scan_readiness"):
         session_bits.append(f"readiness {payload['scan_readiness']}")
-    lines.append("  " + " · ".join(session_bits))
+    lines = ["  " + " · ".join(session_bits)]
     for warning in payload.get("integrity_warnings") or []:
         lines.append(f"  ⚠ {warning}")
+    return lines
+
+
+def render_terminal(payload: Dict[str, Any], cap: int = TERMINAL_CAP,
+                    verbose: bool = False) -> str:
+    """Compact top-candidates view by default; ``verbose=True`` restores
+    the full per-candidate metadata block (also used for the log twin)."""
+    if verbose:
+        return render_terminal_verbose(payload, cap=cap)
+    if not payload.get("present"):
+        return ("=== TOP RESEARCH CANDIDATES ===\n"
+                "  (no successful scan artifact)")
+    from dashboards.research_command_center.presentation import (
+        candidate_badges, common_reason, data_issue_reasons,
+        evidence_summary, short_reason, split_candidates, verdict_display)
+    lines = ["=== TOP RESEARCH CANDIDATES ==="]
+    lines += _session_header_lines(payload)
+    for pid in PROGRAM_ORDER:
+        block = (payload.get("programs") or {}).get(pid) or {}
+        n = block.get("candidate_count", 0)
+        hold = (PROGRAMS.get(pid) or {}).get(
+            "expected_holding_period_td", "?")
+        counts = (f"{n} active · {block.get('new_count', 0)} new · "
+                  f"{block.get('repeat_count', 0)} repeat · "
+                  f"{block.get('returning_count', 0)} returning · "
+                  f"{block.get('exited_count', 0)} exited")
+        top, rest, issues = split_candidates(block, cap)
+        verdict = next((c.get("program_verdict")
+                        for c in block.get("candidates") or []), None)
+        lines.append(f"\n{pid} {hold}td — {counts}"
+                     + (f" · validation: {verdict_display(verdict)}"
+                        if verdict else ""))
+        if not n:
+            lines.append("  No candidates detected in the latest scan.")
+            continue
+        shared = common_reason(block)
+        if shared:
+            lines.append(f"  common reason: {shared[:100]}")
+        for i, c in enumerate(top, 1):
+            badges = "  ".join(b["text"].replace(" ", "_")
+                               for b in candidate_badges(c)
+                               if b["text"] != c.get("scan_status"))
+            lines.append(
+                f"  {i}. {c['ticker']:<6} score={c.get('research_score')}"
+                f"  {c['scan_status']}  {c.get('label') or '?'}"
+                + (f"  {badges}" if badges else ""))
+            detail = ("" if shared else f"{short_reason(c, 100)}  | ")
+            lines.append(
+                f"     {detail}"
+                f"{evidence_summary(c.get('evidence_maturity'))}")
+        if issues:
+            lines.append(
+                f"  data issues ({len(issues)}): "
+                + ", ".join(
+                    f"{c['ticker']} ({'/'.join(data_issue_reasons(c))})"
+                    for c in issues))
+        if rest:
+            lines.append(f"  ... and {len(rest)} more")
+    lines.append("\nUse --all or --program-details for full candidate "
+                 "metadata.")
+    return "\n".join(lines)
+
+
+def render_terminal_verbose(payload: Dict[str, Any],
+                            cap: int = TERMINAL_CAP) -> str:
+    if not payload.get("present"):
+        return ("=== LATEST RESEARCH CANDIDATES BY PROGRAM ===\n"
+                "  (no successful scan artifact)")
+    lines = ["=== LATEST RESEARCH CANDIDATES BY PROGRAM ==="]
+    lines += _session_header_lines(payload)
     for pid in PROGRAM_ORDER:
         block = (payload.get("programs") or {}).get(pid) or {}
         n = block.get("candidate_count", 0)
@@ -454,7 +521,8 @@ def write_outputs(payload: Dict[str, Any],
                        + "\n", encoding="utf-8")
     log = root / LOG_REL
     log.parent.mkdir(parents=True, exist_ok=True)
-    log.write_text(render_terminal(payload, cap=50) + "\n",
+    # The log twin is the audit copy — always the full verbose render.
+    log.write_text(render_terminal(payload, cap=50, verbose=True) + "\n",
                    encoding="utf-8")
     return sidecar
 
@@ -464,12 +532,19 @@ def main(argv=None) -> int:
         description="Latest-scan candidates by research program "
                     "(cache-only; visibility layer, no selection change).")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--all", action="store_true",
+                        help="verbose render of every candidate")
+    parser.add_argument("--program-details", action="store_true",
+                        help="verbose render with full candidate metadata")
     parser.add_argument("--root", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     root = Path(args.root) if args.root else REPO_ROOT
 
     payload = build_latest_scan(root)
-    print(render_terminal(payload))
+    verbose = args.all or args.program_details
+    print(render_terminal(payload,
+                          cap=10 ** 6 if args.all else TERMINAL_CAP,
+                          verbose=verbose))
     if not args.dry_run:
         print(f"\nwritten: {write_outputs(payload, root)}")
     return 0
