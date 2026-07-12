@@ -576,6 +576,69 @@ def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _section_todays_best_research(inputs: Dict[str, Any]) -> List[str]:
+    """Concise operator recap at the top of the digest: the strongest
+    high-conviction names, the top emerging opportunities, and the strong
+    profiles waiting for a reset — one short reason each.  The full detailed
+    sections remain later in the digest."""
+    lines = ["## Today's Best Research"]
+    hc = inputs.get("high_conviction") or {}
+    eo = inputs.get("emerging_outlier") or {}
+
+    def _reason_hc(c):
+        w = c.get("why_selected") or []
+        # prefer a specific margin/growth/cash reason over the bare
+        # "profitable" so the recap is not five identical lines
+        specific = next((r for r in w if any(
+            k in r.lower() for k in ("margin", "growth", "revenue", "cash",
+                                     "dilution"))), None)
+        return specific or (w[0] if w else (c.get("classification") or ""))
+
+    def _reason_eo(w):
+        dims = [d.get("dimension", "").replace("_", " ").lower()
+                for d in (w.get("emergence_dimensions") or [])]
+        return dims[0] if dims else (w.get("why_not_high_conviction") or "")
+
+    hc_list = (hc.get("shortlist") or [])[:5]
+    if hc.get("present") and hc_list:
+        lines.append("- High Conviction: "
+                     + ", ".join(c["ticker"] for c in hc_list))
+        for c in hc_list:
+            lines.append(f"  - {c['ticker']}: {_reason_hc(c)}")
+    else:
+        lines.append("- High Conviction: none qualified today.")
+
+    eo_list = (eo.get("watch") or [])[:5]
+    if eo.get("present") and eo_list:
+        lines.append("- Top Emerging: "
+                     + ", ".join(w["ticker"] for w in eo_list))
+        for w in eo_list:
+            lines.append(f"  - {w['ticker']}: {_reason_eo(w)}")
+    else:
+        lines.append("- Top Emerging: none met the emergence bar today.")
+
+    ext = (hc.get("quality_but_extended") or [])[:5]
+    if ext:
+        lines.append("- Wait for Reset: "
+                     + ", ".join(c["ticker"] for c in ext))
+        for c in ext:
+            risk = (c.get("main_risks") or [c.get("extension_state")
+                    or "extended"])[0]
+            lines.append(f"  - {c['ticker']}: {risk}")
+    return lines
+
+
+_DETERIORATION_LABELS = {"LOW": "Low", "MEDIUM": "Medium", "HIGH": "High",
+                         "UNKNOWN": "Unknown"}
+
+
+def _deterioration_label(risk: Optional[str]) -> str:
+    """Neutral display label for the internal deterioration-risk value.
+    The user-facing term is 'Business Deterioration Risk', never
+    'dead-horse'; the canonical value is preserved in the payload."""
+    return _DETERIORATION_LABELS.get(str(risk or "").upper(), "Unknown")
+
+
 def _section_high_conviction(inputs: Dict[str, Any]) -> List[str]:
     """High-Conviction Alpha Shortlist — the selective quality/growth/
     value/momentum layer.  Membership is NOT validated alpha; the
@@ -611,7 +674,8 @@ def _section_high_conviction(inputs: Dict[str, Any]) -> List[str]:
             f"{', '.join(s.get('why_selected') or []) or '—'}"
             + (f" | risk: {', '.join(s['main_risks'])}"
                if s.get("main_risks") else "")
-            + f" | dead-horse {s.get('dead_horse_risk')}")
+            + f" | Business Deterioration Risk: "
+            f"{_deterioration_label(s.get('dead_horse_risk'))}")
     ext = hc.get("quality_but_extended") or []
     if ext:
         lines.append("- Quality but extended (wait for reset): "
@@ -907,6 +971,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
                reset_reclaim: List[str]) -> str:
     sections = (
         ["# Daily Research Digest", ""]
+        + _section_todays_best_research(inputs) + [""]
         + _section_data_quality(inputs, concerns) + [""]
         + _section_scanner(inputs, top, reset_reclaim) + [""]
         + _section_sector_regime(inputs, top) + [""]

@@ -139,6 +139,32 @@ class ArtifactStore:
     def filter_audit_json(self) -> Path:
         return self.research_dir / "high_conviction_filter_audit_latest.json"
 
+    # ── market-context + system-trust artifacts (same canonical files the
+    #    TUI reads; the dashboard never invokes providers or the orchestrator)
+    @property
+    def market_heartbeat_json(self) -> Path:
+        return self.research_dir / "market_heartbeat_latest.json"
+
+    @property
+    def regime_forecast_json(self) -> Path:
+        return self.research_dir / "regime_forecast_latest.json"
+
+    @property
+    def forward_resolution_json(self) -> Path:
+        return self.research_dir / "forward_resolution_health_latest.json"
+
+    @property
+    def provider_health_json(self) -> Path:
+        return self.research_dir / "fmp_provider_health_latest.json"
+
+    @property
+    def options_coverage_json(self) -> Path:
+        return self.research_dir / "options_coverage_report_latest.json"
+
+    @property
+    def mcp_analysis_json(self) -> Path:
+        return self.research_dir / "mcp_analysis_latest.json"
+
     @property
     def price_refresh_json(self) -> Path:
         return self.research_dir / "universe_price_refresh_latest.json"
@@ -347,6 +373,259 @@ def build_emerging_outlier(
     return payload
 
 
+# ── consolidated market-intelligence payload (cache-only) ───────────────────
+# Wires the high-value TUI market/evidence/system-state metrics into the
+# dashboard from the SAME canonical artifacts the TUI reads.  Every metric
+# carries its own freshness.  No provider or LLM call, no orchestrator.
+
+_MARKET_STALE_HOURS = 30.0        # a market artifact older than this is stale
+
+
+def _staleness(generated_at: Optional[str],
+               limit_h: float = _MARKET_STALE_HOURS) -> Dict[str, Any]:
+    age = _age_hours(generated_at)
+    return {"generated_at": generated_at, "age_hours":
+            round(age, 1) if age is not None else None,
+            "stale": bool(age is not None and age > limit_h),
+            "available": generated_at is not None}
+
+
+def _vol_state(vol: Dict[str, Any]) -> str:
+    vix = vol.get("vix")
+    avg = vol.get("vix_avg_20")
+    if vix is None:
+        return "Unknown"
+    if vix >= 25:
+        return "Elevated"
+    if avg is not None and vix > avg * 1.1:
+        return "Rising"
+    if vix < 13:
+        return "Low"
+    return "Normal"
+
+
+def build_market_context(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Market-environment strip (Level 1).  Reads regime_forecast +
+    market_heartbeat — the canonical TUI sources.  Deterministic
+    context-tension detection from existing fields (never LLM)."""
+    store = store or ArtifactStore()
+    rf = _load_json(store.regime_forecast_json) or {}
+    hb = _load_json(store.market_heartbeat_json) or {}
+    head = rf.get("headline") or {}
+    vol = rf.get("volatility") or {}
+    breadth = rf.get("breadth") or {}
+    rot = rf.get("sector_rotation") or {}
+    risk = hb.get("risk_signal") or {}
+
+    leading = rot.get("leading") or []
+    weakening = rot.get("weakening") or []
+    breadth_pct = breadth.get("sector_breadth_pct_above_ma20")
+    breadth_state = ("Unknown" if breadth_pct is None
+                     else "Broad" if breadth_pct >= 0.7
+                     else "Mixed" if breadth_pct >= 0.5 else "Narrow / Weak")
+    # heartbeat + bias display
+    hb_label = str(hb.get("heartbeat_label") or "").replace("_", " ").title()
+    risk_signal = str(risk.get("signal") or "NEUTRAL")
+    bias_display = {"RISK_ON": "Risk-On", "RISK_OFF": "Risk-Off",
+                    "NEUTRAL": "Neutral / Mixed"}.get(risk_signal, risk_signal)
+
+    forecast = {
+        "bias_5d": head.get("bias_5d"),
+        "bias_10d": head.get("bias_10d"),
+        "confidence": head.get("confidence"),
+        "forecast_state": rf.get("forecast_state"),
+        "validation_status": rf.get("validation_status"),
+        "invalidation_breached": head.get("invalidation_breached"),
+        "invalidation_breach_reasons": head.get("invalidation_breach_reasons")
+        or [],
+    }
+
+    # ── deterministic Context Tension (presentation-layer only) ──
+    tension: List[str] = []
+    constructive = str(head.get("bias_5d") or "").lower() == "constructive" \
+        or str(head.get("bias_10d") or "").lower() == "constructive"
+    if constructive and not leading:
+        tension.append("Constructive short-term forecast, but no sector "
+                       "leadership is confirmed.")
+    if constructive and breadth_pct is not None and breadth_pct < 0.6:
+        tension.append("Constructive forecast, but market breadth remains "
+                       "narrow.")
+    if head.get("invalidation_breached"):
+        tension.append("Regime invalidation breached: "
+                       + "; ".join(head.get("invalidation_breach_reasons")
+                                   or ["see forecast"]) + ".")
+    if hb.get("heartbeat_label") == "DEFENSIVE_ROTATION" and constructive:
+        tension.append("Forecast is constructive, but the market heartbeat "
+                       "shows defensive rotation.")
+    if risk_signal == "RISK_ON" and not leading:
+        tension.append("Risk-on posture, but no sector leadership.")
+
+    return {
+        "present": bool(rf or hb),
+        "research_only": True,
+        "regime": {
+            "current": head.get("current_regime")
+            or "Unknown",
+            "confidence": head.get("confidence"),
+            "probabilities": rf.get("regime_probabilities") or [],
+        },
+        "forecast": forecast,
+        "heartbeat": {
+            "label": hb_label or "Unknown",
+            "drivers": (hb.get("heartbeat_reasons") or [])[:3],
+            "risk": risk.get("risk_off_signals") or [],
+        },
+        "bias": {"posture": bias_display,
+                 "net_score": risk.get("net_score"),
+                 "trend_score": rf.get("trend_score")},
+        "breadth": {"state": breadth_state, "pct_above_ma20": breadth_pct},
+        "volatility": {"state": _vol_state(vol), "vix": vol.get("vix"),
+                       "vix_avg_20": vol.get("vix_avg_20")},
+        "leadership": {"leading": leading, "weak": weakening,
+                       "label": ", ".join(leading) if leading
+                       else "No clear leader"},
+        "context_tension": tension,
+        "freshness": _staleness(rf.get("built_at") or rf.get("generated_at")),
+        "heartbeat_freshness": _staleness(hb.get("generated_at")),
+    }
+
+
+def build_research_confidence(
+        store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Evidence & Confidence panel (Level 3).  Distinguishes engine state,
+    research state, and promotion state; summarizes forward maturity and the
+    Moment-of-Truth verdict.  Cache-only."""
+    store = store or ArtifactStore()
+    mot = _load_json(store.moment_of_truth_json) or {}
+    fres = _load_json(store.forward_resolution_json) or {}
+    programs = build_research_programs(store)
+    status_fwd = _load_json(store.forward_json) or {}
+
+    prog_verdicts = {pid: p.get("verdict")
+                     for pid, p in (programs.get("programs") or {}).items()}
+
+    # resolution coverage = matured / (matured + open) for the forecast lane
+    fmat, fopen = fres.get("forecast_matured"), fres.get("forecast_open")
+    res_cov = None
+    if isinstance(fmat, (int, float)) and isinstance(fopen, (int, float)) \
+            and (fmat + fopen) > 0:
+        res_cov = round(100.0 * fmat / (fmat + fopen), 1)
+
+    return {
+        "present": bool(programs.get("present") or mot),
+        "research_only": True,
+        "engine_state": "Operational",   # the dashboard rendered, so engine is up
+        "research_state": "Research Only",
+        "promotion_state": "Research Only",
+        "moment_of_truth": {
+            "verdict": mot.get("verdict"),
+            "reason": mot.get("verdict_reason"),
+            "next_decision": mot.get("phase_4b_blocked_reason"),
+            "freshness": _staleness(mot.get("generated_at"),
+                                    limit_h=24 * 30),  # MoT is a slow cadence
+        },
+        "program_verdicts": prog_verdicts,
+        "forward_tracking": {
+            "resolution_coverage_pct": res_cov,
+            "next_maturity_due": fres.get("next_maturity_due"),
+            "forecast_matured": fmat,
+            "forecast_open": fopen,
+            "lens_matured": fres.get("lens_matured"),
+            "lens_open": fres.get("lens_open"),
+            # combined open/matured across the tracked lanes, for the
+            # Forward Evidence header Open-vs-Matured summary
+            "total_open": (fopen or 0) + (fres.get("lens_open") or 0),
+            "total_matured": (fmat or 0) + (fres.get("lens_matured") or 0),
+            "unresolved_missing_price": fres.get("unresolved_missing_price"),
+            "resolver_status": fres.get("resolver_status"),
+            "freshness": _staleness(fres.get("generated_at")),
+        },
+        "benchmark_readiness": build_status_benchmark_readiness(store),
+        "freshness": _staleness(fres.get("generated_at")),
+    }
+
+
+def build_status_benchmark_readiness(store: ArtifactStore) -> Optional[str]:
+    summary = _load_json(store.summary_json) or {}
+    return (summary.get("forward_evidence") or {}).get("benchmark_readiness")
+
+
+def build_system_trust(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Research System Trust panel (Level 5).  One overall status
+    (TRUSTED / PARTIAL / DEGRADED / BLOCKED) from scan integrity, provider
+    health, options overlay, and data freshness.  MCP state is included as a
+    conditional operational diagnostic — it is the MCP-audit session state,
+    NOT market data — and is never promoted to the market strip."""
+    store = store or ArtifactStore()
+    integ = build_scan_integrity(store)
+    provider = _load_json(store.provider_health_json) or {}
+    options = _load_json(store.options_coverage_json) or {}
+    mcp = _load_json(store.mcp_analysis_json) or {}
+
+    readiness = str(integ.get("readiness") or "UNKNOWN")
+    provider_status = str(provider.get("overall_status") or "UNKNOWN")
+
+    # overall: BLOCKED if scan blocked; DEGRADED if scan degraded or provider
+    # not OK; PARTIAL if a non-critical source stale/disabled; else TRUSTED.
+    if readiness == "BLOCKED":
+        overall = "BLOCKED"
+    elif readiness == "DEGRADED" or provider_status not in ("OK", "UNKNOWN"):
+        overall = "DEGRADED"
+    elif (options.get("overlay_state") == "DISABLED"
+          or _staleness(provider.get("generated_at")).get("stale")):
+        overall = "PARTIAL"
+    else:
+        overall = "TRUSTED"
+
+    return {
+        "present": True,
+        "research_only": True,
+        "overall": overall,
+        "scan_integrity": {"readiness": integ.get("readiness"),
+                           "same_session_coverage_pct":
+                           integ.get("same_session_coverage_pct"),
+                           "universe_coverage_pct":
+                           integ.get("universe_coverage_pct")},
+        "data_freshness": build_status_data_freshness(store),
+        "options_overlay": {
+            "state": options.get("overlay_state"),
+            "coverage_pct": options.get("coverage_pct"),
+            # DISABLED here is a known coverage limitation, not a crash
+            "informational": options.get("overlay_state") == "DISABLED",
+            "note": options.get("structural_cause"),
+            "freshness": _staleness(options.get("generated_at")),
+        },
+        "provider_health": {"status": provider_status,
+                            "freshness": _staleness(provider.get("generated_at"))},
+        "mcp_state": {
+            # MCP-audit session state {NORMAL/CONFLICTED/FRAGILE/STALE/BLOCKED}
+            # — internal research-orchestration audit, operational-only.
+            "state": mcp.get("state"),
+            "session": mcp.get("session"),
+            "operational_only": True,
+            "affects_market_interpretation": False,
+            "freshness": _staleness(mcp.get("generated_at")),
+        },
+    }
+
+
+def build_status_data_freshness(store: ArtifactStore) -> Optional[str]:
+    scanner = _load_json(store.scanner_json) or {}
+    integ = (scanner.get("scan_integrity") or {})
+    return integ.get("readiness")
+
+
+def build_intel(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
+    """Consolidated cache-only intelligence payload for the dashboard."""
+    store = store or ArtifactStore()
+    return {
+        "market_context": build_market_context(store),
+        "research_confidence": build_research_confidence(store),
+        "system_trust": build_system_trust(store),
+        "research_only": True,
+    }
+
+
 def build_scan_integrity(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     """Scan Integrity model (P0, 2026-07-10 pipeline repair).
 
@@ -527,6 +806,9 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "quarantine_count": sum(quarantine.values()) if quarantine else None,
         "warnings": (summary or {}).get("warnings") or [],
         "journal_audit": build_journal_audit(store),
+        "market_context": build_market_context(store),
+        "research_confidence": build_research_confidence(store),
+        "system_trust": build_system_trust(store),
         "high_conviction": build_high_conviction(store),
         "emerging_outlier": build_emerging_outlier(store),
         "research_programs": build_research_programs(store),

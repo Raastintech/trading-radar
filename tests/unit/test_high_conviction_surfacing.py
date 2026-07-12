@@ -88,13 +88,14 @@ def test_adapter_zero_candidates_status(tmp_path):
 def test_html_has_shortlist_section():
     html = _INDEX_HTML.read_text(encoding="utf-8")
     assert "highConvictionSection" in html
-    assert "High-Conviction Alpha Shortlist" in html
+    assert "HIGH-CONVICTION ALPHA" in html
     assert "Quality + Growth + Value + Momentum" in html
-    assert "membership is not validated alpha" in html
-    assert "Quality but Extended" in html
-    assert "Rejected by Quality/Risk" in html
-    # rendered above the program sections in the home view
-    assert ("highConvictionSection(s.high_conviction)" in html)
+    # Strong Profiles — Wait for Reset replaces the old "Quality but Extended"
+    assert "STRONG PROFILES" in html and "WAIT FOR RESET" in html
+    # collapsed "Did Not Qualify" tray replaces the old rejected block
+    assert "DID NOT QUALIFY" in html
+    # rendered in the home view
+    assert "highConvictionSection(s.high_conviction)" in html
 
 
 def test_digest_section_lists_shortlist_and_rejects(tmp_path):

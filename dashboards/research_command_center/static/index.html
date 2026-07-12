@@ -34,27 +34,177 @@ details.cand-det summary,details.prog-det summary,details.issue-det summary{curs
 details.cand-det summary:hover,details.prog-det summary:hover,details.issue-det summary:hover{color:var(--text)}
 details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:6px 8px}
 .page-note{font-size:10px;color:var(--dim);margin:0 0 8px;padding:5px 8px;border:1px dashed var(--border);border-radius:4px}
-/* high-conviction shortlist */
-.hc-wrap{border:1px solid var(--accent);border-radius:8px;padding:12px 14px;margin-bottom:14px;background:linear-gradient(180deg,rgba(90,162,255,.05),transparent)}
-.hc-wrap h2{margin:0 0 2px;font-size:14px;color:var(--accent)}
-.hc-sub{font-size:10px;color:var(--dim);margin:0 0 8px;letter-spacing:.4px}
-.hc-card{border-top:1px solid var(--border);padding:7px 0}
-.hc-card .hdr{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
-.hc-card .rank{color:var(--dim)} .hc-card .tk{color:var(--accent);font-weight:700;font-size:13px}
-.hc-card .sc{font-weight:700;color:var(--text)}
-.hc-comp{font-size:10px;color:var(--dim);margin:2px 0 0 16px;display:flex;gap:10px;flex-wrap:wrap}
-.hc-comp b{color:var(--text)}
-.hc-why{font-size:10.5px;color:var(--text);margin:2px 0 0 16px}
-.hc-risk{font-size:10px;color:var(--amber);margin:1px 0 0 16px}
-.dh-LOW{color:var(--pos)} .dh-MEDIUM{color:var(--amber)} .dh-HIGH{color:var(--neg)} .dh-UNKNOWN{color:var(--dim)}
-/* emerging outlier watch (separate, higher-risk, collapsed lane) */
-.eo-wrap{border:1px dashed var(--amber);border-radius:8px;padding:10px 14px;margin-bottom:14px;background:var(--amber-bg)}
-.eo-wrap summary{cursor:pointer;color:var(--amber);font-size:13px;font-weight:700}
-.eo-sub{font-size:10px;color:var(--dim);margin:4px 0 8px}
-.eo-card{border-top:1px solid var(--border);padding:6px 0;font-size:11px}
-.eo-card .tk{color:var(--amber);font-weight:700}
-.eo-line{color:var(--dim);font-size:10.5px;margin:2px 0 0 14px}
+/* ── institutional research palette (restrained; distinct from system
+   errors, which keep --amber/--neg) ── */
+:root{
+  --emerald:#3fae82; --emerald-dim:#2f8f6a; --emerald-bg:rgba(63,174,130,.08);
+  --indigo:#7c8cf0; --indigo-bg:rgba(124,140,240,.08);
+  --violet:#a58cd6; --violet-bg:rgba(165,140,214,.08);
+  --steel:#8b96a8;
+  /* Consolidated institutional design tokens (aliases so existing rules and
+     the new shared components share one palette).  Canonical hues only. */
+  --research-emerald:var(--emerald); --research-indigo:var(--indigo);
+  --research-violet:var(--violet); --research-steel:var(--steel);
+  --research-amber:var(--amber); --research-red:var(--neg);
+  --research-bg:var(--bg); --research-surface:var(--panel);
+  --research-surface-elevated:var(--panel2); --research-border:var(--border);
+  --research-muted:var(--dim);
+}
+/* ── shared page template components (used by every sidebar tab) ── */
+.page-header{margin:0 0 12px}
+.page-header .pt{font-size:16px;font-weight:700;color:var(--text);letter-spacing:.3px;margin:0}
+.page-header .psubt{font-size:11px;color:var(--research-muted);margin:2px 0 0}
+.page-header .pmeta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+.freshness-chip{font-size:9.5px;padding:1px 7px;border-radius:9px;border:1px solid var(--research-border);color:var(--research-muted);background:var(--research-surface)}
+.freshness-chip.fresh{color:var(--research-emerald);border-color:rgba(63,174,130,.4)}
+.freshness-chip.stale{color:var(--research-amber);border-color:rgba(245,158,11,.4)}
+.ro-disclosure{font-size:10px;color:var(--research-muted);border:1px dashed var(--research-border);border-radius:4px;padding:4px 8px;margin:0 0 10px}
+/* distinct state banners — loading / no-data / stale / missing / blocked /
+   disabled / error each read differently (never one generic red) */
+.state{border-radius:6px;padding:8px 12px;margin:0 0 10px;font-size:11px;border:1px solid var(--research-border);background:var(--research-surface)}
+.state.loading{color:var(--research-muted)}
+.state.empty{color:var(--research-muted);border-style:dashed}
+.state.stale{color:var(--research-amber);border-color:rgba(245,158,11,.5)}
+.state.missing{color:var(--research-muted);border-color:var(--research-border)}
+.state.blocked{color:var(--research-red);border-color:rgba(239,68,68,.5)}
+.state.disabled{color:var(--research-muted);border-left:3px solid var(--research-steel)}
+.state.error{color:var(--research-red);border-color:rgba(239,68,68,.6);background:var(--neg-bg)}
+.empty-state{border:1px dashed var(--research-border);border-radius:8px;padding:26px 22px;text-align:center;color:var(--research-muted);margin:14px 0}
+.empty-state h3{margin:0 0 6px;color:var(--text);font-size:13px}
+.empty-state p{margin:0;font-size:11.5px;line-height:1.6}
+.disclaimer{font-size:10.5px;color:var(--research-muted);border-left:3px solid var(--research-steel);padding:4px 10px;margin:0 0 10px;background:var(--research-surface)}
+/* Level-1 Market Context strip */
+.mkt-strip{border:1px solid var(--research-border);border-radius:8px;padding:10px 14px;margin-bottom:12px;background:var(--research-surface)}
+.mkt-strip h3,.evc-panel h3,.trust-panel h3{margin:0 0 8px;font-size:11px;color:var(--research-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700}
+.mkt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px 16px}
+.mkt-cell .k{font-size:9.5px;color:var(--research-muted);text-transform:uppercase;letter-spacing:.6px}
+.mkt-cell .v{font-size:12.5px;color:var(--text);font-weight:600;margin-top:1px}
+.mkt-cell .sub{font-size:9.5px;color:var(--research-muted);margin-top:1px}
+.tension{margin-top:8px;font-size:10.5px;color:var(--research-amber);border-left:3px solid var(--research-amber);padding:3px 10px;background:var(--amber-bg)}
+/* Level-3 Evidence & Confidence panel */
+.evc-panel{border:1px solid var(--research-border);border-top:2px solid var(--research-steel);border-radius:8px;padding:10px 14px;margin-bottom:12px;background:var(--research-surface)}
+.evc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px}
+.evc-cell .k{font-size:9.5px;color:var(--research-muted);text-transform:uppercase;letter-spacing:.6px}
+.evc-cell .v{font-size:12px;color:var(--text);font-weight:600;margin-top:1px}
+.evc-cell .sub{font-size:9.5px;color:var(--research-muted)}
+/* Level-5 Research System Trust panel */
+.trust-panel{border:1px solid var(--research-border);border-radius:8px;padding:8px 14px;margin-bottom:12px;background:var(--research-surface)}
+.trust-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.trust-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:4px 16px;font-size:10.5px;color:var(--research-muted)}
+.trust-row b{color:var(--text)}
+.trust-TRUSTED{color:var(--research-emerald)} .trust-PARTIAL{color:var(--research-steel)}
+.trust-DEGRADED{color:var(--research-amber)} .trust-BLOCKED{color:var(--research-red)}
+.fit-line{font-size:9.5px;color:var(--research-muted);margin:1px 0 0 16px}
+/* diagnostic status-pill grid (global header) — one scannable pill per metric */
+.status-grid{display:flex;flex-wrap:wrap;gap:5px;align-items:stretch}
+.stat-pill{display:inline-flex;flex-direction:column;gap:1px;background:rgba(17,21,31,.6);border:1px solid var(--research-border);border-radius:5px;padding:3px 9px;line-height:1.25}
+.stat-pill .sl{font-size:8px;letter-spacing:.7px;text-transform:uppercase;color:var(--research-muted)}
+.stat-pill .sv{font-size:11px;font-weight:600;color:var(--text);display:flex;gap:4px;align-items:center}
+.stat-pill.warn{border-color:rgba(245,158,11,.45)} .stat-pill.warn .sv{color:var(--amber)}
+.stat-pill.bad{border-color:rgba(239,68,68,.5)} .stat-pill.bad .sv{color:var(--neg)}
+.stat-pill.ok .sv{color:var(--pos)} .stat-pill.info .sv{color:var(--accent)}
+.status-grid .grp-label{align-self:center;font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--research-muted);padding-right:2px}
+/* Did Not Qualify — fixed-width category column + muted inline symbol tags */
+.rej-table{display:grid;grid-template-columns:180px 1fr;gap:5px 12px;margin-top:6px;font-size:10.5px}
+.rej-table .rc{color:var(--research-muted);font-weight:600;padding-top:2px}
+.rej-table .rc .cnt{color:var(--text);opacity:.7;font-weight:400}
+.rej-table .rsyms{display:flex;flex-wrap:wrap;gap:3px}
+.sym-tag{display:inline-block;font-size:9.5px;padding:0 6px;border-radius:3px;background:var(--research-surface-elevated);border:1px solid var(--research-border);color:var(--research-muted)}
+.sym-tag:hover{color:var(--text)}
+/* triggered-state alert banner (context tension / regime invalidation) */
+.alert{display:flex;gap:8px;align-items:flex-start;border-radius:6px;padding:7px 12px;margin:0 0 10px;font-size:11px}
+.alert .ai{font-size:13px;line-height:1}
+.alert .at{font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:9.5px;margin-bottom:2px}
+.alert.tension-alert{background:var(--amber-bg);border:1px solid rgba(245,158,11,.5);color:var(--amber)}
+.alert.invalidation-alert{background:var(--neg-bg);border:1px solid rgba(239,68,68,.55);color:var(--neg)}
+.alert .abody{color:var(--text)}
+/* Open vs Matured summary strip (Forward Evidence header) */
+.om-strip{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.om-pill{background:var(--research-surface);border:1px solid var(--research-border);border-radius:6px;padding:5px 12px;font-size:10.5px;color:var(--research-muted)}
+.om-pill b{color:var(--text);font-size:13px;margin-right:3px}
+.om-pill.matured b{color:var(--research-emerald)} .om-pill.open b{color:var(--research-steel)}
+/* Executive Research Summary (Level 1) */
+.exec-summary{border:1px solid var(--border);border-left:3px solid var(--emerald);border-radius:8px;padding:12px 16px;margin-bottom:14px;background:var(--panel)}
+.exec-summary h2{margin:0 0 8px;font-size:13px;color:var(--text);letter-spacing:.5px}
+.exec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 18px;font-size:11.5px}
+.exec-grid .k{color:var(--dim)} .exec-grid .v{color:var(--text);font-weight:600}
+.exec-top{margin-top:8px;font-size:12px}
+.exec-top .tk{color:var(--emerald);font-weight:700}
+.exec-warn{margin-top:6px;font-size:10.5px;color:var(--amber)}
+/* single scan-integrity banner */
+.integrity-banner{border:1px solid var(--border);border-radius:6px;padding:7px 12px;margin-bottom:12px;font-size:11px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--panel)}
+.integrity-banner.deg{border-color:rgba(245,158,11,.5)}
+.integrity-banner.blk{border-color:rgba(239,68,68,.5)}
+.integrity-banner .lbl{font-weight:700}
+/* section header shared */
+.sec-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 6px}
+.sec-head h2{margin:0;font-size:14px;letter-spacing:.4px}
+.sec-head .meta{font-size:10.5px;color:var(--dim)}
+.sec-ctrls{margin:4px 0 8px;display:flex;gap:6px;flex-wrap:wrap}
+.sec-ctrls button{background:var(--panel2);border:1px solid var(--border);color:var(--dim);border-radius:4px;font:inherit;font-size:10px;padding:2px 8px;cursor:pointer}
+.sec-ctrls button.on{color:var(--text)} .sec-ctrls button:hover{color:var(--text)}
+/* High-Conviction Alpha (Level 2) — deep emerald, premium */
+.hc-wrap{border:1px solid var(--emerald-dim);border-top:2px solid var(--emerald);border-radius:8px;padding:12px 16px;margin-bottom:14px;background:var(--emerald-bg)}
+.hc-wrap .sec-head h2{color:var(--emerald)}
+.hc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.hc-card{border:1px solid var(--border);border-radius:6px;padding:10px 12px;background:var(--panel)}
+.hc-card .hdr{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;justify-content:space-between}
+.hc-card .idn{display:flex;gap:7px;align-items:baseline;flex-wrap:wrap}
+.hc-card .rank{color:var(--dim);font-size:11px} .hc-card .tk{color:var(--emerald);font-weight:700;font-size:15px;letter-spacing:.3px}
+.hc-card .sc{font-weight:700;color:var(--text);font-size:15px}
+.hc-card .sub{font-size:10px;color:var(--dim);margin:2px 0 6px}
+.sr-block{margin:4px 0 0}
+.sr-block .lab{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;margin:5px 0 2px}
+.sr-list{list-style:none;margin:0;padding:0;font-size:11px}
+.sr-list li{padding:1px 0}
+.sr-str li::before{content:"✓ ";color:var(--emerald)}
+.sr-risk li::before{content:"• ";color:var(--amber)}
+/* factor score bars (in expanded details) */
+.fbars{margin:4px 0}
+.fbar{display:grid;grid-template-columns:130px 1fr 30px;gap:8px;align-items:center;font-size:10.5px;padding:1px 0}
+.fbar .fn{color:var(--dim)} .fbar .fv{text-align:right;color:var(--text)}
+.fbar .track{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden}
+.fbar .fill{height:100%;background:var(--emerald);border-radius:3px}
+/* Business-Deterioration risk badge — restrained, never system-error styling */
+.det{display:inline-block;padding:1px 8px;border-radius:9px;font-size:9.5px;font-weight:700;border:1px solid;white-space:nowrap}
+.det-low{color:var(--steel);border-color:rgba(139,150,168,.55);background:rgba(139,150,168,.08)}
+.det-medium{color:var(--amber);border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.08)}
+.det-high{color:var(--neg);border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.08)}
+.det-unknown{color:var(--dim);border-color:var(--border);background:var(--gray-bg)}
+/* Emerging Opportunities (Level 2) — muted indigo/teal, exploratory */
+.eo-wrap{border:1px solid var(--indigo);border-radius:8px;padding:12px 16px;margin-bottom:14px;background:var(--indigo-bg)}
+.eo-wrap .sec-head h2{color:var(--indigo)}
+.eo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.eo-card{border:1px solid var(--border);border-radius:6px;padding:9px 12px;background:var(--panel);font-size:11px}
+.eo-card .tk{color:var(--indigo);font-weight:700;font-size:14px}
+.eo-card .rk{color:var(--dim);font-size:11px}
+.eo-card .sub{font-size:10px;color:var(--dim);margin:2px 0 5px}
+.eo-line{color:var(--dim);font-size:10.5px;margin:2px 0 0}
 .eo-line b{color:var(--text)}
+.eo-tag{display:inline-block;padding:0 6px;border-radius:8px;font-size:9px;border:1px solid var(--indigo);color:var(--indigo);background:var(--indigo-bg)}
+/* Strong Profiles — Wait for Reset (Level 2) — muted violet */
+.ext-wrap{border:1px solid var(--violet);border-radius:8px;padding:12px 16px;margin-bottom:14px;background:var(--violet-bg)}
+.ext-wrap .sec-head h2{color:var(--violet)}
+.ext-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.ext-card{border:1px solid var(--border);border-radius:6px;padding:9px 12px;background:var(--panel);font-size:11px}
+.ext-card .tk{color:var(--violet);font-weight:700;font-size:14px}
+/* Did Not Qualify tray (collapsed, low emphasis) */
+.rej-tray{margin-top:8px;opacity:.85}
+.rej-tray summary{cursor:pointer;color:var(--dim);font-size:11px;font-weight:700}
+.rej-group summary{cursor:pointer;color:var(--dim);font-size:10.5px;padding:2px 0 2px 10px}
+.rej-group .tks{font-size:10px;color:var(--dim);padding:2px 0 4px 20px}
+/* compact program summary cards (Level 3) */
+.prog-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:14px}
+.psum{border:1px solid var(--border);border-radius:6px;padding:10px 14px;background:var(--panel)}
+.psum.primary{border-top:2px solid var(--emerald)}
+.psum h3{margin:0;font-size:12px;color:var(--text)}
+.psum .hold{font-size:10px;color:var(--dim);margin:1px 0 6px}
+.psum .stat{font-size:10.5px;color:var(--dim);margin:1px 0}
+.psum .stat b{color:var(--text)}
+.psum ol{margin:6px 0 6px 0;padding-left:18px;font-size:11px}
+.psum ol li{padding:1px 0}
+.psum .lnk{font-size:10px;color:var(--accent);cursor:pointer}
+.psum .lnk:hover{text-decoration:underline}
 
 /* ── app shell: fixed sidebar ── */
 #sidebar{width:var(--sidew);min-width:var(--sidew);background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;transition:width .15s,min-width .15s}
@@ -67,6 +217,9 @@ body.side-collapsed #side-head h1{display:none}
 #sidebar .sub{font-size:9px;color:var(--dim);margin:0 12px 10px;white-space:nowrap;overflow:hidden}
 body.side-collapsed #sidebar .sub{display:none}
 #nav{overflow-y:auto;flex:1}
+.nav-group{margin-bottom:4px}
+.nav-glabel{font-size:8.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--research-muted);padding:8px 14px 3px;opacity:.75}
+body.side-collapsed .nav-glabel{display:none}
 #nav a{display:flex;align-items:center;gap:8px;padding:6px 14px;color:var(--dim);text-decoration:none;border-left:2px solid transparent;cursor:pointer;white-space:nowrap}
 #nav a.active{color:var(--text);background:var(--panel2);border-left-color:var(--accent)}
 #nav a:hover{color:var(--text)}
@@ -222,22 +375,26 @@ h2.pg{font-size:13px;margin:0 0 10px;color:var(--text)}
    RESEARCH_ONLY: renders cached research artifacts only.
    GET-only client; nothing here can mutate anything. */
 
+/* Sidebar routes grouped into logical sections (only real routes; no
+   duplicates).  `group` drives the section labels in renderNav. */
 const NAV = [
-  {id:"home",       label:"Research Home",       ini:"HM"},
-  {id:"alpha",      label:"Alpha Radar",          ini:"AR"},
-  {id:"board",      label:"Scanner Leaderboard",  ini:"SL"},
-  {id:"forward-evidence", label:"Forward Evidence", ini:"FE"},
-  {id:"sector-compass",   label:"Sector Compass",   ini:"SC"},
-  {id:"social-arb",       label:"Social Arb",       ini:"SA"},
-  {id:"fundamental-lens", label:"Fundamental Lens", ini:"FL"},
-  {id:"universe",   label:"Universe Health",      ini:"UH"},
-  {id:"data-quality",     label:"Data Quality",    ini:"DQ"},
-  {id:"hp",         label:"High Priority Review", ini:"HP"},
-  {id:"extended",   label:"Extended / Crowded",   ini:"EX"},
-  {id:"young",      label:"Young Listings",       ini:"YL"},
-  {id:"mot",        label:"Moment of Truth",      ini:"MT"},
-  {id:"research-journal", label:"Research Journal", ini:"RJ"},
+  {id:"home",       label:"Command Center",       ini:"HM", group:"Research"},
+  {id:"alpha",      label:"Alpha Radar",          ini:"AR", group:"Discovery"},
+  {id:"board",      label:"Scanner Leaderboard",  ini:"SL", group:"Discovery"},
+  {id:"forward-evidence", label:"Forward Evidence", ini:"FE", group:"Evidence"},
+  {id:"sector-compass",   label:"Sector / Regime",  ini:"SC", group:"Discovery"},
+  {id:"social-arb",       label:"Social Attention", ini:"SA", group:"Discovery"},
+  {id:"fundamental-lens", label:"Fundamental Overlay", ini:"FL", group:"Quality & Risk"},
+  {id:"universe",   label:"Universe Health",      ini:"UH", group:"Quality & Risk"},
+  {id:"data-quality",     label:"Data Quality",    ini:"DQ", group:"Quality & Risk"},
+  {id:"hp",         label:"High Priority Review", ini:"HP", group:"Research"},
+  {id:"extended",   label:"Wait for Reset",       ini:"EX", group:"Research"},
+  {id:"young",      label:"Young Listings",       ini:"YL", group:"Quality & Risk"},
+  {id:"mot",        label:"Moment of Truth",      ini:"MT", group:"Evidence"},
+  {id:"research-journal", label:"Research Journal", ini:"RJ", group:"Operations"},
 ];
+/* section render order for the grouped sidebar */
+const NAV_GROUPS=["Research","Evidence","Discovery","Quality & Risk","Operations"];
 
 let BOARD=null, STATUS=null;
 let sortKey="research_score", sortDir=-1, filterText="", selectedTicker=null;
@@ -286,12 +443,71 @@ function badge(v){
   return `<span class="bdg ${badgeClass(v)}">${esc(v)}</span>`;
 }
 
+/* ══ shared institutional-terminal components (one design language across
+   every sidebar tab).  Presentation only — canonical values preserved. ══ */
+/* canonical enum → clean display label (never mutates the payload) */
+const TERM_LABELS={
+  NEED_MORE_DATA:"Forward Validation: In Progress",
+  INSUFFICIENT_MATURE_EVIDENCE:"Insufficient Evidence",
+  PROMISING_BUT_UNPROVEN:"Promising, Unproven",
+  VALIDATED_EDGE:"Validated Edge",
+  NO_EVIDENCE_OF_EDGE:"No Evidence of Edge",
+  NO_FORWARD_EDGE:"No Forward Edge Detected",
+  QUALITY_BUT_EXTENDED:"Strong Profile — Wait for Reset",
+  REJECTED:"Did Not Qualify",
+  DATA_QUARANTINE:"Data Issue / Quarantined",
+  UNAVAILABLE_STALE_SOURCE:"Unavailable — Stale Source",
+  SHORTLIST_IMPROVES_OUTCOMES:"Shortlist Improves Outcomes",
+  NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES:"No Improvement vs Program",
+};
+const termLabel=v=>TERM_LABELS[v]||(v?esc(String(v)):"—");
+/* a consistent Level-1 page header for every tab */
+function pageHeader(title,subtitle,opts){
+  opts=opts||{};
+  const meta=[];
+  if(opts.generated_at) meta.push(freshnessChip(opts.generated_at,opts.ageHours));
+  if(opts.integrity) meta.push(`<span class="freshness-chip">Scan Integrity: ${esc(cap1(opts.integrity))}</span>`);
+  if(opts.badges) meta.push(opts.badges);
+  return `<header class="page-header">
+    <h2 class="pt">${esc(title)}</h2>
+    ${subtitle?`<div class="psubt">${esc(subtitle)}</div>`:""}
+    ${meta.length?`<div class="pmeta">${meta.join("")}</div>`:""}
+  </header>`;
+}
+function freshnessChip(ts,ageHours){
+  const stale=(typeof ageHours==="number")&&ageHours>24;
+  const cls=stale?"stale":(ageHours!=null?"fresh":"");
+  return `<span class="freshness-chip ${cls}">Updated ${esc(fmtET(ts))}</span>`;
+}
+function researchOnlyDisclosure(msg){
+  return `<div class="ro-disclosure">${esc(msg||"All content is research-only. Forward evidence is unvalidated unless otherwise stated. Nothing here is a trade signal.")}</div>`;
+}
+function emptyState(title,msg){
+  return `<div class="empty-state"><h3>${esc(title)}</h3><p>${esc(msg||"")}</p></div>`;
+}
+/* distinct visual states — never one generic red banner */
+function stateBanner(kind,msg){
+  return `<div class="state ${esc(kind)}">${esc(msg)}</div>`;
+}
+
 /* ── sidebar + tabs (app shell) ── */
+function navLink(n){
+  return `<a data-id="${n.id}" class="${n.id===activePage?"active":""}" title="${n.label}">
+     <span class="ini">${n.ini}</span><span class="lbl">${n.label}</span>
+     ${n.stub?`<span class="ph">P${n.stub}</span>`:""}</a>`;
+}
 function renderNav(){
-  $("#nav").innerHTML = NAV.map(n=>
-    `<a data-id="${n.id}" class="${n.id===activePage?"active":""}" title="${n.label}">
-       <span class="ini">${n.ini}</span><span class="lbl">${n.label}</span>
-       ${n.stub?`<span class="ph">P${n.stub}</span>`:""}</a>`).join("");
+  const html=NAV_GROUPS.map(g=>{
+    const items=NAV.filter(n=>(n.group||"Research")===g);
+    if(!items.length) return "";
+    return `<div class="nav-group"><div class="nav-glabel">${esc(g)}</div>`
+      +items.map(navLink).join("")+`</div>`;
+  }).join("");
+  // any route without a known group still renders (never hide a real route)
+  const ungrouped=NAV.filter(n=>!NAV_GROUPS.includes(n.group||"Research"));
+  $("#nav").innerHTML = html
+    +(ungrouped.length?`<div class="nav-group"><div class="nav-glabel">More</div>`
+      +ungrouped.map(navLink).join("")+`</div>`:"");
   document.querySelectorAll("#nav a").forEach(a=>a.onclick=()=>openPage(a.dataset.id));
 }
 function renderTabs(){
@@ -325,37 +541,46 @@ $("#side-toggle").onclick=()=>document.body.classList.toggle("side-collapsed");
 /* ── global header (persistent) — status values render as badges ── */
 function chip(label,value,cls){return `<span class="chip ${cls||""}">${label}: <b>${esc(value)}</b></span>`;}
 function chipB(label,value){return `<span class="chip">${label}: ${badge(value)}</span>`;}
+/* diagnostic status pill — one label/value container per tracked metric.
+   `cls` = ""|"ok"|"warn"|"bad"|"info"; `raw` renders value HTML as-is. */
+function statPill(label,value,cls,raw){
+  const v=raw?value:esc(value==null?"—":value);
+  return `<span class="stat-pill ${cls||""}"><span class="sl">${esc(label)}</span>
+    <span class="sv">${v}</span></span>`;
+}
 function renderHeader(){
   const s=STATUS||{}, p4=s.phase_4b||{};
   // Row 1: safety-critical status — never hidden or demoted.
   const primary=[
-    chipB("MODE", s.mode||"RESEARCH_ONLY"),
-    chipB("NIGHTLY", s.nightly_status??"?"),
-    chipB("PHASE 4B", p4.status??"?"),
-    `<span class="chip">VERDICT: ${badge(s.operating_verdict)} <span style="color:var(--dim)">tracker</span> ${badge(s.tracker_verdict)}</span>`,
-    chip("MATURED 5D", s.matured_5d??"—"),
-    chip("MATURED 10D", s.matured_10d??"—"),
-    chipB("BENCHMARKS", s.benchmark_readiness??"?"),
-    chip("REGIME", s.market_regime??"?","info"),
+    statPill("Mode", s.mode||"RESEARCH_ONLY","info"),
+    statPill("Nightly", badge(s.nightly_status??"?"),null,true),
+    statPill("Phase 4B", badge(p4.status??"?"),null,true),
+    statPill("Verdict",
+      `${badge(s.operating_verdict)} <span class="dim" style="font-size:8px">trk</span> ${badge(s.tracker_verdict)}`,
+      null,true),
+    statPill("Matured 5d", s.matured_5d??"—"),
+    statPill("Matured 10d", s.matured_10d??"—"),
+    statPill("Benchmarks", badge(s.benchmark_readiness??"?"),null,true),
+    statPill("Regime", s.market_regime??"?","info"),
   ];
-  // Row 2: data-hygiene chips, grouped + slightly smaller.
+  // Row 2: data-hygiene pills, grouped.
   const si=s.scan_integrity||{};
   const data=[
-    `<span class="grp">Data:</span>`,
-    chipB("FRESHNESS", s.data_freshness??"?"),
-    chipB("SCAN", si.readiness??"?"),
-    chip("SESSION", si.required_market_session??"?", si.benchmarks_aligned===false?"warn":"info"),
-    chip("STALE SKIPPED", s.stale_skipped??"—",(s.stale_skipped||0)>0?"warn":""),
-    chip("SUSPECT SKIPPED", s.suspect_skipped??"—",(s.suspect_skipped||0)>0?"warn":""),
-    chip("QUARANTINE", s.quarantine_count??"—",(s.quarantine_count||0)>0?"warn":""),
+    `<span class="grp-label">Data</span>`,
+    statPill("Freshness", badge(s.data_freshness??"?"),null,true),
+    statPill("Scan", badge(si.readiness??"?"),null,true),
+    statPill("Session", si.required_market_session??"?", si.benchmarks_aligned===false?"warn":"info"),
+    statPill("Stale skipped", s.stale_skipped??"—",(s.stale_skipped||0)>0?"warn":""),
+    statPill("Suspect skipped", s.suspect_skipped??"—",(s.suspect_skipped||0)>0?"warn":""),
+    statPill("Quarantine", s.quarantine_count??"—",(s.quarantine_count||0)>0?"warn":""),
   ];
   if((si.session_mismatch_excluded||0)>0)
-    data.push(chip("SESSION MISMATCH", si.session_mismatch_excluded,"warn"));
+    data.push(statPill("Session mismatch", si.session_mismatch_excluded,"warn"));
   if((s.missing_artifacts||[]).length)
-    data.push(chip("MISSING ARTIFACTS", s.missing_artifacts.join(", "),"bad"));
+    data.push(statPill("Missing artifacts", s.missing_artifacts.join(", "),"bad"));
   $("#gheader").innerHTML=
-    `<div class="hrow">${primary.join("")}</div>`+
-    `<div class="hrow data">${data.join("")}</div>`;
+    `<div class="status-grid">${primary.join("")}</div>`+
+    `<div class="status-grid" style="margin-top:5px">${data.join("")}</div>`;
 }
 
 /* ── Research Home ── */
@@ -413,11 +638,16 @@ function candFilter(c,f){
 }
 
 function candBadges(c){
-  return ((c.display||{}).badges||[]).map(b=>{
-    const cls=b.tone==="positive"?"g":b.tone==="caution"?"a":"c";
-    const title=b.text.startsWith("+")?` title="${esc(c.routing_reason||"secondary program match")}"`:"";
-    return `<span class="bdg ${cls}"${title}>${esc(b.text)}</span>`;
-  }).join(" ");
+  // The scan status (NEW/RETURNING/REPEAT) is rendered once as its own badge
+  // by the caller — exclude it here so it never appears twice.
+  const status=String(c.scan_status||"").toUpperCase();
+  return ((c.display||{}).badges||[])
+    .filter(b=>String(b.text||"").toUpperCase()!==status)
+    .map(b=>{
+      const cls=b.tone==="positive"?"g":b.tone==="caution"?"a":"c";
+      const title=b.text.startsWith("+")?` title="${esc(c.routing_reason||"secondary program match")}"`:"";
+      return `<span class="bdg ${cls}"${title}>${esc(b.text)}</span>`;
+    }).join(" ");
 }
 
 function candidateCard(c,pos,hideReason){
@@ -566,118 +796,391 @@ function programSection(pid,p,routing,ls){
     head+body+programDetails(pid,p,routing,ls));
 }
 
-/* ── High-Conviction Alpha Shortlist ──
-   Selective quality+growth+value+momentum layer above the program views.
-   Cache-only render of the shortlist sidecar; membership is never
-   validated alpha and never a trade signal. */
+/* ══════════════════════════════════════════════════════════════════════
+   Decision-support render layer (presentation only).  All ordering, scores,
+   classifications, and counts come straight from the artifacts; nothing here
+   re-ranks or mutates them.  The user-facing risk term is
+   "Business Deterioration Risk" (the internal payload key is read as-is;
+   only the visible label is renamed).
+   ═════════════════════════════════════════════════════════════════════ */
 const HC_CLASS_LABELS={HIGH_CONVICTION:"HIGH CONVICTION",PROMISING:"PROMISING",
   WATCH_FOR_ENTRY:"WATCH FOR ENTRY",QUALITY_BUT_EXTENDED:"QUALITY BUT EXTENDED",
   IMPROVING_BUT_UNPROVEN:"IMPROVING BUT UNPROVEN"};
-function dhBadge(r){return `<span class="dh-${esc(r||"UNKNOWN")}">dead-horse ${esc(r||"?")}</span>`;}
-function hcCard(c,rank){
+/* forward-validation display labels (canonical value preserved in payload) */
+const FWD_LABELS={NEED_MORE_DATA:"In Progress",
+  INSUFFICIENT_MATURE_EVIDENCE:"Insufficient Evidence",
+  PROMISING_BUT_UNPROVEN:"Promising, Unproven",VALIDATED_EDGE:"Validated Edge",
+  NO_EVIDENCE_OF_EDGE:"No Evidence of Edge"};
+const fwdLabel=v=>FWD_LABELS[v]||(v?esc(v):"—");
+/* business-deterioration display label + restrained badge */
+const DET_LABELS={LOW:"Low",MEDIUM:"Medium",HIGH:"High",UNKNOWN:"Unknown"};
+const detLabel=r=>DET_LABELS[String(r||"").toUpperCase()]||"Unknown";
+function detBadge(r){
+  const lab=detLabel(r), cls=lab.toLowerCase();
+  const tip=lab==="Unknown"?' title="Deterioration data may be insufficient or not applicable for this security."':"";
+  return `<span class="det det-${cls}"${tip}>Business Deterioration: ${lab}</span>`;
+}
+/* view state — presentation only, never touches artifacts */
+let HCVIEW={cap:5}, EOVIEW={tier:"top"}, EXTVIEW={cap:5};
+
+const FACTOR_ROWS=[["quality_score","Quality"],["growth_score","Growth"],
+  ["fundamental_momentum_score","Fundamental Momentum"],
+  ["price_momentum_score","Price Momentum"],["value_score","Value"],
+  ["risk_integrity_score","Risk Control"]];
+function factorBars(cs,valStatus){
+  return `<div class="fbars">`+FACTOR_ROWS.map(([k,label])=>{
+    const v=cs[k];
+    const shown=v!=null?v:(k==="value_score"?esc(valStatus||"n/a"):"—");
+    const w=(typeof v==="number")?Math.max(0,Math.min(100,v)):0;
+    return `<div class="fbar"><span class="fn">${label}</span>
+      <span class="track"><span class="fill" style="width:${w}%"></span></span>
+      <span class="fv">${shown}</span></div>`;
+  }).join("")+`</div>`;
+}
+function strengthsRisks(strengths,risks){
+  const s=(strengths||[]).length?`<div class="sr-block"><div class="lab">Strengths</div>
+    <ul class="sr-list sr-str">${strengths.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
+  const r=(risks||[]).length?`<div class="sr-block"><div class="lab">Risks</div>
+    <ul class="sr-list sr-risk">${risks.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
+  return s+r;
+}
+/* Any strengths/risks beyond the summary cap, rendered as clean bullets in
+   the expanded card — replaces the old repeated joined-string paragraph
+   text wall.  Returns "" when nothing new to show. */
+function moreStrengthsRisks(strengths,risks,strShown,riskShown){
+  const moreS=(strengths||[]).slice(strShown), moreR=(risks||[]).slice(riskShown);
+  if(!moreS.length&&!moreR.length) return "";
+  const s=moreS.length?`<div class="sr-block"><div class="lab">More strengths</div>
+    <ul class="sr-list sr-str">${moreS.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
+  const r=moreR.length?`<div class="sr-block"><div class="lab">More risks</div>
+    <ul class="sr-list sr-risk">${moreR.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
+  return s+r;
+}
+function integrityBadge(same){
+  return same===true?`<span class="bdg g">same-session</span>`
+    :same===false?`<span class="bdg a">session mismatch</span>`:"";
+}
+
+/* deterministic candidate market-fit line (one line max) — sector vs the
+   current weak/leading sectors; never a trade instruction */
+function marketFitLine(c,mc){
+  if(!mc||!mc.present||!c.sector_etf&&!c.sector) return "";
+  const etf=(c.sector_etf||"").toUpperCase();
+  const weak=((mc.leadership||{}).weak||[]).map(x=>x.toUpperCase());
+  const lead=((mc.leadership||{}).leading||[]).map(x=>x.toUpperCase());
+  let fit="Neutral";
+  if(etf&&lead.includes(etf)) fit="Aligned with sector leadership";
+  else if(etf&&weak.includes(etf)) fit="In a currently weak sector";
+  return `<div class="fit-line">Market fit: ${esc(fit)}</div>`;
+}
+function hcCard(c,rank,fwdVerdict,mc){
   const cs=c.component_scores||{};
-  const val=cs.value_score!=null?`<b>${cs.value_score}</b>`:esc(c.valuation_status||"n/a");
-  const clsCls=c.classification==="HIGH_CONVICTION"?"g":
-    c.classification==="PROMISING"?"g":c.classification==="WATCH_FOR_ENTRY"?"a":"n";
+  const cls=esc(HC_CLASS_LABELS[c.classification]||c.classification||"");
   return `<div class="hc-card">
     <div class="hdr">
-      ${rank?`<span class="rank">${rank}.</span>`:""}
-      <span class="tk">${esc(c.ticker)}</span>
-      <span class="sc">${c.high_conviction_score}</span>
-      <span class="bdg ${clsCls}">${esc(HC_CLASS_LABELS[c.classification]||c.classification)}</span>
-      <span class="dim" style="font-size:10px">${esc(c.program)} · ${esc(c.holding_period||"")}</span>
-      ${dhBadge(c.dead_horse_risk)}
-      ${c.same_session===true?`<span class="bdg g">same-session</span>`:c.same_session===false?`<span class="bdg a">SESSION_MISMATCH</span>`:""}
+      <div class="idn">${rank?`<span class="rank">${rank}.</span>`:""}
+        <span class="tk">${esc(c.ticker)}</span></div>
+      <span class="sc">${esc(c.high_conviction_score)}</span>
     </div>
-    <div class="hc-comp">
-      <span>quality <b>${cs.quality_score??"—"}</b></span>
-      <span>growth <b>${cs.growth_score??"—"}</b></span>
-      <span>fund-mom <b>${cs.fundamental_momentum_score??"—"}</b></span>
-      <span>momentum <b>${cs.price_momentum_score??"—"}</b></span>
-      <span>value ${val}</span>
-      <span>risk <b>${cs.risk_integrity_score??"—"}</b></span>
-    </div>
-    <div class="hc-why">${esc((c.why_selected||[]).join(", ")||"—")}</div>
-    ${(c.main_risks||[]).length?`<div class="hc-risk">Risk: ${esc(c.main_risks.join(", "))}</div>`:""}
-  </div>`;
-}
-function highConvictionSection(hc){
-  if(!hc||!hc.present){
-    return `<div class="hc-wrap">
-      <h2>High-Conviction Alpha Shortlist</h2>
-      <div class="hc-sub">Quality + Growth + Value + Momentum · research-only</div>
-      <div class="note">No shortlist yet — run ./scripts/run_research_cycle.sh high-conviction-alpha</div>
-    </div>`;
-  }
-  const cts=hc.counts||{};
-  const fwd=hc.forward_validation||{};
-  const shortlist=hc.shortlist||[];
-  const ext=hc.quality_but_extended||[];
-  const rej=hc.rejected||[];
-  const body=shortlist.length
-    ?shortlist.map((c,i)=>hcCard(c,i+1)).join("")
-    :`<div class="note" style="color:var(--amber)">NO_HIGH_CONVICTION_CANDIDATES — no stock met the qualification standards in the latest scan.</div>`;
-  const extSec=ext.length
-    ?`<details class="prog-det" open><summary>Quality but Extended — ${ext.length} (wait for reset)</summary>
-        ${ext.slice(0,10).map(c=>hcCard(c)).join("")}</details>`:"";
-  const rejSec=rej.length
-    ?`<details class="issue-det"><summary>Rejected by Quality/Risk — ${rej.length}</summary>
-        ${rej.map(c=>`<div class="hc-card"><div class="hdr"><span class="tk">${esc(c.ticker)}</span>
-          <span class="dim" style="font-size:10px">${esc(c.program)} · score ${c.high_conviction_score}</span></div>
-          <div class="hc-risk">${esc((c.exclusions||[]).join("; "))}</div></div>`).join("")}</details>`:"";
-  return `<div class="hc-wrap">
-    <h2>High-Conviction Alpha Shortlist</h2>
-    <div class="hc-sub">Quality + Growth + Value + Momentum · research-only · membership is not validated alpha</div>
-    <div class="prog-head">
-      <span>evaluated ${cts.evaluated||0} · qualified ${cts.qualified||0} · extended ${cts.quality_but_extended||0} · rejected ${cts.rejected||0}</span>
-      ${fwd.verdict?`<span title="${esc(fwd.verdict_reason||"")}">Forward: ${badge(fwd.verdict)}</span>`:""}
-    </div>
-    ${(hc.integrity_warnings||[]).map(w=>`<div class="note" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join("")}
-    ${body}
-    ${extSec}
-    ${rejSec}
+    <div class="sub">${cls} · ${esc(c.program)} · ${esc(c.holding_period||"")}</div>
+    ${strengthsRisks((c.why_selected||[]).slice(0,4),(c.main_risks||[]).slice(0,2))}
+    <div class="sr-block" style="margin-top:6px">${detBadge(c.dead_horse_risk)}
+      <span class="dim" style="font-size:10px">Forward Validation: ${fwdLabel(fwdVerdict)}</span></div>
+    ${marketFitLine(c,mc)}
+    <details class="cand-det"><summary>Full details</summary>
+      ${factorBars(cs,c.valuation_status)}
+      ${moreStrengthsRisks(c.why_selected,c.main_risks,4,2)}
+      <div class="kv" style="margin-top:6px">
+        ${kvRow("Classification",esc(c.classification||"—"))}
+        ${kvRow("Valuation",esc(c.valuation_status||"—"))}
+        ${kvRow("Bar / benchmark as-of",esc((c.bar_as_of_date||"?")+" / "+(c.benchmark_as_of_date||"?")))}
+        ${kvRow("Same-session",integrityBadge(c.same_session)||"—")}
+        ${kvRow("Status",badge("RESEARCH_ONLY"))}
+      </div>
+    </details>
   </div>`;
 }
 
-/* ── Emerging Outlier Watch ──
-   A SEPARATE, higher-risk, collapsed lane below the shortlist. Pre-profit /
-   turnaround names with multi-factor emergence evidence. Never mixed into
-   the high-conviction ranking. Research-only. */
-function emergingOutlierSection(eo){
+function hcControls(){
+  const mk=(v,l)=>`<button class="hc-cap ${HCVIEW.cap===v?"on":""}" data-cap="${v}">${l}</button>`;
+  return `<div class="sec-ctrls">${mk(5,"Top 5")}${mk(10,"Top 10")}${mk(99999,"View all")}</div>`;
+}
+
+function highConvictionSection(hc){
+  if(!hc||!hc.present){
+    return `<div class="hc-wrap"><div class="sec-head"><h2>HIGH-CONVICTION ALPHA</h2></div>
+      <div class="hc-sub">Quality + Growth + Value + Momentum</div>
+      <div class="note">No shortlist yet — run ./scripts/run_research_cycle.sh high-conviction-alpha</div></div>`;
+  }
+  const cts=hc.counts||{}, fwd=hc.forward_validation||{};
+  const shortlist=hc.shortlist||[];
+  const shown=shortlist.slice(0,HCVIEW.cap);
+  const mc=(STATUS||{}).market_context;
+  const body=shortlist.length
+    ?`<div class="hc-grid">${shown.map((c,i)=>hcCard(c,i+1,fwd.verdict,mc)).join("")}</div>`
+    :`<div class="note">NO_HIGH_CONVICTION_CANDIDATES — no stock met the qualification standards in the latest scan.</div>`;
+  return `<div class="hc-wrap">
+    <div class="sec-head"><h2>HIGH-CONVICTION ALPHA</h2>
+      <span class="meta">Quality + Growth + Value + Momentum</span></div>
+    <div class="hc-sub">${cts.qualified||0} qualified · Forward Validation: ${fwdLabel(fwd.verdict)}</div>
+    ${shortlist.length?hcControls():""}
+    ${body}
+    ${rejectedTray(hc.rejected||[])}
+  </div>`;
+}
+
+/* Did Not Qualify — collapsed, grouped by rejection reason, low emphasis */
+const REJ_GROUPS=[
+  ["Severe dilution",/dilution/i],
+  ["Negative gross margin",/negative gross margin/i],
+  ["Business deterioration risk",/deterioration/i],
+  ["Data / integrity issue",/quarantine|session|confidence|invalid|bars|liquidity/i],
+];
+function rejectedTray(rej){
+  if(!rej.length) return "";
+  const groups=REJ_GROUPS.map(([name,re])=>[name,rej.filter(c=>(c.exclusions||[]).some(e=>re.test(e)))]);
+  const seen=new Set(); groups.forEach(([,list])=>list.forEach(c=>seen.add(c.ticker)));
+  const other=rej.filter(c=>!seen.has(c.ticker));
+  const allGroups=groups.filter(([,l])=>l.length)
+    .concat(other.length?[["Other qualification gates",other]]:[]);
+  // fixed-width category column + rejected symbols as muted inline tags
+  const symTag=c=>`<span class="sym-tag" title="${esc((c.exclusions||[]).join(", "))}">${esc(c.ticker)}</span>`;
+  const rows=allGroups.map(([name,list])=>
+    `<div class="rc">${esc(name)} <span class="cnt">(${list.length})</span></div>
+     <div class="rsyms">${list.map(symTag).join("")}</div>`).join("");
+  return `<details class="rej-tray"><summary>DID NOT QUALIFY — ${rej.length}</summary>
+    <div class="rej-table">${rows}</div></details>`;
+}
+
+/* Strong Profiles — Wait for Reset (QUALITY_BUT_EXTENDED, top 5) */
+function extendedSection(hc){
+  const ext=(hc&&hc.quality_but_extended)||[];
+  if(!ext.length) return "";
+  const shown=ext.slice(0,EXTVIEW.cap);
+  const cards=shown.map(c=>{
+    const wait=(c.main_risks||[]).length?c.main_risks:[c.extension_state||"extended"];
+    return `<div class="ext-card">
+      <div><span class="tk">${esc(c.ticker)}</span>
+        <span class="dim" style="font-size:10px"> ${esc(c.program)} · ${esc(c.holding_period||"")}</span></div>
+      ${strengthsRisks((c.why_selected||[]).slice(0,4),null)}
+      <div class="sr-block"><div class="lab">Why wait</div>
+        <ul class="sr-list sr-risk">${wait.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>
+    </div>`;
+  }).join("");
+  return `<div class="ext-wrap">
+    <div class="sec-head"><h2>STRONG PROFILES — WAIT FOR RESET</h2>
+      <span class="meta">${ext.length} names · strong business, poor current entry</span></div>
+    <div class="ext-grid">${cards}</div>
+    ${ext.length>EXTVIEW.cap?`<div class="sec-ctrls"><button class="ext-all ${EXTVIEW.cap>=99999?"on":""}">View all ${ext.length}</button></div>`:""}
+  </div>`;
+}
+
+/* ── Emerging Opportunities — separate exploratory lane, tiered ── */
+function eoCard(w,rank){
+  const dims=(w.emergence_dimensions||[]).map(d=>d.detail||d.dimension).slice(0,4);
+  const runway=w.cash_runway_quarters!=null?`~${Math.round(w.cash_runway_quarters)}q runway`:"";
+  const dil=w.dilution_3q_pct!=null?`dilution ${w.dilution_3q_pct>0?"+":""}${Math.round(w.dilution_3q_pct)}%/3q`:"";
+  const risk=[runway,dil].filter(Boolean).join(", ")||"unprofitable";
+  return `<div class="eo-card">
+    <div><span class="rk">${rank}. </span><span class="tk">${esc(w.ticker)}</span>
+      <span class="eo-tag">Emerging</span></div>
+    <div class="sub">${esc(w.program)} · ${esc(w.holding_period||"")}</div>
+    <div class="sr-block"><div class="lab">Why watched</div>
+      <ul class="sr-list sr-str">${dims.map(d=>`<li>${esc(d)}</li>`).join("")}</ul></div>
+    <div class="eo-line"><b>Why not High Conviction:</b> ${esc(w.why_not_high_conviction||"")}</div>
+    <div class="eo-line"><b>Primary risk:</b> ${esc(risk)}</div>
+    <div class="sr-block" style="margin-top:5px">${detBadge(w.business_deterioration_risk)}
+      <span class="dim" style="font-size:9.5px">coverage ${w.data_coverage!=null?Math.round(w.data_coverage*100)+"%":"—"} · Research Only</span></div>
+  </div>`;
+}
+function emergingSection(eo){
   if(!eo||!eo.present){
-    return `<details class="eo-wrap"><summary>Emerging Outlier Watch — none</summary>
-      <div class="eo-sub">Separate higher-risk lane · research-only</div>
+    return `<div class="eo-wrap"><div class="sec-head"><h2>EMERGING OPPORTUNITIES</h2></div>
+      <div class="eo-sub">Higher-risk companies showing multi-factor emergence evidence. Separate from High Conviction.</div>
       <div class="note">${eo&&eo.watch_status==="NO_EMERGING_OUTLIERS"
-        ?"NO_EMERGING_OUTLIERS — nothing met the multi-factor emergence bar.":
-        "No emerging-outlier data — run ./scripts/run_research_cycle.sh emerging-outlier"}</div>
-    </details>`;
+        ?"No emerging opportunities met the multi-factor evidence bar today.":
+        "No emerging data — run ./scripts/run_research_cycle.sh emerging-outlier"}</div></div>`;
   }
   const fwd=eo.forward_validation||{};
   const watch=eo.watch||[];
-  const cards=watch.map(w=>{
-    const dims=(w.emergence_dimensions||[]).map(d=>esc(d.dimension.toLowerCase())).join(", ");
-    const runway=w.cash_runway_quarters!=null?`~${Math.round(w.cash_runway_quarters)}q runway`:"";
-    const dil=w.dilution_3q_pct!=null?`dilution ${w.dilution_3q_pct>0?"+":""}${Math.round(w.dilution_3q_pct)}%/3q`:"";
-    const risk=[runway,dil].filter(Boolean).join(", ")||"unprofitable";
-    const dr=w.business_deterioration_risk||"UNKNOWN";
-    return `<div class="eo-card">
-      <div><span class="tk">${esc(w.ticker)}</span>
-        <span class="dim">${esc(w.program)} · ${esc(w.holding_period||"")}</span>
-        <span class="dh-${esc(dr)}">business-deterioration ${esc(dr)}</span>
-        ${w.same_session===true?`<span class="bdg g">same-session</span>`:""}</div>
-      <div class="eo-line"><b>Why watched:</b> ${dims}</div>
-      <div class="eo-line"><b>Why not high conviction:</b> ${esc(w.why_not_high_conviction||"")}</div>
-      <div class="eo-line"><b>Main risk:</b> ${esc(risk)}</div>
-      <div class="eo-line">${esc(w.lifecycle_reason||"")}</div>
-    </div>`;
-  }).join("");
-  return `<details class="eo-wrap">
-    <summary>Emerging Outlier Watch — ${watch.length} (higher-risk emerging lane)</summary>
-    <div class="eo-sub">Separate from the shortlist · pre-profit / turnaround names with multi-factor
-      emergence evidence · research-only, not validated alpha
-      ${fwd.verdict?`· forward: <b>${esc(fwd.verdict)}</b>`:""}</div>
-    ${watch.length?cards:`<div class="note">NO_EMERGING_OUTLIERS</div>`}
-  </details>`;
+  let slice, label;
+  if(EOVIEW.tier==="secondary"){slice=watch.slice(5,15);label=`Secondary Review · ${Math.min(watch.length-5,10)} of ${watch.length}`;}
+  else if(EOVIEW.tier==="all"){slice=watch;label=`Full Emerging Set · ${watch.length}`;}
+  else {slice=watch.slice(0,5);label=`Priority Review · Top 5 of ${watch.length}`;}
+  const base=EOVIEW.tier==="secondary"?6:1;
+  const cards=slice.length
+    ?`<div class="eo-grid">${slice.map((w,i)=>eoCard(w,base+i)).join("")}</div>`
+    :`<div class="note">No names in this tier.</div>`;
+  const mk=(t,l)=>`<button class="eo-tier ${EOVIEW.tier===t?"on":""}" data-tier="${t}">${l}</button>`;
+  return `<div class="eo-wrap">
+    <div class="sec-head"><h2>EMERGING OPPORTUNITIES</h2>
+      <span class="meta">Higher-risk · pre-profit / turnaround · separate from High Conviction</span></div>
+    <div class="eo-sub">${label} · ${watch.length} total · Forward Validation: ${fwdLabel(fwd.verdict)} · research-only, not validated alpha</div>
+    <div class="sec-ctrls">${mk("top","Top 5")}${mk("secondary","Next 10")}${mk("all","View all "+watch.length)}</div>
+    ${cards}
+  </div>`;
+}
+
+/* Triggered-state alerts — Regime Invalidation (red) and Context Tension
+   (amber).  Deterministic: rendered only when the engine's own fields fire,
+   never authored by an LLM.  Returns "" when nothing is triggered. */
+function contextAlerts(mc){
+  if(!mc||!mc.present) return "";
+  const f=mc.forecast||{}, out=[];
+  if(f.invalidation_breached){
+    const reasons=(f.invalidation_breach_reasons||[]).map(esc).join(" · ")||"invalidation conditions met";
+    out.push(`<div class="alert invalidation-alert"><span class="ai">⛔</span>
+      <div><div class="at">Regime Invalidation</div>
+        <div class="abody">${reasons}</div></div></div>`);
+  }
+  const tension=(mc.context_tension||[]).slice(0,3);
+  if(tension.length){
+    out.push(`<div class="alert tension-alert"><span class="ai">⚠</span>
+      <div><div class="at">Context Tension</div>
+        <div class="abody">${tension.map(esc).join("<br>")}</div></div></div>`);
+  }
+  return out.join("");
+}
+
+/* ── Level 1: Market Context strip (max 6 metrics + 3 drivers) ── */
+function staleTag(fr){return fr&&fr.stale?` <span class="freshness-chip stale">Stale</span>`:"";}
+function marketContextStrip(mc){
+  if(!mc||!mc.present) return "";
+  const f=mc.forecast||{}, hb=mc.heartbeat||{}, fr=mc.freshness||{};
+  const cell=(k,v,sub)=>`<div class="mkt-cell"><div class="k">${k}</div>
+    <div class="v">${esc(v||"—")}</div>${sub?`<div class="sub">${esc(sub)}</div>`:""}</div>`;
+  const fcast=`${f.bias_5d?"5d "+cap1(f.bias_5d):""}${f.bias_10d?" · 10d "+cap1(f.bias_10d):""}`;
+  const drivers=(hb.drivers||[]).slice(0,3).map(d=>`• ${esc(d)}`).join("<br>");
+  return `<div class="mkt-strip">
+    <h3>Market Context${staleTag(fr)}${fr.generated_at?` <span class="freshness-chip">Updated ${esc(fmtET(fr.generated_at))}</span>`:""}</h3>
+    <div class="mkt-grid">
+      ${cell("Regime",(mc.regime||{}).current,"Confidence: "+cap1((mc.regime||{}).confidence))}
+      ${cell("Forecast",fcast||"—","Confidence: "+cap1(f.confidence))}
+      ${cell("Heartbeat",hb.label)}
+      ${cell("Bias",(mc.bias||{}).posture)}
+      ${cell("Breadth",(mc.breadth||{}).state,(mc.breadth||{}).pct_above_ma20!=null?Math.round(mc.breadth.pct_above_ma20*100)+"% > 20d MA":"")}
+      ${cell("Volatility",(mc.volatility||{}).state,(mc.volatility||{}).vix!=null?"VIX "+mc.volatility.vix:"")}
+      ${cell("Leadership",(mc.leadership||{}).label)}
+      ${cell("Weakness",((mc.leadership||{}).weak||[]).join(" · ")||"—")}
+    </div>
+    ${drivers?`<div class="fit-line" style="margin-left:0;margin-top:6px">${drivers}</div>`:""}
+  </div>`;
+}
+
+/* ── Level 3: Evidence & Confidence panel (max 6 fields, one line/program) ── */
+function evidenceConfidencePanel(rc){
+  if(!rc||!rc.present) return "";
+  const mot=rc.moment_of_truth||{}, ft=rc.forward_tracking||{}, pv=rc.program_verdicts||{};
+  const cell=(k,v,sub)=>`<div class="evc-cell"><div class="k">${k}</div>
+    <div class="v">${v||"—"}</div>${sub?`<div class="sub">${esc(sub)}</div>`:""}</div>`;
+  const motStale=(mot.freshness||{}).stale;
+  return `<div class="evc-panel">
+    <h3>Evidence &amp; Confidence</h3>
+    <div class="evc-grid">
+      ${cell("Research State",esc(rc.research_state),"Engine "+esc(rc.engine_state))}
+      ${cell("Moment of Truth",badge(mot.verdict)+staleTag(mot.freshness),motStale?"as of "+fmtET(mot.freshness.generated_at):"")}
+      ${cell("Tactical",termLabel(pv.TACTICAL))}
+      ${cell("Swing",termLabel(pv.SWING))}
+      ${cell("Long-Term",termLabel(pv.LONG_TERM))}
+      ${cell("Forward Resolution",ft.resolution_coverage_pct!=null?ft.resolution_coverage_pct+"%":"—","next "+esc(ft.next_maturity_due||"—"))}
+      ${cell("Benchmarks",badge(rc.benchmark_readiness))}
+    </div>
+    <div class="fit-line" style="margin-left:0">${esc(mot.reason||"")}</div>
+  </div>`;
+}
+
+/* ── Level 5: Research System Trust (max 5 visible, rest expandable) ── */
+function systemTrustPanel(st){
+  if(!st||!st.present) return "";
+  const si=st.scan_integrity||{}, ov=st.options_overlay||{}, ph=st.provider_health||{}, mcp=st.mcp_state||{};
+  const overall=st.overall||"UNKNOWN";
+  return `<div class="trust-panel">
+    <div class="trust-head">
+      <h3 style="margin:0">Research System Trust</h3>
+      <span class="trust-${esc(overall)}" style="font-weight:700;font-size:12px">${esc(overall)}</span>
+      <span class="dim" style="font-size:9.5px">operational trust — separate from investment risk</span>
+    </div>
+    <div class="trust-row">
+      <span>Scan integrity <b>${esc(cap1(si.readiness))}</b></span>
+      <span>Same-session <b>${si.same_session_coverage_pct!=null?si.same_session_coverage_pct+"%":"—"}</b></span>
+      <span>Universe coverage <b>${si.universe_coverage_pct!=null?si.universe_coverage_pct+"%":"—"}</b></span>
+      <span>Provider <b>${esc(ph.status)}</b></span>
+      <span>Options overlay <b>${esc(ov.state)}</b>${ov.informational?' <span class="dim">(coverage limit, not error)</span>':""}</span>
+    </div>
+    <details class="prog-det" style="margin-top:4px"><summary>System operations detail</summary>
+      <div class="trust-row" style="margin-top:6px">
+        <span>MCP audit state <b>${esc(mcp.state||"—")}</b> <span class="dim">(operational-only; not market data)</span></span>
+        <span>Data freshness <b>${esc(cap1(st.data_freshness))}</b></span>
+        <span>Provider freshness <b>${(ph.freshness||{}).stale?"Stale":"Current"}</b></span>
+      </div>
+      ${ov.note?`<div class="note" style="margin-top:6px">${esc(ov.note)}</div>`:""}
+    </details>
+  </div>`;
+}
+
+/* ── Level 1: Executive Research Summary ── */
+function executiveSummary(s){
+  const hc=s.high_conviction||{}, eo=s.emerging_outlier||{}, si=s.scan_integrity||{};
+  const rp=s.research_programs||{};
+  const shortlist=hc.shortlist||[];
+  const top3=shortlist.slice(0,3).map(c=>`<span class="tk">${esc(c.ticker)}</span>`).join(" · ")||"—";
+  // primary program = most active by candidate count (display only)
+  let primary="—",best=-1;
+  Object.entries(rp.programs||{}).forEach(([pid,p])=>{
+    const n=(p.n_episodes)||0; if(n>best){best=n;primary=(p.name||pid);}
+  });
+  const warns=(s.warnings||[]).slice(0,2);
+  const fwd=(hc.forward_validation||{}).verdict;
+  return `<div class="exec-summary">
+    <h2>TODAY’S RESEARCH SUMMARY</h2>
+    <div class="exec-grid">
+      <div><span class="k">Market regime</span> · <span class="v">${esc(s.market_regime||"—")}</span></div>
+      <div><span class="k">Scan integrity</span> · <span class="v">${esc(cap1(si.readiness))}${si.same_session_coverage_pct!=null?" — "+si.same_session_coverage_pct+"%":""}</span></div>
+      <div><span class="k">High Conviction</span> · <span class="v">${(hc.counts||{}).qualified||0}</span></div>
+      <div><span class="k">Top Emerging</span> · <span class="v">${Math.min((eo.counts||{}).watch||0,5)}</span></div>
+      <div><span class="k">Primary program</span> · <span class="v">${esc(primary)}</span></div>
+      <div><span class="k">Forward validation</span> · <span class="v">${fwdLabel(fwd)}</span></div>
+    </div>
+    <div class="exec-top">Top research candidates: ${top3}</div>
+    ${warns.length?`<div class="exec-warn">⚠ ${warns.map(esc).join(" · ")}</div>`:""}
+  </div>`;
+}
+function cap1(v){if(!v)return "—";const s=String(v).toLowerCase();return s.charAt(0).toUpperCase()+s.slice(1);}
+
+/* ── single page-level scan-integrity banner ── */
+function integrityBanner(si){
+  if(!si) return "";
+  const r=String(si.readiness||"").toUpperCase();
+  const cls=r==="BLOCKED"?"blk":r==="DEGRADED"?"deg":"";
+  const bits=[];
+  if(si.same_session_coverage_pct!=null) bits.push(`${si.same_session_coverage_pct}% same-session coverage`);
+  if(si.benchmarks_aligned===true) bits.push("benchmarks aligned");
+  if((si.session_mismatch_excluded||0)>0) bits.push(`${si.session_mismatch_excluded} names excluded`);
+  return `<div class="integrity-banner ${cls}">
+    <span class="lbl">Scan Integrity: ${cap1(si.readiness)||"Unknown"}</span>
+    <span class="dim">${bits.map(esc).join(" · ")||"—"}</span>
+    <details style="font-size:10px"><summary style="cursor:pointer;color:var(--dim)">details</summary>
+      <div class="note" style="margin-top:4px">Required session ${esc(si.required_market_session||"?")} · coverage ${si.universe_coverage_pct!=null?si.universe_coverage_pct+"%":"—"} · this is an operational warning, not a candidate risk score.</div>
+    </details>
+  </div>`;
+}
+
+/* ── Level 3: compact program summary cards (top 3, one diagnostic line) ── */
+function programSummaryCard(pid,p,ls){
+  const block=((ls||{}).programs||{})[pid];
+  const top=block?(block.candidates||[]).slice(0,3):[];
+  const diag=(p.diagnostic_signal&&p.diagnostic_signal!=="NONE")?cap1(p.diagnostic_signal):"Flat or mixed";
+  const rows=top.length?`<ol>${top.map(c=>`<li>${esc(c.ticker)}</li>`).join("")}</ol>`
+    :`<div class="dim" style="font-size:10px">No candidates</div>`;
+  return `<div class="psum${pid==="SWING"?" primary":""}">
+    <h3>${esc((p.name||pid).toUpperCase())}</h3>
+    <div class="hold">${esc(p.expected_holding_period_td||"?")} trading days</div>
+    <div class="stat"><b>${block?block.candidate_count||0:0}</b> active · <b>${block?block.new_count||0:0}</b> new</div>
+    <div class="stat">Validation: ${verdictLabel(p.verdict)}</div>
+    <div class="stat">Diagnostic read: ${esc(diag)}</div>
+    ${rows}
+    <span class="lnk" data-prog="${pid}">Open full ${esc(cap1(pid))} Research →</span>
+  </div>`;
 }
 
 function researchProgramsSection(rp,ls){
@@ -707,27 +1210,54 @@ function wireProgramControls(){
 function renderHome(){
   const s=STATUS||{}, p4=s.phase_4b||{};
   const rows=(BOARD||{}).rows||[];
-  const nHP=rows.filter(r=>(r.label||"").includes("HIGH_PRIORITY")).length;
-  const nRR=rows.filter(r=>(r.label||"").match(/RESET_WATCH|RECLAIM_WATCH/)).length;
-  const nEXT=rows.filter(r=>(r.label||"").match(/EXTENDED|CROWDED/)).length;
-  const nYQ=rows.filter(r=>r.warnings.includes("INSUFFICIENT_HISTORY")||r.data_quality==="QUARANTINE").length;
   const qb=s.quarantine_breakdown||{};
+  const rp=s.research_programs||{}, ls=s.latest_research_scan||{};
+  const progCards=["TACTICAL","SWING","LONG_TERM"]
+    .filter(pid=>(rp.programs||{})[pid])
+    .map(pid=>programSummaryCard(pid,rp.programs[pid],ls)).join("")
+    ||`<div class="note">No program validation yet — run ./scripts/run_research_cycle.sh research-programs</div>`;
   $("#workspace").innerHTML=`
-    <h2 class="pg">Research Home</h2>
+    <!-- Level 1 — Executive Research Summary + Market Context -->
+    ${executiveSummary(s)}
+    ${integrityBanner(s.scan_integrity)}
+    ${contextAlerts(s.market_context)}
+    ${marketContextStrip(s.market_context)}
+    <div class="page-note">All candidates are research-only. Forward evidence is unvalidated unless otherwise stated.</div>
+
+    <!-- Level 2 — Today's Best Research -->
+    ${highConvictionSection(s.high_conviction)}
+    ${emergingSection(s.emerging_outlier)}
+    ${extendedSection(s.high_conviction)}
+
+    <!-- Level 3 — Evidence & Confidence -->
+    ${evidenceConfidencePanel(s.research_confidence)}
+
+    <!-- Research Programs (compact) -->
+    <h2 class="pg" style="margin-top:6px">Research Programs</h2>
+    <div class="prog-summary">${progCards}</div>
+    <details class="prog-det" style="margin-bottom:14px"><summary>Full program detail (Tactical / Swing / Long-Term)</summary>
+      <div class="cards" style="margin-top:8px">${researchProgramsSection(s.research_programs, s.latest_research_scan)}</div>
+    </details>
+
+    <!-- Level 5 — Research System Trust -->
+    ${systemTrustPanel(s.system_trust)}
+
+    <!-- Scanner internals & operations -->
+    <h2 class="pg" style="margin-top:6px">Scanner Internals &amp; Operations</h2>
     <div class="cards">
       ${card("Engine status",`<div class="kv">
         ${kvRow("Mode",badge("RESEARCH_ONLY"))}
         ${kvRow("Phase 4B",badge(p4.status))}
         ${kvRow("Verdict",badge(s.operating_verdict))}
         ${kvRow("Tracker verdict",badge(s.tracker_verdict))}
-      </div><div class="note">${esc(p4.reason||"—")}</div>`,"accent-warn")}
+      </div><div class="note">${esc(p4.reason||"—")}</div>`)}
       ${card("Evidence readiness",`<div class="kv">
-        ${kvRow("Matured 5d",`<span class="big">${s.matured_5d??"—"}</span>`)}
-        ${kvRow("Matured 10d",`<span class="big">${s.matured_10d??"—"}</span>`)}
+        ${kvRow("Matured 5d",s.matured_5d??"—")}
+        ${kvRow("Matured 10d",s.matured_10d??"—")}
         ${kvRow("Total tracked",s.total_tracked??"—")}
         ${kvRow("Sample maturity",badge(s.sample_status))}
         ${kvRow("Benchmarks",badge(s.benchmark_readiness))}
-      </div>`,"accent")}
+      </div>`)}
       ${card("Data quality",`<div class="kv">
         ${kvRow("Freshness",badge(s.data_freshness))}
         ${kvRow("Stale-price skipped",s.stale_skipped??"—",(s.stale_skipped||0)>0?"warn":"")}
@@ -735,31 +1265,14 @@ function renderHome(){
         ${kvRow("Quarantine",s.quarantine_count??"—",(s.quarantine_count||0)>0?"warn":"")}
         ${kvRow("Insufficient history",qb.INSUFFICIENT_HISTORY??"—")}
       </div>`)}
-      ${scanIntegrityCard(s.scan_integrity)}
-      ${card("Candidate summary",`<div class="kv">
-        ${kvRow("Total candidates",`<span class="big">${rows.length}</span>`)}
-        ${kvRow("High priority",nHP,nHP>0?"ok":"")}
-        ${kvRow("Reset / reclaim",nRR)}
-        ${kvRow("Extended / crowded",nEXT,nEXT>0?"warn":"")}
-        ${kvRow("Young / quarantine",nYQ,nYQ>0?"warn":"")}
-      </div>`)}
       ${journalAuditCard(s.journal_audit)}
     </div>
-    ${highConvictionSection(s.high_conviction)}
-    ${emergingOutlierSection(s.emerging_outlier)}
-    <h2 class="pg" style="margin-top:14px">Research Programs — Tactical / Swing / Long-Term</h2>
-    <div class="page-note">All candidates are research-only and program evidence remains unvalidated unless stated otherwise.</div>
-    ${((s.latest_research_scan||{}).integrity_warnings||[])
-      .map(w=>`<div class="note" style="color:var(--amber);margin:0 0 8px">⚠ ${esc(w)}</div>`).join("")
-      ||((s.latest_research_scan||{}).scan_stale?`<div class="note" style="color:var(--amber);margin:0 0 8px">⚠ scan stale (${(s.latest_research_scan||{}).scan_age_hours}h old) — rerun research-scanner</div>`:"")}
-    <div class="cards">
-      ${researchProgramsSection(s.research_programs, s.latest_research_scan)}
-    </div>
-    ${card(`Warnings — last nightly run <span class="bdg ${(s.warnings||[]).length?"a":"n"}">${(s.warnings||[]).length}</span>`,
-      `<div class="warnlist">
+    <details class="prog-det" style="margin-bottom:14px"><summary>Warnings — last nightly run (${(s.warnings||[]).length})</summary>
+      <div class="warnlist" style="margin-top:6px">
       ${(s.warnings||[]).map(w=>`<div><span class="wi">⚠</span>${esc(w)}</div>`).join("")||'<div style="color:var(--dim)">none</div>'}
-    </div>`)}
-    <div class="cards" style="margin-top:14px">
+      </div>
+    </details>
+    <div class="cards" style="margin-top:8px">
       ${actionCard("Scanner Leaderboard","Full candidate heatmap table","board")}
       ${actionCard("High Priority Review","Candidates flagged for manual review","hp")}
       ${actionCard("Universe Health","Freshness + skip counters","universe")}
@@ -772,6 +1285,15 @@ function renderHome(){
     c.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}};
   });
   wireProgramControls();
+  wireDecisionControls();
+}
+
+function wireDecisionControls(){
+  // presentation-only view state for the decision-support sections
+  document.querySelectorAll(".hc-cap").forEach(b=>b.onclick=()=>{HCVIEW.cap=Number(b.dataset.cap);renderHome();});
+  document.querySelectorAll(".eo-tier").forEach(b=>b.onclick=()=>{EOVIEW.tier=b.dataset.tier;renderHome();});
+  document.querySelectorAll(".ext-all").forEach(b=>b.onclick=()=>{EXTVIEW.cap=EXTVIEW.cap>=99999?5:99999;renderHome();});
+  document.querySelectorAll(".psum .lnk").forEach(l=>l.onclick=()=>openPage("board"));
 }
 
 /* ── leaderboard ── */
@@ -809,7 +1331,9 @@ function rowsFiltered(rows){
 function renderBoard(){
   const b=BOARD||{rows:[]};
   if(b.fallback==="MISSING_ARTIFACT"){
-    $("#workspace").innerHTML=`<div class="banner">Scanner artifact missing — run the nightly research cycle to populate this board. (MISSING_ARTIFACT)</div>`;
+    $("#workspace").innerHTML=pageHeader(navLabel(activePage),"")
+      +stateBanner("missing","Scanner artifact missing — run the nightly research cycle to populate this board.")
+      +emptyState("No scanner board yet","The nightly research cycle has not produced a candidate table. Run ./scripts/run_research_cycle.sh nightly.");
     return;
   }
   let rows=rowsFiltered(b.rows.slice());
@@ -855,8 +1379,16 @@ function renderBoard(){
       <span style="color:var(--dim);font-size:10px">curated research queue — the full candidate table lives in Scanner Leaderboard</span>
     </div>`;
   }
+  const subt={board:"Full candidate table — signal strength, not validated alpha",
+    alpha:"Curated research queue — a subset of the full leaderboard",
+    hp:"Candidates flagged for manual analyst review",
+    extended:"Strong profiles currently extended — wait for reset",
+    young:"Recently listed names with limited history"}[activePage]||"";
+  const disclaimer=activePage==="board"
+    ?`<div class="disclaimer">Scanner score reflects signal strength, not validated alpha or business quality. A score of 100 is not High Conviction — see the Command Center for qualified research.</div>`:"";
   $("#workspace").innerHTML=`
-    <h2 class="pg">${esc(navLabel(activePage))}</h2>
+    ${pageHeader(navLabel(activePage),subt,{generated_at:b.generated_at})}
+    ${disclaimer}
     ${strip}
     <div id="board-toolbar">
       <input id="filter" placeholder="filter ticker / sector / label" value="${esc(filterText)}">
@@ -879,14 +1411,18 @@ function renderBoard(){
 function renderMot(){
   const s=STATUS||{};
   $("#workspace").innerHTML=`
-    <h2 class="pg">Moment of Truth</h2>
-    <div class="banner">Operating verdict: ${esc(s.operating_verdict||"?")} · tracker verdict: ${esc(s.tracker_verdict||"?")} · Phase 4B: ${esc((s.phase_4b||{}).status||"?")}</div>
+    ${pageHeader("Moment of Truth","Executive evidence verdict — what the matured forward record currently supports")}
+    ${card("Current verdict",`<div class="kv">
+      ${kvRow("Operating verdict",badge(s.operating_verdict))}
+      ${kvRow("Tracker verdict",badge(s.tracker_verdict))}
+      ${kvRow("Phase 4B",badge((s.phase_4b||{}).status))}
+    </div><div class="note">${esc((s.phase_4b||{}).reason||"")}</div>`,"accent")}
     <div class="cards">
-      ${card("Evidence",`<div class="kv">
+      ${card("Evidence supporting the verdict",`<div class="kv">
         ${kvRow("Matured 5d",s.matured_5d??"—")}
         ${kvRow("Matured 10d",s.matured_10d??"—")}
         ${kvRow("Total tracked",s.total_tracked??"—")}
-        ${kvRow("Benchmarks",esc(s.benchmark_readiness||"?"))}
+        ${kvRow("Benchmarks",badge(s.benchmark_readiness))}
       </div>`)}
       ${card("Context",`<div style="font-size:11px;color:var(--dim)">
         The matured cohort predates the 2026-07-02 price-cache repair — treat pre-fix
@@ -895,9 +1431,11 @@ function renderMot(){
     </div>`;
 }
 function renderUniverse(){
-  const s=STATUS||{};
+  const s=STATUS||{}, si=s.scan_integrity||{};
   $("#workspace").innerHTML=`
-    <h2 class="pg">Universe Health</h2>
+    ${pageHeader("Universe Health","Discovery-universe coverage, freshness, and exclusions",{integrity:si.readiness})}
+    ${si.readiness?stateBanner(si.readiness==="BLOCKED"?"blocked":si.readiness==="DEGRADED"?"stale":"empty",
+      `Scan integrity ${cap1(si.readiness)}${si.same_session_coverage_pct!=null?" · "+si.same_session_coverage_pct+"% same-session coverage":""}`):""}
     <div class="cards">
       ${card("Freshness",`<div class="kv">
         ${kvRow("Scanner board",s.data_freshness??"?",s.data_freshness==="FRESH"?"ok":"warn")}
@@ -1006,7 +1544,7 @@ function renderJournal(){
     if(f.q){const q=f.q.toLowerCase();
       entries=entries.filter(e=>(e.title||"").toLowerCase().includes(q)||(e.note||"").toLowerCase().includes(q));}
     $("#workspace").innerHTML=`
-      <h2 class="pg">Research Journal</h2>
+      ${pageHeader("Research Journal","Manual analyst notes — append-only; never a signal")}
       <div class="cards" style="grid-template-columns:1fr">
         ${card("Journal",`<div class="kv">
           ${kvRow("Purpose","Manual research notes only")}
@@ -1058,7 +1596,7 @@ function renderJournal(){
           journalPrefill=null; renderJournal();
         }).catch(()=>{$("#j-msg").textContent="request failed";});
     };
-  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Research Journal</h2><div class="banner">unavailable</div>`;});
+  }).catch(()=>{$("#workspace").innerHTML=pageHeader("Research Journal","Manual analyst notes — append-only; never a signal")+stateBanner("error","Request failed — the journal could not be loaded.");});
 }
 
 /* ── Phase 5: Fundamental Lens (descriptive overlay, never a signal) ── */
@@ -1121,21 +1659,22 @@ function renderFundamentals(){
   const rows=((BOARD||{}).rows||[]).slice(0,30);
   const picks=rows.map(r=>`<span class="tag" style="cursor:pointer" data-t="${r.ticker}">${r.ticker}</span>`).join(" ");
   $("#workspace").innerHTML=`
-    <h2 class="pg">Fundamental Lens</h2>
+    ${pageHeader("Fundamental Overlay","Descriptive quality/growth/valuation from cached statements — not a signal")}
+    <div class="disclaimer">Generic FCF / net-debt / gross-margin logic does not fit every sector (banks, insurers, REITs, biotech, resource companies). Read those factors as Not Applicable, not weakness.</div>
     <div id="board-toolbar">
       <input id="fl-ticker" placeholder="ticker (e.g. SDGR)" value="${esc(fundamentalsTicker)}" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font:inherit;width:130px">
       <button id="fl-go" style="background:var(--panel2);border:1px solid var(--border);color:var(--accent);border-radius:4px;cursor:pointer;padding:4px 10px;font:inherit">view</button>
       <span class="key">descriptive overlay from cached quarterly statements — not a signal</span>
     </div>
     <div style="margin-bottom:10px;line-height:2">${picks}</div>
-    <div id="fl-out">${fundamentalsTicker?"":'<div class="stub"><h2>Pick a candidate</h2><p>Enter a ticker or click one from the current board.</p></div>'}</div>`;
+    <div id="fl-out">${fundamentalsTicker?"":emptyState("Pick a candidate","Enter a ticker or click one from the current board to view its fundamental overlay.")}</div>`;
   const load=t=>{
     fundamentalsTicker=t.toUpperCase();
-    $("#fl-out").innerHTML=`<div style="color:var(--dim)">loading…</div>`;
+    $("#fl-out").innerHTML=stateBanner("loading","Loading cached statements…");
     fetch(`api/fundamentals/${encodeURIComponent(fundamentalsTicker)}`).then(r=>r.json()).then(f=>{
-      if(f.fallback){$("#fl-out").innerHTML=`<div class="banner">${esc(f.fallback)} — no cached statements for ${esc(f.ticker)}.</div>`;return;}
+      if(f.fallback){$("#fl-out").innerHTML=stateBanner("missing",`${f.fallback} — no cached statements for ${esc(f.ticker)}.`);return;}
       $("#fl-out").innerHTML=`<h2 class="pg" style="margin-top:4px">${esc(f.ticker)}</h2>`+fundamentalsCards(f);
-    }).catch(()=>{$("#fl-out").innerHTML=`<div class="banner">unavailable</div>`;});
+    }).catch(()=>{$("#fl-out").innerHTML=stateBanner("error","Request failed — the overlay could not be loaded.");});
   };
   $("#fl-go").onclick=()=>{const v=$("#fl-ticker").value.trim();if(v)load(v);};
   $("#fl-ticker").onkeydown=e=>{if(e.key==="Enter"){const v=$("#fl-ticker").value.trim();if(v)load(v);}};
@@ -1145,9 +1684,11 @@ function renderFundamentals(){
 
 /* ── Phase 4: Data Quality dashboard ── */
 function renderDataQuality(){
-  $("#workspace").innerHTML=`<h2 class="pg">Data Quality</h2><div style="color:var(--dim)">loading…</div>`;
+  $("#workspace").innerHTML=pageHeader("Data Quality","Artifact freshness, source quality, coverage, and quarantine")+stateBanner("loading","Loading data-quality artifacts…");
   fetch("api/data-quality").then(r=>r.json()).then(d=>{
-    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Data Quality</h2><div class="banner">${esc(d.fallback)} — no data-quality artifacts available.</div>`;return;}
+    if(d.fallback){$("#workspace").innerHTML=pageHeader("Data Quality","Artifact freshness, source quality, coverage, and quarantine")
+      +stateBanner("missing",`${d.fallback} — no data-quality artifacts available.`)
+      +emptyState("No data-quality artifacts","Run the nightly research cycle to populate freshness and coverage counters.");return;}
     const pr=d.price_refresh||{}, g=d.scanner_guards||{}, uc=d.universe_coverage||{};
     const cc=uc.confidence_counts||{}, bm=d.benchmark_coverage||{}, qb=d.quarantine_breakdown||{};
     const refreshOk=(pr.refresh_failed===0||pr.refresh_failed===null||pr.refresh_failed===undefined);
@@ -1158,8 +1699,8 @@ function renderDataQuality(){
       <td style="color:var(--dim)">${esc(fmtET(s.generated_at))}</td></tr>`).join("");
     const fails=(pr.failed||[]).map(f=>`<div><span class="wi">⚠</span>${esc(f.ticker)} — ${esc(f.reason||"?")}</div>`).join("");
     $("#workspace").innerHTML=`
-      <h2 class="pg">Data Quality</h2>
-      <div class="banner">This page exists because stale prices silently contaminated the scanner from 2026-06-12 to 2026-07-02. Watch the refresh + guard counters — if they stop moving, the pipeline is rotting again.</div>
+      ${pageHeader("Data Quality","Artifact freshness, source quality, coverage, and quarantine",{generated_at:d.generated_at})}
+      <div class="disclaimer">This page exists because stale prices silently contaminated the scanner from 2026-06-12 to 2026-07-02. Watch the refresh + guard counters — if they stop moving, the pipeline is rotting again.</div>
       <div class="cards">
         ${card("Universe price refresh (provider)",`<div class="kv">
           ${kvRow("Status",badge(pr.generated_at?(refreshOk?"PASS":"FAIL"):"MISSING"))}
@@ -1206,7 +1747,7 @@ function renderDataQuality(){
         `<div class="warnlist">
           ${(d.warnings||[]).map(w=>`<div><span class="wi">⚠</span>${esc(w)}</div>`).join("")||'<div style="color:var(--dim)">none</div>'}
         </div><div class="note">${esc(d.warning_trend_note||"")}</div>`)}`;
-  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Data Quality</h2><div class="banner">unavailable</div>`;});
+  }).catch(()=>{$("#workspace").innerHTML=pageHeader("Data Quality","")+stateBanner("error","Request failed — data-quality artifacts could not be loaded.");});
 }
 
 /* ── Phase 3: Forward Evidence (cohort analytics) ── */
@@ -1235,7 +1776,7 @@ function cohortTable(title,rows,opts={}){
       <td>${heat(r.mean_vs_qqq_10d??r.avg_ret_vs_qqq)}</td>
       <td>${heat(r.mean_vs_sector_10d??r.avg_ret_vs_sector)}</td>
       <td>${badge(r.sample_status)}</td>
-      ${isTracker?`<td>${badge(r.verdict)}</td>`:""}
+      ${isTracker?`<td><span title="${esc(r.verdict||"")}">${termLabel(r.verdict)}</span></td>`:""}
     </tr>`;
   }).join("");
   return card(title,`<table>${head}${body}</table>`);
@@ -1256,20 +1797,33 @@ function cohortBars(title,rows,field){
   return card(title,`<svg width="${Wb}" height="${h}" viewBox="0 0 ${Wb} ${h}">${g}</svg>`);
 }
 function renderForward(){
-  $("#workspace").innerHTML=`<h2 class="pg">Forward Evidence</h2><div style="color:var(--dim)">loading…</div>`;
+  $("#workspace").innerHTML=pageHeader("Forward Evidence","Cohort forward returns and program verdicts")+stateBanner("loading","Loading forward-tracker cohorts…");
   fetch("api/forward-cohorts").then(r=>r.json()).then(d=>{
-    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Forward Evidence</h2><div class="banner">${esc(d.fallback)} — forward tracker artifacts unavailable.</div>`;return;}
+    if(d.fallback){$("#workspace").innerHTML=pageHeader("Forward Evidence","Cohort forward returns and program verdicts")
+      +stateBanner("missing",`${d.fallback} — forward-tracker artifacts unavailable.`)
+      +emptyState("No forward evidence yet","The forward tracker has not produced cohort analytics. Run the nightly research cycle.");return;}
     const era=(d.by_era||[]).map(r=>({...r,cohort:r.cohort==="post_fix"?`post-fix (≥ ${d.price_fix_boundary})`:`pre-fix (< ${d.price_fix_boundary})`}));
+    // Open vs Matured tracking-instance counts (from the forward-resolution
+    // backend log, via /api/status.research_confidence — same canonical data)
+    const ft=((STATUS||{}).research_confidence||{}).forward_tracking||{};
+    const omStrip=(ft.total_open!=null||ft.total_matured!=null)?`<div class="om-strip">
+      <span class="om-pill matured"><b>${ft.total_matured??"—"}</b>Matured</span>
+      <span class="om-pill open"><b>${ft.total_open??"—"}</b>Open</span>
+      <span class="om-pill"><b>${ft.forecast_matured??"—"}</b>Forecast matured · <b>${ft.forecast_open??"—"}</b>open</span>
+      <span class="om-pill"><b>${ft.lens_matured??"—"}</b>Lens matured · <b>${ft.lens_open??"—"}</b>open</span>
+      ${ft.next_maturity_due?`<span class="om-pill">Next maturity <b style="font-size:11px">${esc(ft.next_maturity_due)}</b></span>`:""}
+    </div>`:"";
     $("#workspace").innerHTML=`
-      <h2 class="pg">Forward Evidence — cohort analytics</h2>
-      <div class="banner">Tracker verdicts are shown unmodified. Computed cohorts carry stats + maturity only — no verdicts. Do not pool pre-fix and post-fix eras.</div>
+      ${pageHeader("Forward Evidence","Cohort forward returns and program verdicts",{generated_at:d.generated_at})}
+      ${omStrip}
+      <div class="disclaimer">Tracker verdicts are shown unmodified. Computed cohorts carry stats + maturity only — no verdicts. Do not pool pre-fix and post-fix eras.</div>
       ${cohortTable("By label — tracker-published verdicts",d.by_label,{tracker:true})}
       ${cohortBars("Mean 10d vs SPY by label (matured entries)",d.by_label,"avg_ret_vs_spy")}
       ${cohortTable(`Era split — price-cache fix boundary ${esc(d.price_fix_boundary)}`,era)}
       ${cohortTable("By scanner category (computed, descriptive only)",d.by_category)}
       ${cohortTable("By universe source (computed — joins CURRENT source map)",d.by_source)}
       <div class="note">${(d.caveats||[]).map(c=>`• ${esc(c)}`).join("<br>")}</div>`;
-  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Forward Evidence</h2><div class="banner">unavailable</div>`;});
+  }).catch(()=>{$("#workspace").innerHTML=pageHeader("Forward Evidence","")+stateBanner("error","Request failed — forward cohorts could not be loaded.");});
 }
 
 /* ── Phase 3: Sector Compass ── */
@@ -1291,9 +1845,11 @@ function sparkSvg(series){
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${zero}<path d="${d}" fill="none" stroke="${last>=0?"#22c55e":"#ef4444"}" stroke-width="1.2"/></svg>`;
 }
 function renderSectors(){
-  $("#workspace").innerHTML=`<h2 class="pg">Sector Compass</h2><div style="color:var(--dim)">loading…</div>`;
+  $("#workspace").innerHTML=pageHeader("Sector / Regime","Sector rotation — relative strength vs SPY, date-aligned")+stateBanner("loading","Loading sector series…");
   fetch("api/sectors").then(r=>r.json()).then(d=>{
-    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Sector Compass</h2><div class="banner">${esc(d.fallback)} — SPY price series unavailable.</div>`;return;}
+    if(d.fallback){$("#workspace").innerHTML=pageHeader("Sector / Regime","Sector rotation — relative strength vs SPY, date-aligned")
+      +stateBanner("missing",`${d.fallback} — SPY price series unavailable.`)
+      +emptyState("No sector data","The SPY reference series is unavailable; sector RS cannot be computed.");return;}
     const rows=(d.sectors||[]).slice().sort((a,b)=>((b.rs_20d_vs_spy??-1e9)-(a.rs_20d_vs_spy??-1e9)));
     const body=rows.map(s=>`<tr>
       <td class="tick">${esc(s.etf)}</td><td class="co">${esc(s.name)||"—"}</td>
@@ -1301,7 +1857,7 @@ function renderSectors(){
       <td>${s.fallback?badge(s.fallback):sparkSvg(s.spark_rs_vs_spy)}</td>
       <td style="color:var(--dim)">${esc(s.last_date)||"—"}</td></tr>`).join("");
     $("#workspace").innerHTML=`
-      <h2 class="pg">Sector Compass — RS vs SPY (date-aligned)</h2>
+      ${pageHeader("Sector / Regime","Sector rotation — relative strength vs SPY, date-aligned",{generated_at:d.generated_at})}
       <div class="hrow" style="display:flex;gap:6px;margin-bottom:8px">
         <span class="chip">LEADERS: <b>${(d.leaders||[]).join(" ")||"—"}</b></span>
         <span class="chip">LAGGARDS: <b>${(d.laggards||[]).join(" ")||"—"}</b></span>
@@ -1309,14 +1865,16 @@ function renderSectors(){
       ${card("Sector ETFs ranked by 20d RS vs SPY",`<table>
         <tr><th>ETF</th><th>Sector</th><th>RS 20d</th><th>RS 63d</th><th>RS trend (64 bars)</th><th>Last bar</th></tr>${body}</table>`)}
       <div class="note">Cumulative relative return vs SPY over the lookback, aligned by date; gaps are never interpolated. Rotation context only — not a signal.</div>`;
-  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Sector Compass</h2><div class="banner">unavailable</div>`;});
+  }).catch(()=>{$("#workspace").innerHTML=pageHeader("Sector / Regime","")+stateBanner("error","Request failed — sector series could not be loaded.");});
 }
 
 /* ── Phase 3: Social Arb ── */
 function renderSocial(){
-  $("#workspace").innerHTML=`<h2 class="pg">Social Arb</h2><div style="color:var(--dim)">loading…</div>`;
+  $("#workspace").innerHTML=pageHeader("Social Attention","Attention signals — never framed as alpha; confirmation required")+stateBanner("loading","Loading social attention cohorts…");
   fetch("api/social").then(r=>r.json()).then(d=>{
-    if(d.fallback){$("#workspace").innerHTML=`<h2 class="pg">Social Arb</h2><div class="banner">${esc(d.fallback)} — social attention artifacts unavailable.</div>`;return;}
+    if(d.fallback){$("#workspace").innerHTML=pageHeader("Social Attention","Attention signals — never framed as alpha; confirmation required")
+      +stateBanner("missing",`${d.fallback} — social attention artifacts unavailable.`)
+      +emptyState("No social attention data","No social-attention artifacts have been produced yet.");return;}
     const cohorts=Object.entries(d.by_cohort||{});
     const cohortRows=cohorts.map(([k,v])=>{
       const o=v||{};
@@ -1334,7 +1892,8 @@ function renderSocial(){
     const fmtAge=h=>h==null?"—":(h<48?`${Math.round(h)}h`:`${Math.round(h/24)}d`);
     const ageCls=h=>h!=null&&h>30?"warn":"";
     $("#workspace").innerHTML=`
-      <h2 class="pg">Social Arb — attention cohorts</h2>
+      ${pageHeader("Social Attention","Attention signals — never framed as alpha; confirmation required")}
+      <div class="disclaimer">Social interest is not alpha. Cross-check against price, volume, and fundamentals before acting.</div>
       <div class="hrow" style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
         <span class="chip">VALIDATOR VERDICT: ${badge(d.verdict)}</span>
         ${chip("VALIDATOR AGE",fmtAge(d.validator_age_hours),ageCls(d.validator_age_hours))}
@@ -1351,7 +1910,7 @@ function renderSocial(){
           <tr><th>Ticker</th><th>Score</th><th>Label</th></tr>${lane}</table>`
           :`<div style="color:var(--dim);font-size:11px">no live social candidates</div>`)}
       </div>`;
-  }).catch(()=>{$("#workspace").innerHTML=`<h2 class="pg">Social Arb</h2><div class="banner">unavailable</div>`;});
+  }).catch(()=>{$("#workspace").innerHTML=pageHeader("Social Attention","")+stateBanner("error","Request failed — social cohorts could not be loaded.");});
 }
 
 /* ── drawer (research profile) ── */

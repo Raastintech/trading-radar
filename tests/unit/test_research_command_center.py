@@ -442,9 +442,11 @@ def test_app_shell_structure():
 def test_global_header_has_mode_and_phase4b():
     html = _INDEX_HTML.read_text(encoding="utf-8")
     assert "RESEARCH_ONLY" in html
-    assert "PHASE 4B" in html
+    assert "Phase 4B" in html          # now a status pill label
     # header renderer exists and is fed by /api/status
     assert "renderHeader" in html
+    # refactored into a diagnostic status-pill grid
+    assert "status-grid" in html and "statPill" in html
 
 
 def test_workspace_switches_on_nav():
@@ -458,11 +460,14 @@ def test_workspace_switches_on_nav():
 
 def test_home_has_summary_cards():
     html = _INDEX_HTML.read_text(encoding="utf-8")
+    # operational diagnostic cards moved to Level 4 (Scanner Internals)
     for card_title in ("Engine status", "Evidence readiness", "Data quality",
-                       "Candidate summary", "Warnings"):
+                       "Warnings", "Scanner Internals"):
         assert card_title in html, card_title
     # quick-action navigation cards
     assert "actionCard(" in html
+    # Level 1 executive summary is present
+    assert "executiveSummary" in html and "RESEARCH SUMMARY" in html
 
 
 def test_leaderboard_terminal_features():
@@ -496,8 +501,8 @@ def test_program_sections_use_compact_presentation():
     assert "full details" in html
     assert "Program details" in html
     assert "Data issues —" in html
-    # page-level note stated once (not per card)
-    assert ("All candidates are research-only and program evidence remains "
+    # page-level research-only disclosure stated once (not per card)
+    assert ("All candidates are research-only. Forward evidence is "
             "unvalidated") in html
     # filters re-render the page, never re-fetch/rewrite artifacts
     assert "wireProgramControls" in html
@@ -605,12 +610,14 @@ def test_phase_badges_muted():
 
 def test_header_two_row_grouping_keeps_safety_chips():
     html = _INDEX_HTML.read_text(encoding="utf-8")
-    # primary row keeps every safety-critical chip; data row is grouped
+    # primary row keeps every safety-critical metric as a status pill
     primary = html.split("const primary=[")[1].split("];")[0]
-    for label in ('"MODE"', '"NIGHTLY"', '"PHASE 4B"', "VERDICT",
-                  '"MATURED 5D"', '"MATURED 10D"', '"BENCHMARKS"'):
+    for label in ('"Mode"', '"Nightly"', '"Phase 4B"', '"Verdict"',
+                  '"Matured 5d"', '"Matured 10d"', '"Benchmarks"'):
         assert label in primary, label
-    assert '<span class="grp">Data:</span>' in html
+    # data row is grouped under a section label in the pill grid
+    assert 'class="grp-label">Data<' in html
+    assert "status-grid" in html
 
 
 def test_home_reason_renders_as_note_block():
@@ -782,8 +789,8 @@ def test_phase3_pages_render_in_ui():
                    "tracker-published verdicts",
                    "joins CURRENT source map"):
         assert marker in html, marker
-    # implemented pages no longer carry stub badges
-    assert '{id:"forward-evidence", label:"Forward Evidence", ini:"FE"}' in html
+    # implemented pages no longer carry stub badges (route still present)
+    assert '{id:"forward-evidence", label:"Forward Evidence", ini:"FE"' in html
 
 
 def test_phase3_endpoints_served(tmp_path):
@@ -940,8 +947,8 @@ def test_data_quality_page_in_ui():
                    "Sidecar health", "Benchmark coverage",
                    "stale prices silently contaminated the scanner"):
         assert marker in html, marker
-    # implemented page no longer carries the P4 stub badge
-    assert '{id:"data-quality",     label:"Data Quality",    ini:"DQ"}' in html
+    # implemented page no longer carries the P4 stub badge (route present)
+    assert '{id:"data-quality",     label:"Data Quality",    ini:"DQ"' in html
 
 
 def test_data_quality_never_writes(tmp_path):
@@ -1061,11 +1068,11 @@ def test_fundamentals_honest_unavailable_fields(tmp_path):
 def test_fundamentals_page_and_drawer_in_ui():
     html = _INDEX_HTML.read_text(encoding="utf-8")
     for marker in ("renderFundamentals", "api/fundamentals/",
-                   "Fundamental Lens", "loadDrawerFundamentals",
+                   "Fundamental Overlay", "loadDrawerFundamentals",
                    "descriptive overlay", "not a signal"):
         assert marker in html, marker
-    # implemented page no longer carries the P5 stub badge
-    assert '{id:"fundamental-lens", label:"Fundamental Lens", ini:"FL"}' in html
+    # implemented page no longer carries the P5 stub badge (route present)
+    assert '{id:"fundamental-lens", label:"Fundamental Overlay", ini:"FL"' in html
 
 
 def test_fundamentals_endpoint_served(tmp_path):
@@ -1302,7 +1309,7 @@ def test_journal_page_replaces_stub():
                    "Journal write mode is disabled",
                    "Add research note", "journalPrefill"):
         assert marker in html, marker
-    assert '{id:"research-journal", label:"Research Journal", ini:"RJ"}' in html
+    assert '{id:"research-journal", label:"Research Journal", ini:"RJ"' in html
     from dashboards.research_command_center.server import STUB_PAGES
     assert STUB_PAGES == {}
 

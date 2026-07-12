@@ -486,7 +486,7 @@ def _stress_tests(rows) -> Dict[str, Any]:
     def _n_signals(r):
         # approximate independent-signal count from the recorded signals
         sig = r["deterioration_signals"] or []
-        return len([s for s in sig if "no dead-horse" not in s
+        return len([s for s in sig if "no deterioration" not in s
                     and "unavailable" not in s])
 
     dh_bands = {}
@@ -581,7 +581,7 @@ def render_terminal(payload: Dict[str, Any]) -> str:
                  f"({sa['na_factor_counts']})")
     lines.append("\n  SHADOW STRESS (diagnostic only — V1 unchanged):")
     st = payload["shadow_stress_tests"]
-    lines.append(f"    dead-horse by signal count: "
+    lines.append(f"    business-deterioration by signal count: "
                  f"{st['dead_horse_signal_threshold']}")
     lines.append(f"    coverage-cap candidates: "
                  f"{st['coverage_cap_candidates_capped']}")

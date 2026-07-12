@@ -309,11 +309,13 @@ def test_llm_cannot_promote_rejected_name():
         "## 4b1. High-Conviction Alpha Shortlist\n"
         "  1. ZZZ [HIGH_CONVICTION] SWING score 88.0 (quality None, "
         "growth None, momentum 95.0, value VALUATION_UNAVAILABLE) — RS "
-        "| dead-horse HIGH\n"
+        "| Business Deterioration Risk: High\n"
         "## 5. Fundamental Overlay\n")
     flaws = build_high_conviction_flaws(bad_digest)
     assert any(f["area"] == "high_conviction_selection"
-               and "dead-horse" in f["issue"].lower() for f in flaws)
+               and "deterioration" in f["issue"].lower() for f in flaws)
+    # no user-facing 'dead-horse' wording survives in the flaw text
+    assert all("dead-horse" not in f["issue"].lower() for f in flaws)
     audit = audit_daily_digest(bad_digest, use_llm=False)
     assert audit["promote_to_signal"] is False
     assert any(f["area"] == "high_conviction_selection"

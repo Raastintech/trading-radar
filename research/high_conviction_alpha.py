@@ -545,7 +545,7 @@ def dead_horse_risk(item: Dict[str, Any], fund: Dict[str, Any]
         return "HIGH", signals
     if pts >= 2:
         return "MEDIUM", signals
-    return "LOW", signals or ["no dead-horse signals detected"]
+    return "LOW", signals or ["no deterioration signals detected"]
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -618,7 +618,7 @@ def hard_exclusions(item: Dict[str, Any], fund: Dict[str, Any],
     if gm is not None and gm < 0:
         out.append("negative gross margin")
     if dh_risk == "HIGH":
-        out.append("dead-horse risk HIGH")
+        out.append("business deterioration risk high")
     # structural collapse below MA200 with no validated recovery hypothesis
     dd12 = _num(item.get("dd_12m_pct"))
     if item.get("above_ma200") is False and dd12 is not None \
@@ -922,7 +922,7 @@ def render_terminal(payload: Dict[str, Any], verbose: bool = False) -> str:
             f"value={cs['value_score'] if cs['value_score'] is not None else s['valuation_status']}",
             f"     why={', '.join(s['why_selected']) or '—'}",
             f"     risk={', '.join(s['main_risks']) or '—'}",
-            f"     dead_horse={s['dead_horse_risk']}",
+            f"     deterioration={s['dead_horse_risk']}",
         ]
     ext = payload.get("quality_but_extended") or []
     if ext:

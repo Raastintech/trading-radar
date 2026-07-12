@@ -668,7 +668,8 @@ def _flaw(severity: str, area: str, issue: str, why: str,
 # High-Conviction Alpha Shortlist line, emitted by
 # journal_digest._section_high_conviction (stable machine format):
 #   "  1. NVO [HIGH_CONVICTION] SWING score 81.4 (quality 100.0, growth
-#    66.0, momentum 90.0, value 80.0) — ...why... | risk: ... | dead-horse LOW"
+#    66.0, momentum 90.0, value 80.0) — ...why... | risk: ... |
+#    Business Deterioration Risk: Low"
 _HC_LINE_RE = re.compile(
     r"^\s*\d+\.\s+([A-Z0-9.\-]+)\s+\[([A-Z_]+)\]\s+(\w+)\s+score\s+([\d.]+)\s+"
     r"\(quality\s+(\S+),\s+growth\s+(\S+),\s+momentum\s+(\S+),\s+value\s+(\S+)\)"
@@ -700,11 +701,12 @@ def extract_high_conviction_signals(digest_text: str) -> Dict[str, Any]:
 
         tail = m.group(9) or ""
         dh = None
-        dm = re.search(r"dead-horse\s+(\w+)", tail)
+        dm = re.search(r"[Bb]usiness [Dd]eterioration [Rr]isk:\s+(\w+)", tail)
         if dm:
             dh = dm.group(1).upper()
         risk_txt = ""
-        rm = re.search(r"\|\s*risk:\s*(.+?)(?:\s*\|\s*dead-horse|\s*$)", tail)
+        rm = re.search(r"\|\s*risk:\s*(.+?)"
+                       r"(?:\s*\|\s*[Bb]usiness [Dd]eterioration|\s*$)", tail)
         if rm:
             risk_txt = rm.group(1).lower()
         members.append({
@@ -772,13 +774,13 @@ def build_high_conviction_flaws(digest_text: str) -> List[Dict[str, str]]:
         if c["dead_horse"] and c["dead_horse"] not in ("LOW", None):
             flaws.append(_flaw(
                 "HIGH", "high_conviction_selection",
-                f"Shortlisted {tk} carries dead-horse risk "
+                f"Shortlisted {tk} carries business-deterioration risk "
                 f"{c['dead_horse']}.",
-                "A name with elevated dead-horse risk should not sit in the "
-                "high-conviction shortlist — price interest may be "
+                "A name with elevated business-deterioration risk should not "
+                "sit in the high-conviction shortlist — price interest may be "
                 "disconnected from deteriorating fundamentals.",
-                "Review the dead-horse gate; a HIGH name must be excluded and "
-                "a MEDIUM name demoted below high conviction."))
+                "Review the deterioration gate; a HIGH name must be excluded "
+                "and a MEDIUM name demoted below high conviction."))
         # missing quality / growth / value inputs → score built on partial
         # coverage (never impute; the audit surfaces the gap)
         missing = [n for n, v in (("quality", c["quality"]),
@@ -1413,7 +1415,7 @@ _SYSTEM_PROMPT = (
     "selections are consistent with their factors — whether weak "
     "fundamentals are overruled by momentum, whether valuation is ignored, "
     "whether extended names were promoted instead of routed to "
-    "'quality but extended', whether any high dead-horse-risk name entered, "
+    "'quality but extended', whether any high business-deterioration-risk name entered, "
     "and whether missing data distorted a score.  You MAY demote or flag a "
     "shortlisted name; you may NOT promote a rejected name or alter its "
     "deterministic score.\n"
