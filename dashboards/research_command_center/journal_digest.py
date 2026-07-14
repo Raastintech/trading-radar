@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -111,6 +111,8 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     high_conviction = _load_json(store.high_conviction_json)
     emerging_outlier = _load_json(store.emerging_outlier_json)
     filter_audit = _load_json(store.filter_audit_json)
+    options_coverage = _load_json(store.options_coverage_json)
+    recall_diagnostics = _load_json(store.scanner_recall_diagnostics_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -142,6 +144,8 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "high_conviction": high_conviction,
         "emerging_outlier": emerging_outlier,
         "filter_audit": filter_audit,
+        "options_coverage": options_coverage,
+        "recall_diagnostics": recall_diagnostics,
         "missing": missing,
     }
 
@@ -351,12 +355,39 @@ def _section_data_quality(inputs: Dict[str, Any],
                               for k, v in sorted(cause_counts.items()))
         lines.append(f"- Quarantine causes: {cause_str} — see "
                      "quarantine-cause report")
+    # Options overlay is a STRUCTURAL coverage gate (the snapshot-collector
+    # universe is capped by design as a provider-budget decision), never a
+    # candidate-level deficiency.  Stating it here as a first-class data-
+    # quality line keeps the state visible even when the warning list is
+    # full, and keeps the journal audit from re-flagging it as a defect.
+    lines.append(_options_overlay_line(inputs))
     warnings = (inputs["summary"] or {}).get("warnings") or []
     for w in (concerns + warnings)[:5]:
         lines.append(f"- Warning: {w}")
     if not concerns and not warnings:
         lines.append("- No major warnings.")
     return lines
+
+
+def _options_overlay_line(inputs: Dict[str, Any]) -> str:
+    """One-line options-overlay status for the data-quality section.
+    Display only — reads the options-coverage sidecar; missing sidecar is
+    reported honestly, never fabricated."""
+    oc = inputs.get("options_coverage")
+    if not oc or not oc.get("overlay_state"):
+        return ("- Options overlay: state unknown (options-coverage report "
+                "missing) — run ./scripts/run_research_cycle.sh nightly")
+    state = str(oc.get("overlay_state"))
+    cov = oc.get("coverage_pct")
+    covered = oc.get("covered")
+    total = oc.get("watchlist_total")
+    line = (f"- Options overlay: {state} — watchlist coverage "
+            f"{_fmt(cov, '%')} ({_fmt(covered)}/{_fmt(total)} names)")
+    if state != "ENABLED":
+        line += (" | structural gate: snapshot-collector universe is capped "
+                 "by design (provider-budget decision), NOT a candidate-"
+                 "level defect — see options-coverage report")
+    return line
 
 
 def _section_scanner(inputs: Dict[str, Any], top: List[str],
@@ -392,6 +423,20 @@ def _section_scanner(inputs: Dict[str, Any], top: List[str],
             reasons += 1
     if not reasons:
         lines.append("- Why-appeared detail unavailable (scanner artifact missing).")
+    # Deliverable declaration: the recall diagnostic the audit keeps asking
+    # for already runs — naming it (with its top over-blockers) here stops
+    # the journal audit from re-proposing the same build every night.
+    rd = inputs.get("recall_diagnostics")
+    if rd and rd.get("reject_counts_by_filter"):
+        top_filters = ", ".join(
+            f"{r.get('filter')} ({r.get('rejected_n')} rejected/"
+            f"{r.get('winners_missed')} winners missed)"
+            for r in rd["reject_counts_by_filter"][:3])
+        lines.append(
+            "- Recall diagnostics: see scanner-recall diagnostics report "
+            f"(as-of {rd.get('asof_date')}) — strict vs simple-RS vs loose "
+            f"cohorts tracked at 5d/10d/20d; top over-blocking filters: "
+            f"{top_filters}. Gates unchanged pending forward evidence.")
     return lines
 
 
@@ -453,7 +498,10 @@ def _alignment_label(leading: List[str], weak: List[str],
     return "unconfirmed — top-name sectors are neither leading nor weak"
 
 
-def _section_sector_regime(inputs: Dict[str, Any], top: List[str]) -> List[str]:
+def _alignment_for_top(inputs: Dict[str, Any],
+                       top: List[str]) -> Tuple[List[str], str]:
+    """Top-name sectors + honest alignment label — shared by the sector
+    section and the final finding so both always agree."""
     market = (inputs["summary"] or {}).get("market_context") or {}
     scanner = inputs["scanner"] or {}
     leading = market.get("leading_sectors") or []
@@ -465,7 +513,14 @@ def _section_sector_regime(inputs: Dict[str, Any], top: List[str]) -> List[str]:
         sector = str((by_ticker.get(t) or {}).get("sector") or "")
         if sector and sector not in top_sectors:
             top_sectors.append(sector)
-    aligned = _alignment_label(leading, weak, top_sectors)
+    return top_sectors, _alignment_label(leading, weak, top_sectors)
+
+
+def _section_sector_regime(inputs: Dict[str, Any], top: List[str]) -> List[str]:
+    market = (inputs["summary"] or {}).get("market_context") or {}
+    leading = market.get("leading_sectors") or []
+    weak = market.get("weak_sectors") or []
+    top_sectors, aligned = _alignment_for_top(inputs, top)
     lines = [
         "## 3. Sector / Regime",
         f"- Regime: {market.get('regime') or 'UNKNOWN'} "
@@ -478,6 +533,104 @@ def _section_sector_regime(inputs: Dict[str, Any], top: List[str]) -> List[str]:
     posture = market.get("research_posture")
     if posture:
         lines.append(f"- Posture: {posture}")
+    return lines
+
+
+# Horizons whose first matured episode the ETA readout projects.  20d is
+# the shortest still-unmatured horizon; 45d/60d are the swing horizons the
+# audit repeatedly flags as having zero episodes.
+_ETA_HORIZONS_TD = (20, 45, 60)
+# An entry is "approaching" a horizon when it matures within this many
+# further trading days.
+_ETA_APPROACHING_TD = 5
+
+
+def _add_trading_days(d: date, n: int) -> date:
+    """Approximate trading-day addition: weekdays only, no holiday
+    calendar — every ETA it produces is labelled as approximate."""
+    cur, added = d, 0
+    while added < n:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            added += 1
+    return cur
+
+
+def _trading_days_between(a: date, b: date) -> int:
+    """Approximate elapsed trading days (weekdays) in (a, b]."""
+    if b <= a:
+        return 0
+    days, cur = 0, a
+    while cur < b:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            days += 1
+    return days
+
+
+def _read_appearance_dates(path: Path) -> List[date]:
+    """appearance_date values from a history JSONL (read-only; missing or
+    malformed rows are skipped, never fabricated)."""
+    if not path.exists():
+        return []
+    out: List[date] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+            d = str(entry.get("appearance_date") or "")[:10]
+            out.append(datetime.strptime(d, "%Y-%m-%d").date())
+        except Exception:
+            continue
+    return out
+
+
+def _maturity_eta_lines(inputs: Dict[str, Any],
+                        today: Optional[date] = None) -> List[str]:
+    """Maturity-ETA readout: when the first 20d/45d/60d tracker episodes
+    and the first 10d shortlist episodes are expected to mature, plus how
+    many tracked entries are approaching each horizon.  Makes the
+    zero-episode state a dated expectation instead of an open question."""
+    store = inputs.get("store")
+    if store is None:
+        return []
+    today = today or datetime.now(timezone.utc).date()
+    lines: List[str] = []
+
+    appearances = _read_appearance_dates(store.history_jsonl)
+    if appearances:
+        earliest = min(appearances)
+        mbh = ((inputs["forward"] or {}).get("overall") or {}).get(
+            "matured_by_horizon") or {}
+        parts = []
+        for h in _ETA_HORIZONS_TD:
+            if (mbh.get(f"{h}d") or 0) > 0:
+                continue  # already maturing — no ETA needed
+            eta = _add_trading_days(earliest, h)
+            approaching = sum(
+                1 for a in appearances
+                if h - _ETA_APPROACHING_TD
+                <= _trading_days_between(a, today) < h)
+            eta_s = (f"≈{eta.isoformat()}" if eta > today
+                     else f"due (earliest cohort passed {h}td "
+                          f"{eta.isoformat()} — resolution pending)")
+            parts.append(f"{h}d {eta_s}"
+                         + (f" ({approaching} entries within "
+                            f"{_ETA_APPROACHING_TD}td)" if approaching else ""))
+        if parts:
+            lines.append("- Maturity ETA (first episode, weekday-approx): "
+                         + " | ".join(parts))
+
+    hc_dates = _read_appearance_dates(store.high_conviction_history_jsonl)
+    if hc_dates:
+        fv = _load_json(store.high_conviction_forward_json) or {}
+        eta10 = _add_trading_days(min(hc_dates), 10)
+        lines.append(
+            f"- Shortlist maturity ETA: first 10d episodes ≈{eta10.isoformat()} "
+            f"({fv.get('n_history_rows') or len(hc_dates)} episodes tracked "
+            "— verdict needs ≥10 matured)")
     return lines
 
 
@@ -520,6 +673,7 @@ def _section_forward(inputs: Dict[str, Any]) -> List[str]:
         f"({phase4b.get('reason') or 'n/a'})",
         f"- Post-fix evidence: {post_fix}",
     ]
+    lines += _maturity_eta_lines(inputs)
     return lines
 
 
@@ -941,9 +1095,30 @@ def _section_review_queue(inputs: Dict[str, Any], top: List[str],
     return lines
 
 
+def _final_structural_notes(inputs: Dict[str, Any], top: List[str]) -> str:
+    """Known structural context appended to the final finding: an overlay
+    that is off by design and a non-aligned sector read must be stated
+    explicitly instead of leaving the audit to infer them."""
+    notes: List[str] = []
+    oc = inputs.get("options_coverage") or {}
+    state = str(oc.get("overlay_state") or "")
+    if state and state != "ENABLED":
+        notes.append(
+            f"options overlay is {state} (structural coverage gate on the "
+            "capped snapshot-collector universe — corroborating options "
+            "evidence is absent for all candidates, not a candidate defect)")
+    _, aligned = _alignment_for_top(inputs, top)
+    head = aligned.split(" — ")[0]
+    if head not in ("aligned", "unknown"):
+        notes.append(f"top-name sector alignment reads {head}")
+    if not notes:
+        return ""
+    return "Known structural context: " + "; ".join(notes) + "."
+
+
 def _section_final_finding(inputs: Dict[str, Any], status: str,
-                           high: List[str],
-                           concerns: List[str]) -> List[str]:
+                           high: List[str], concerns: List[str],
+                           top: List[str]) -> List[str]:
     verdict = inputs["status"].get("tracker_verdict") or "UNKNOWN"
     phase4b = (inputs["status"].get("phase_4b") or {}).get("status")
     if status == "DATA_QUALITY_CONCERN":
@@ -963,7 +1138,11 @@ def _section_final_finding(inputs: Dict[str, Any], status: str,
     else:
         finding = ("Pipeline is healthy, forward evidence supports the current "
                    "research board, and no urgent issues surfaced today.")
-    return ["## 7. Final Finding", finding]
+    lines = ["## 7. Final Finding", finding]
+    structural = _final_structural_notes(inputs, top)
+    if structural:
+        lines.append(structural)
+    return lines
 
 
 def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
@@ -983,7 +1162,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_latest_scan_programs(inputs) + [""]
         + _section_fundamentals(inputs, top) + [""]
         + _section_review_queue(inputs, top, high, reset_reclaim) + [""]
-        + _section_final_finding(inputs, status, high, concerns) + [""]
+        + _section_final_finding(inputs, status, high, concerns, top) + [""]
         + [RESEARCH_ONLY_FOOTER]
     )
     return "\n".join(sections)

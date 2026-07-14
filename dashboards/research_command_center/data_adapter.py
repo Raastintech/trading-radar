@@ -128,6 +128,14 @@ class ArtifactStore:
         return self.research_dir / "high_conviction_forward_latest.json"
 
     @property
+    def high_conviction_history_jsonl(self) -> Path:
+        return self.root / "data" / "research" / "high_conviction_history.jsonl"
+
+    @property
+    def scanner_recall_diagnostics_json(self) -> Path:
+        return self.research_dir / "scanner_recall_diagnostics_latest.json"
+
+    @property
     def emerging_outlier_json(self) -> Path:
         return self.research_dir / "emerging_outlier_watch_latest.json"
 

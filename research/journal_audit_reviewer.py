@@ -218,6 +218,44 @@ def _float_or_none(raw: Any) -> Optional[float]:
 # ── digest signal extraction (deterministic, text-only) ──────────────────────
 
 
+# One-line contract shipped with every audit so a reader (human or LLM)
+# never mistakes an honest non-aligned label + flag=false for a bug.
+_ALIGNMENT_FLAG_SEMANTICS = (
+    "sector_alignment_questionable fires ONLY when the digest claims "
+    "'aligned' despite no leading sectors and weak-sector overlap (a "
+    "dishonest label). Honest labels — misaligned / mixed / "
+    "not_assessable / unconfirmed — describe the market tape and are "
+    "intentionally NOT flagged; they are not an inconsistency.")
+
+
+def reconcile_sector_alignment(alignment_label: Optional[str],
+                               leading_sectors: List[str],
+                               weak_overlap: List[str],
+                               sectors_line_present: bool,
+                               questionable: bool) -> Dict[str, Any]:
+    """Assert the alignment label and the questionable flag agree with the
+    flag's contract, so a drifted edit to either side surfaces as a logged
+    mismatch instead of a silent contradiction in the audit context."""
+    expected = bool(
+        sectors_line_present and not leading_sectors and weak_overlap
+        and (alignment_label or "aligned") == "aligned")
+    consistent = questionable == expected
+    if consistent:
+        note = (f"label '{alignment_label or 'absent'}' and "
+                f"questionable={questionable} agree with the flag contract")
+    else:
+        note = (f"label '{alignment_label or 'absent'}' with "
+                f"questionable={questionable} contradicts the flag contract "
+                f"(expected {expected}; leading={leading_sectors}, "
+                f"weak_overlap={weak_overlap})")
+    return {
+        "consistent": consistent,
+        "expected_questionable": expected,
+        "note": note,
+        "flag_semantics": _ALIGNMENT_FLAG_SEMANTICS,
+    }
+
+
 def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
     """Parse the digest note for the facts the hard rules key on.  Only ever
     reads the provided text — never touches artifacts or providers."""
@@ -350,6 +388,12 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
     sector_alignment_questionable = bool(
         sectors_line_present and not leading_sectors and weak_overlap
         and (alignment_label or "aligned") == "aligned")
+    sector_alignment_reconciliation = reconcile_sector_alignment(
+        alignment_label, leading_sectors, weak_overlap,
+        sectors_line_present, sector_alignment_questionable)
+    if not sector_alignment_reconciliation["consistent"]:
+        print("WARNING: sector-alignment reconciliation mismatch: "
+              f"{sector_alignment_reconciliation['note']}", file=sys.stderr)
 
     return {
         "empty": len(text.strip()) < 40,
@@ -407,6 +451,7 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         "sector_alignment_label": alignment_label,
         "weak_sector_overlap": weak_overlap,
         "sector_alignment_questionable": sector_alignment_questionable,
+        "sector_alignment_reconciliation": sector_alignment_reconciliation,
         "digest_programs": programs,
         # Deliverable declarations (Phase 5.1 queue-quieting): when the
         # digest textually states that a diagnostic already exists, the
@@ -415,6 +460,8 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         # the declaration disappears and the action re-fires.
         "options_coverage_report_referenced":
             "options-coverage report" in lower,
+        "recall_diagnostics_referenced":
+            "scanner-recall diagnostics report" in lower,
         "red_flags_line_present": "red flags in review order:" in lower,
         "quarantine_report_referenced":
             "see quarantine-cause report" in lower,
@@ -1037,7 +1084,10 @@ def build_next_system_actions(
     recall_low = (recall is not None
                   and recall < SCANNER_RECALL_FLOOR_PCT) \
         or "scanner_recall" in flaw_areas
-    if recall_low:
+    # Suppressed when the digest declares the recall-diagnostics report
+    # exists — the deliverable this action asks for is already built;
+    # low recall itself stays visible as a HIGH flaw.
+    if recall_low and not signals.get("recall_diagnostics_referenced"):
         baseline = signals.get("recall_baseline_pct")
         main_miss = signals.get("recall_main_miss")
         why_bits = []
@@ -1233,6 +1283,8 @@ def declared_covered_areas(signals: Dict[str, Any]) -> set:
     covered = set()
     if signals.get("options_coverage_report_referenced"):
         covered.add("options_overlay")
+    if signals.get("recall_diagnostics_referenced"):
+        covered.add("scanner_recall")
     if signals.get("red_flags_line_present"):
         covered.add("fundamental_overlay")
     if signals.get("quarantine_report_referenced") \
@@ -1587,6 +1639,10 @@ def _build_llm_context(signals: Dict[str, Any]) -> Dict[str, Any]:
             "alignment_label": signals.get("sector_alignment_label"),
             "sector_alignment_questionable":
                 signals.get("sector_alignment_questionable"),
+            # Reconciliation ships with the context so the LLM never
+            # reports an honest label + questionable=false as a bug.
+            "sector_alignment_reconciliation":
+                signals.get("sector_alignment_reconciliation"),
         },
     }
 

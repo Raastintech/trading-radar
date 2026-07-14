@@ -475,3 +475,167 @@ def test_review_queue_carries_red_flag_line(monkeypatch):
     # ticker list line stays clean (audit regex parses it unchanged)
     review_line = [l for l in lines if l.startswith("- Review first")][0]
     assert "(" not in review_line
+
+
+# ── options-overlay structural line + final-finding annotation ───────────────
+
+
+def _note(root: Path) -> str:
+    return build_digest_entry(ArtifactStore(root=root))["note"]
+
+
+def _write_options_coverage(root: Path, state: str) -> None:
+    _write(root / "cache" / "research" / "options_coverage_report_latest.json", {
+        "generated_at": _now_iso(),
+        "overlay_state": state,
+        "coverage_pct": 1.0 if state != "ENABLED" else 92.0,
+        "covered": 1 if state != "ENABLED" else 92,
+        "watchlist_total": 101,
+    })
+
+
+def test_options_overlay_disabled_is_first_class_structural_line(fixture_root):
+    _write_options_coverage(fixture_root, "DISABLED")
+    note = _note(fixture_root)
+    dq = note.split("## 2.")[0]
+    assert "- Options overlay: DISABLED" in dq
+    assert "structural gate" in dq
+    assert "NOT a candidate-level defect" in dq
+    final = note.split("## 7. Final Finding")[1]
+    assert "Known structural context" in final
+    assert "options overlay is DISABLED" in final
+
+
+def test_options_overlay_enabled_has_no_structural_clause(fixture_root):
+    _write_options_coverage(fixture_root, "ENABLED")
+    note = _note(fixture_root)
+    dq = note.split("## 2.")[0]
+    assert "- Options overlay: ENABLED" in dq
+    assert "structural gate" not in dq
+    final = note.split("## 7. Final Finding")[1]
+    assert "options overlay" not in final
+
+
+def test_options_overlay_missing_sidecar_reports_unknown(fixture_root):
+    note = _note(fixture_root)
+    assert "- Options overlay: state unknown" in note
+
+
+def test_final_finding_notes_non_aligned_sector_read(fixture_root):
+    # no leading sectors + weak overlap -> honest not_assessable label,
+    # which the final finding must restate as structural context
+    summary_path = (fixture_root / "cache" / "research"
+                    / "nightly_operator_summary_latest.json")
+    summary = json.loads(summary_path.read_text())
+    summary["market_context"]["leading_sectors"] = []
+    summary["market_context"]["weak_sectors"] = ["Technology"]
+    _write(summary_path, summary)
+    final = _note(fixture_root).split("## 7. Final Finding")[1]
+    assert "sector alignment reads not_assessable" in final
+
+
+def test_final_finding_aligned_read_adds_no_alignment_note(fixture_root):
+    # fixture default: leading=[Technology], top sectors include Technology
+    final = _note(fixture_root).split("## 7. Final Finding")[1]
+    assert "sector alignment reads" not in final
+
+
+# ── forward-evidence maturity ETA ────────────────────────────────────────────
+
+
+def test_trading_day_helpers():
+    from datetime import date
+    from dashboards.research_command_center.journal_digest import (
+        _add_trading_days, _trading_days_between)
+    # Mon 2026-07-06 + 5 td = Mon 2026-07-13 (skips the weekend)
+    assert _add_trading_days(date(2026, 7, 6), 5) == date(2026, 7, 13)
+    assert _trading_days_between(date(2026, 7, 6), date(2026, 7, 13)) == 5
+    assert _trading_days_between(date(2026, 7, 6), date(2026, 7, 6)) == 0
+
+
+def _write_history(root: Path, appearance: str, n: int = 3,
+                   fname: str = "research_watchlist_history.jsonl") -> None:
+    p = root / "data" / "research" / fname
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rows = [json.dumps({"ticker": f"H{i}", "appearance_date": appearance})
+            for i in range(n)]
+    p.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def test_maturity_eta_lines_project_unmatured_horizons(fixture_root):
+    from datetime import date, timedelta
+    recent = (date.today() - timedelta(days=10)).isoformat()
+    _write_history(fixture_root, recent)
+    note = _note(fixture_root)
+    fwd = note.split("## 4. Forward Evidence")[1].split("## 4b.")[0]
+    assert "Maturity ETA" in fwd
+    # all three unmatured horizons are projected with dates in the future
+    for h in ("20d", "45d", "60d"):
+        assert h in fwd.split("Maturity ETA")[1].splitlines()[0]
+
+
+def test_maturity_eta_skips_matured_horizons(fixture_root):
+    from datetime import date, timedelta
+    recent = (date.today() - timedelta(days=10)).isoformat()
+    _write_history(fixture_root, recent)
+    fwd_path = (fixture_root / "cache" / "research"
+                / "research_forward_latest.json")
+    fwd_obj = json.loads(fwd_path.read_text())
+    fwd_obj["overall"]["matured_by_horizon"] = {"20d": 7, "45d": 0, "60d": 0}
+    _write(fwd_path, fwd_obj)
+    note = _note(fixture_root)
+    eta_line = [ln for ln in note.splitlines() if "Maturity ETA" in ln][0]
+    assert "20d" not in eta_line
+    assert "45d" in eta_line and "60d" in eta_line
+
+
+def test_maturity_eta_marks_overdue_cohorts(fixture_root):
+    from datetime import date, timedelta
+    old = (date.today() - timedelta(days=60)).isoformat()
+    _write_history(fixture_root, old)
+    note = _note(fixture_root)
+    eta_line = [ln for ln in note.splitlines() if "Maturity ETA" in ln][0]
+    assert "resolution pending" in eta_line
+
+
+def test_shortlist_maturity_eta_line(fixture_root):
+    from datetime import date, timedelta
+    recent = (date.today() - timedelta(days=3)).isoformat()
+    _write_history(fixture_root, recent,
+                   fname="high_conviction_history.jsonl")
+    note = _note(fixture_root)
+    assert "Shortlist maturity ETA: first 10d episodes ≈" in note
+    assert "verdict needs ≥10 matured" in note
+
+
+def test_no_history_files_add_no_eta_lines(fixture_root):
+    note = _note(fixture_root)
+    assert "Maturity ETA" not in note
+    assert "Shortlist maturity ETA" not in note
+
+
+# ── scanner-recall diagnostics declaration ───────────────────────────────────
+
+
+def test_scanner_section_declares_recall_diagnostics(fixture_root):
+    _write(fixture_root / "cache" / "research"
+           / "scanner_recall_diagnostics_latest.json", {
+               "generated_at": _now_iso(),
+               "asof_date": "2026-06-04",
+               "reject_counts_by_filter": [
+                   {"filter": "no_atr_contraction", "rejected_n": 511,
+                    "winners_missed": 128},
+                   {"filter": "volume_insufficient", "rejected_n": 500,
+                    "winners_missed": 129},
+               ],
+           })
+    note = _note(fixture_root)
+    scanner = note.split("## 2.")[1].split("## 3.")[0]
+    assert "scanner-recall diagnostics report" in scanner
+    assert "no_atr_contraction (511 rejected/128 winners missed)" in scanner
+    assert "Gates unchanged pending forward evidence" in scanner
+
+
+def test_no_recall_sidecar_adds_no_declaration(fixture_root):
+    note = _note(fixture_root)
+    assert "scanner-recall diagnostics report" not in note

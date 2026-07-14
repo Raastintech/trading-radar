@@ -31,6 +31,15 @@ def test_young_listing_when_backfill_exhausted_source():
     assert "2027-02" in rec["clearance"]           # ~eta date
 
 
+def test_young_listing_when_backfiller_skips_exhausted_source():
+    """A later run where the backfiller itself skips the provider call
+    (skip_source_exhausted) is the same proof of exhaustion as a
+    zero-gain fetch — the ticker must not regress to BACKFILL_PENDING."""
+    rec = qcr.classify("BBB", 144, "2026-07-09",
+                       {"action": "skip_source_exhausted"}, today=TODAY)
+    assert rec["cause"] == "YOUNG_LISTING"
+
+
 def test_backfill_pending_when_no_attempt():
     rec = qcr.classify("CCC", 120, "2026-07-09", None, today=TODAY)
     assert rec["cause"] == "BACKFILL_PENDING"

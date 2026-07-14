@@ -989,3 +989,109 @@ def test_llm_cannot_reintroduce_suppressed_area(monkeypatch):
                                    + DECLARATIONS)
     assert "options_overlay" not in {
         a["area"] for a in audit["next_system_actions"]}
+
+
+# ── sector-alignment reconciliation (flag vs label contract) ─────────────────
+
+
+def test_reconciliation_honest_misaligned_label_is_consistent():
+    """An honest 'misaligned' label with questionable=False is the intended
+    behavior — the reconciliation must say so instead of leaving the LLM
+    to report a contradiction."""
+    sig = jar.extract_digest_signals(make_analyst_digest(
+        alignment="misaligned — top names sit in weak sectors: Technology"))
+    assert sig["sector_alignment_questionable"] is False
+    rec = sig["sector_alignment_reconciliation"]
+    assert rec["consistent"] is True
+    assert rec["expected_questionable"] is False
+    assert "misaligned" in rec["note"]
+    assert "intentionally NOT flagged" in rec["flag_semantics"]
+
+
+def test_reconciliation_dishonest_aligned_claim_is_flagged_consistent():
+    """The dishonest case still fires the flag, and the reconciliation
+    confirms flag and label agree with the contract."""
+    sig = jar.extract_digest_signals(make_analyst_digest(alignment="aligned"))
+    assert sig["sector_alignment_questionable"] is True
+    rec = sig["sector_alignment_reconciliation"]
+    assert rec["consistent"] is True
+    assert rec["expected_questionable"] is True
+
+
+def test_reconciliation_detects_contract_mismatch():
+    """A drifted edit that desyncs flag and label must be reported (and
+    logged) as inconsistent."""
+    rec = jar.reconcile_sector_alignment(
+        alignment_label="aligned",
+        leading_sectors=[],
+        weak_overlap=["XLK"],
+        sectors_line_present=True,
+        questionable=False)   # contract says this should be True
+    assert rec["consistent"] is False
+    assert rec["expected_questionable"] is True
+    assert "contradicts" in rec["note"]
+
+
+def test_llm_context_carries_alignment_reconciliation():
+    sig = jar.extract_digest_signals(make_analyst_digest(
+        alignment="misaligned — top names sit in weak sectors: Technology"))
+    ctx = jar._build_llm_context(sig)
+    rec = ctx["sector_regime"]["sector_alignment_reconciliation"]
+    assert rec["consistent"] is True
+    assert "flag_semantics" in rec
+
+
+# ── recall-diagnostics deliverable declaration (queue-quieting) ──────────────
+
+
+_RECALL_DECLARATION = (
+    "- Recall diagnostics: see scanner-recall diagnostics report "
+    "(as-of 2026-06-04) — strict vs simple-RS vs loose cohorts tracked "
+    "at 5d/10d/20d; top over-blocking filters: no_atr_contraction "
+    "(511 rejected/128 winners missed). Gates unchanged pending forward "
+    "evidence.")
+
+
+def test_recall_declaration_suppresses_p0_build_action():
+    digest = make_digest(
+        recall_line="- Warning: Scanner recall low at 0.0% — main miss: "
+                    "FILTER_TOO_STRICT (simple-RS baseline: 40.5%)\n"
+                    + _RECALL_DECLARATION)
+    audit = jar.audit_daily_digest(digest, use_llm=False)
+    assert not [a for a in audit["next_system_actions"]
+                if a["area"] == "scanner_recall"]
+    # low recall itself stays visible as a HIGH flaw
+    assert any(f["area"] == "scanner_recall" and f["severity"] == "HIGH"
+               for f in audit["flaws_detected"])
+
+
+def test_recall_declaration_blocks_llm_reintroduction(monkeypatch):
+    monkeypatch.setattr(jar, "_llm_audit", lambda text: {
+        "research_verdict": "RESEARCH_ONLY",
+        "alpha_discovery_quality": "MIXED",
+        "engine_health": "OPERATIONAL_WITH_BLOCKERS",
+        "promote_to_signal": False, "one_line_summary": "s",
+        "what_is_working": [], "flaws_detected": [],
+        "recommended_claude_code_tasks": [],
+        "next_system_actions": [
+            {"priority": "P0", "area": "scanner_recall",
+             "task": "build a recall diagnostic", "why": "w",
+             "success_metric": "m"}],
+        "audit_source": "llm", "model": "test",
+    })
+    digest = make_digest(
+        recall_line="- Warning: Scanner recall low at 0.0% — main miss: "
+                    "FILTER_TOO_STRICT (simple-RS baseline: 40.5%)\n"
+                    + _RECALL_DECLARATION)
+    audit = jar.audit_daily_digest(digest)
+    assert "scanner_recall" not in {
+        a["area"] for a in audit["next_system_actions"]}
+
+
+def test_missing_recall_declaration_keeps_p0_action():
+    digest = make_digest(
+        recall_line="- Warning: Scanner recall low at 0.0% — main miss: "
+                    "FILTER_TOO_STRICT (simple-RS baseline: 40.5%)")
+    audit = jar.audit_daily_digest(digest, use_llm=False)
+    assert [a for a in audit["next_system_actions"]
+            if a["area"] == "scanner_recall"]

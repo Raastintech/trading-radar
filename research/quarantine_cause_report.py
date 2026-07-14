@@ -84,9 +84,13 @@ def classify(ticker: str, bars: Optional[int], last_bar: Optional[str],
         rec["clearance"] = ("clears automatically on the next nightly "
                             "scanner re-evaluation")
         return rec
-    exhausted = bool(backfill
-                     and backfill.get("action") in ("backfilled",)
-                     and (backfill.get("after") or 0) <= (bars or 0))
+    # "backfilled" with no depth gain proves exhaustion; so does the
+    # backfiller's own "skip_source_exhausted" verdict (it remembers a
+    # prior exhaustive fetch and skips the provider call entirely).
+    exhausted = bool(backfill and (
+        backfill.get("action") == "skip_source_exhausted"
+        or (backfill.get("action") == "backfilled"
+            and (backfill.get("after") or 0) <= (bars or 0))))
     missing = BAR_FLOOR - bars
     eta = today_d + timedelta(days=round(missing * 7 / 5))
     if exhausted:
