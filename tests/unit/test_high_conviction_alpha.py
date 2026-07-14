@@ -412,3 +412,33 @@ def _write_fund_file(path, f):
                 for i in range(q)]
     path.write_text(json.dumps({"income": income, "balance": balance,
                                 "cashflow": cashflow}), encoding="utf-8")
+
+
+# ── ratio-sanity guard (display honesty; V1 scoring frozen) ─────────────────
+
+
+def test_om_above_revenue_is_flagged_not_praised():
+    """OM > 100% (non-operating gains booked in operating income) must
+    surface as a caveat, never as a 'strong operating margin' strength."""
+    pts, reasons, risks = hca.score_quality(_fund(operating_margin_pct=1445.0))
+    assert not any("strong operating margin" in r for r in reasons)
+    assert any("exceeds revenue" in r and "unreliable" in r for r in risks)
+    # V1 scoring frozen: same points as the strong-OM branch
+    ref_pts, _, _ = hca.score_quality(_fund(operating_margin_pct=45.0))
+    assert pts == ref_pts
+
+
+def test_gm_100_is_flagged_not_praised():
+    pts, reasons, risks = hca.score_quality(_fund(gross_margin_pct=100.0))
+    assert not any("healthy gross margin" in r for r in reasons)
+    assert any("no cost of revenue" in r for r in risks)
+    ref_pts, _, _ = hca.score_quality(_fund(gross_margin_pct=60.0))
+    assert pts == ref_pts
+
+
+def test_normal_margins_still_praised():
+    _, reasons, risks = hca.score_quality(_fund(operating_margin_pct=45.0,
+                                                gross_margin_pct=82.0))
+    assert any("strong operating margin 45%" in r for r in reasons)
+    assert any("healthy gross margin 82%" in r for r in reasons)
+    assert not risks

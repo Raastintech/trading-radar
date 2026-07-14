@@ -68,6 +68,10 @@ DETERIORATION_RISK_LABEL = "business_deterioration_risk"
 # Emergence-evidence thresholds (pre-registered for this lane's V1).
 STRONG_GROWTH_3Q_PCT = 20.0
 UNIT_ECONOMICS_GM_PCT = 50.0
+# ratio-sanity bounds (display honesty — dimensions still count; only the
+# wording changes so an artifact ratio is never presented as clean evidence)
+LUMPY_GROWTH_3Q_PCT = 300.0
+GM_SANITY_MAX_PCT = 99.5
 LONG_RUNWAY_QUARTERS = 6.0          # ~18 months of funded burn
 CONTROLLED_DILUTION_3Q_PCT = 5.0
 NEAR_BREAKEVEN_NET_MARGIN_PCT = -10.0
@@ -141,13 +145,25 @@ def emergence_evidence(item: Dict[str, Any], fund: Dict[str, Any]
     dil = _num(fund.get("dilution_3q_pct"))
 
     if g3 is not None and g3 >= STRONG_GROWTH_3Q_PCT:
-        _add("STRONG_REVENUE_GROWTH", f"revenue +{g3:.0f}% (3q basis)")
+        # Extreme growth off a small base is usually milestone /
+        # collaboration-payment lumpiness (biotech especially) — keep the
+        # dimension but say so instead of presenting it as run-rate growth.
+        lumpy = (" — may include one-off/milestone revenue"
+                 if g3 >= LUMPY_GROWTH_3Q_PCT else "")
+        _add("STRONG_REVENUE_GROWTH", f"revenue +{g3:.0f}% (3q basis){lumpy}")
     if gq is not None and g3 is not None:
         implied_q = (1.0 + g3 / 100.0) ** (1.0 / 3.0) - 1.0
         if gq / 100.0 > implied_q + 0.01:
             _add("REVENUE_ACCELERATION", "latest-quarter growth accelerating")
     if gm is not None and gm >= UNIT_ECONOMICS_GM_PCT:
-        _add("STRONG_UNIT_ECONOMICS", f"gross margin {gm:.0f}%")
+        # GM ≈ 100% means no cost-of-revenue line is reported — the ratio
+        # is uninformative, not evidence of unit economics.
+        if gm >= GM_SANITY_MAX_PCT:
+            _add("STRONG_UNIT_ECONOMICS",
+                 f"gross margin {gm:.0f}% (no cost of revenue reported — "
+                 "ratio uninformative)")
+        else:
+            _add("STRONG_UNIT_ECONOMICS", f"gross margin {gm:.0f}%")
     if nm is not None and NEAR_BREAKEVEN_NET_MARGIN_PCT <= nm < 0:
         _add("NEAR_BREAKEVEN_TRANSITION",
              f"net margin {nm:.0f}% (approaching profitability)")

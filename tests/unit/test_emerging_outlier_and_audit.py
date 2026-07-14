@@ -459,3 +459,27 @@ _EMERGING_FUND = {"ttm_net_income": -20.0, "ttm_fcf": -10.0,
                   "dilution_3q_pct": 2.0, "cash_and_st_investments": 400.0,
                   "quality_label": "UNPROFITABLE_FUNDED"}
 _EMERGING_ITEM = {"rs_63d_vs_spy": -5.0}
+
+
+# ── ratio-sanity wording (dimensions still count; wording is honest) ────────
+
+
+def test_extreme_growth_carries_lumpy_qualifier():
+    ev = eow.emergence_evidence(_item(), _fund(rev_growth_3q_pct=916.0))
+    d = [x for x in ev["dimensions"]
+         if x["dimension"] == "STRONG_REVENUE_GROWTH"][0]
+    assert "one-off/milestone" in d["detail"]
+
+
+def test_normal_growth_has_no_lumpy_qualifier():
+    ev = eow.emergence_evidence(_item(), _fund(rev_growth_3q_pct=28.0))
+    d = [x for x in ev["dimensions"]
+         if x["dimension"] == "STRONG_REVENUE_GROWTH"][0]
+    assert "one-off" not in d["detail"]
+
+
+def test_gm_100_unit_economics_marked_uninformative():
+    ev = eow.emergence_evidence(_item(), _fund(gross_margin_pct=99.8))
+    d = [x for x in ev["dimensions"]
+         if x["dimension"] == "STRONG_UNIT_ECONOMICS"][0]
+    assert "uninformative" in d["detail"]

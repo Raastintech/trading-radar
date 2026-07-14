@@ -135,6 +135,10 @@ EXTREME_DILUTION_3Q_PCT = 25.0      # hard-exclusion dilution over ~3 quarters
 HIGH_DILUTION_3Q_PCT = 12.0         # penalized dilution
 DEEP_DRAWDOWN_12M_PCT = -60.0       # structural-collapse candidate
 
+# ── ratio-sanity bounds (display honesty; see score_quality) ────────────────
+OM_SANITY_MAX_PCT = 100.0           # OM > revenue ⇒ non-operating gains
+GM_SANITY_MAX_PCT = 99.5            # GM ≈ 100% ⇒ no cost-of-revenue line
+
 VALUATION_UNAVAILABLE = "VALUATION_UNAVAILABLE"
 
 
@@ -199,8 +203,19 @@ def score_quality(fund: Dict[str, Any]) -> Tuple[Optional[float], List[str],
         else:
             pts -= 8
             risks.append("negative free cash flow")
+    # Ratio-sanity guard (display honesty): OM above 100% means operating
+    # income exceeds revenue (non-operating gains, e.g. asset/spectrum
+    # sales, booked in operating income); GM at ~100% means no cost of
+    # revenue is reported.  Neither ratio is evidence of business quality,
+    # so they surface as caveats, never as strengths.  V1 scoring is
+    # pre-registered and frozen — points are unchanged; scoring treatment
+    # of these artifacts is a V2 decision.
     if om is not None:
-        if om >= 20:
+        if om > OM_SANITY_MAX_PCT:
+            pts += 12  # V1-frozen weight
+            risks.append(f"operating margin {om:.0f}% exceeds revenue — "
+                         "ratio unreliable (non-operating gains)")
+        elif om >= 20:
             pts += 12
             reasons.append(f"strong operating margin {om:.0f}%")
         elif om >= 8:
@@ -210,7 +225,11 @@ def score_quality(fund: Dict[str, Any]) -> Tuple[Optional[float], List[str],
             pts -= 10
             risks.append(f"negative operating margin {om:.0f}%")
     if gm is not None:
-        if gm >= 40:
+        if gm >= GM_SANITY_MAX_PCT:
+            pts += 6  # V1-frozen weight
+            risks.append(f"gross margin {gm:.0f}% with no cost of revenue "
+                         "reported — ratio uninformative")
+        elif gm >= 40:
             pts += 6
             reasons.append(f"healthy gross margin {gm:.0f}%")
         elif gm < 0:

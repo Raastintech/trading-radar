@@ -125,6 +125,8 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 .om-pill.matured b{color:var(--research-emerald)} .om-pill.open b{color:var(--research-steel)}
 /* Executive Research Summary (Level 1) */
 .exec-summary{border:1px solid var(--border);border-left:3px solid var(--emerald);border-radius:8px;padding:12px 16px;margin-bottom:14px;background:var(--panel)}
+.exec-summary.deg{border-left-color:var(--amber)}
+.exec-summary.blk{border-left-color:var(--neg)}
 .exec-summary h2{margin:0 0 8px;font-size:13px;color:var(--text);letter-spacing:.5px}
 .exec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 18px;font-size:11.5px}
 .exec-grid .k{color:var(--dim)} .exec-grid .v{color:var(--text);font-weight:600}
@@ -406,10 +408,15 @@ const fmt=(v,d=2)=>(v===null||v===undefined||Number.isNaN(v))?"—":Number(v).to
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const navLabel=id=>(NAV.find(n=>n.id===id)||{}).label||id;
 /* Sidecar generated_at values are UTC ISO strings; operators think in ET
-   (research cycle runs on ET timers), so render wall-clock ET. */
+   (research cycle runs on ET timers), so render wall-clock ET.
+   Some producers write NAIVE timestamps (no Z / ±hh:mm) — JS parses those
+   as browser-local, which skewed the displayed time by the viewer's UTC
+   offset.  All producers write UTC, so force naive strings to UTC. */
 const fmtET=ts=>{
   if(!ts)return "—";
-  const d=new Date(ts);
+  let s=String(ts);
+  if(/T\d\d:\d\d/.test(s)&&!/(Z|[+-]\d\d:?\d\d)$/.test(s)) s+="Z";
+  const d=new Date(s);
   if(Number.isNaN(d.getTime()))return String(ts).slice(0,19);
   return d.toLocaleString("sv-SE",{timeZone:"America/New_York"})+" ET";
 };
@@ -811,7 +818,16 @@ const FWD_LABELS={NEED_MORE_DATA:"In Progress",
   INSUFFICIENT_MATURE_EVIDENCE:"Insufficient Evidence",
   PROMISING_BUT_UNPROVEN:"Promising, Unproven",VALIDATED_EDGE:"Validated Edge",
   NO_EVIDENCE_OF_EDGE:"No Evidence of Edge"};
-const fwdLabel=v=>FWD_LABELS[v]||(v?esc(v):"—");
+const fwdLabel=(v,fv)=>{
+  let lab=FWD_LABELS[v]||(v?esc(v):"—");
+  // "In Progress" alone understates a zero-matured state — append the
+  // matured/required counts when the sidecar's reason carries them.
+  if(v==="NEED_MORE_DATA"&&fv&&fv.verdict_reason){
+    const m=String(fv.verdict_reason).match(/(\d+)\s+matured.*?(?:need|≥)\s*≥?\s*(\d+)/);
+    if(m) lab+=` (${m[1]}/${m[2]} matured)`;
+  }
+  return lab;
+};
 /* business-deterioration display label + restrained badge */
 const DET_LABELS={LOW:"Low",MEDIUM:"Medium",HIGH:"High",UNKNOWN:"Unknown"};
 const detLabel=r=>DET_LABELS[String(r||"").toUpperCase()]||"Unknown";
@@ -922,7 +938,7 @@ function highConvictionSection(hc){
   return `<div class="hc-wrap">
     <div class="sec-head"><h2>HIGH-CONVICTION ALPHA</h2>
       <span class="meta">Quality + Growth + Value + Momentum</span></div>
-    <div class="hc-sub">${cts.qualified||0} qualified · Forward Validation: ${fwdLabel(fwd.verdict)}</div>
+    <div class="hc-sub">${cts.qualified||0} qualified · Forward Validation: ${fwdLabel(fwd.verdict,fwd)}</div>
     ${shortlist.length?hcControls():""}
     ${body}
     ${rejectedTray(hc.rejected||[])}
@@ -1015,7 +1031,7 @@ function emergingSection(eo){
   return `<div class="eo-wrap">
     <div class="sec-head"><h2>EMERGING OPPORTUNITIES</h2>
       <span class="meta">Higher-risk · pre-profit / turnaround · separate from High Conviction</span></div>
-    <div class="eo-sub">${label} · ${watch.length} total · Forward Validation: ${fwdLabel(fwd.verdict)} · research-only, not validated alpha</div>
+    <div class="eo-sub">${label} · ${watch.length} total · Forward Validation: ${fwdLabel(fwd.verdict,fwd)} · research-only, not validated alpha</div>
     <div class="sec-ctrls">${mk("top","Top 5")}${mk("secondary","Next 10")}${mk("all","View all "+watch.length)}</div>
     ${cards}
   </div>`;
@@ -1073,19 +1089,24 @@ function evidenceConfidencePanel(rc){
   const mot=rc.moment_of_truth||{}, ft=rc.forward_tracking||{}, pv=rc.program_verdicts||{};
   const cell=(k,v,sub)=>`<div class="evc-cell"><div class="k">${k}</div>
     <div class="v">${v||"—"}</div>${sub?`<div class="sub">${esc(sub)}</div>`:""}</div>`;
-  const motStale=(mot.freshness||{}).stale;
+  // The moment-of-truth is a dated restatement — always show its as-of
+  // date so its (older) counts are never read as current tracker state.
+  const motAt=(mot.freshness||{}).generated_at;
+  const resolverWarn=String(ft.resolver_status||"").toUpperCase()==="WARN";
+  const resSub="next "+esc(ft.next_maturity_due||"—")
+    +(resolverWarn?` · resolver WARN${ft.unresolved_missing_price!=null?" ("+ft.unresolved_missing_price+" missing prices)":""}`:"");
   return `<div class="evc-panel">
     <h3>Evidence &amp; Confidence</h3>
     <div class="evc-grid">
       ${cell("Research State",esc(rc.research_state),"Engine "+esc(rc.engine_state))}
-      ${cell("Moment of Truth",badge(mot.verdict)+staleTag(mot.freshness),motStale?"as of "+fmtET(mot.freshness.generated_at):"")}
+      ${cell("Moment of Truth",badge(mot.verdict)+staleTag(mot.freshness),motAt?"as of "+String(fmtET(motAt)).slice(0,10):"")}
       ${cell("Tactical",termLabel(pv.TACTICAL))}
       ${cell("Swing",termLabel(pv.SWING))}
       ${cell("Long-Term",termLabel(pv.LONG_TERM))}
-      ${cell("Forward Resolution",ft.resolution_coverage_pct!=null?ft.resolution_coverage_pct+"%":"—","next "+esc(ft.next_maturity_due||"—"))}
+      ${cell("Forward Resolution",(ft.resolution_coverage_pct!=null?ft.resolution_coverage_pct+"%":"—")+(resolverWarn?' <span class="bdg a">WARN</span>':""),resSub)}
       ${cell("Benchmarks",badge(rc.benchmark_readiness))}
     </div>
-    <div class="fit-line" style="margin-left:0">${esc(mot.reason||"")}</div>
+    <div class="fit-line" style="margin-left:0">${motAt?"["+esc(String(fmtET(motAt)).slice(0,10))+"] ":""}${esc(mot.reason||"")}</div>
   </div>`;
 }
 
@@ -1131,15 +1152,20 @@ function executiveSummary(s){
   });
   const warns=(s.warnings||[]).slice(0,2);
   const fwd=(hc.forward_validation||{}).verdict;
-  return `<div class="exec-summary">
+  // accent follows operational state: emerald only when nothing is degraded
+  const trust=String((s.system_trust||{}).overall||"").toUpperCase();
+  const readiness=String(si.readiness||"").toUpperCase();
+  const tone=(readiness==="BLOCKED"||trust==="BLOCKED")?"blk"
+    :(readiness==="DEGRADED"||trust==="DEGRADED")?"deg":"";
+  return `<div class="exec-summary ${tone}">
     <h2>TODAY’S RESEARCH SUMMARY</h2>
     <div class="exec-grid">
       <div><span class="k">Market regime</span> · <span class="v">${esc(s.market_regime||"—")}</span></div>
-      <div><span class="k">Scan integrity</span> · <span class="v">${esc(cap1(si.readiness))}${si.same_session_coverage_pct!=null?" — "+si.same_session_coverage_pct+"%":""}</span></div>
+      <div><span class="k">Scan integrity</span> · <span class="v">${esc(cap1(si.readiness))}</span>${si.same_session_coverage_pct!=null?` <span class="k">(${si.same_session_coverage_pct}% same-session)</span>`:""}</div>
       <div><span class="k">High Conviction</span> · <span class="v">${(hc.counts||{}).qualified||0}</span></div>
       <div><span class="k">Top Emerging</span> · <span class="v">${Math.min((eo.counts||{}).watch||0,5)}</span></div>
       <div><span class="k">Primary program</span> · <span class="v">${esc(primary)}</span></div>
-      <div><span class="k">Forward validation</span> · <span class="v">${fwdLabel(fwd)}</span></div>
+      <div><span class="k">Forward validation</span> · <span class="v">${fwdLabel(fwd,hc.forward_validation)}</span></div>
     </div>
     <div class="exec-top">Top research candidates: ${top3}</div>
     ${warns.length?`<div class="exec-warn">⚠ ${warns.map(esc).join(" · ")}</div>`:""}
@@ -1156,11 +1182,20 @@ function integrityBanner(si){
   if(si.same_session_coverage_pct!=null) bits.push(`${si.same_session_coverage_pct}% same-session coverage`);
   if(si.benchmarks_aligned===true) bits.push("benchmarks aligned");
   if((si.session_mismatch_excluded||0)>0) bits.push(`${si.session_mismatch_excluded} names excluded`);
+  // When the scan is not READY, the CAUSE must be visible in the banner
+  // itself — not only the reassuring stats.  readiness_reasons carries the
+  // failing condition (e.g. manifest exclusions); show the non-healthy one.
+  let cause="";
+  if(cls){
+    const reasons=(si.readiness_reasons||[]).filter(x=>/degraded|blocked|excluded|fail|stale|mismatch/i.test(x));
+    cause=reasons[0]||"";
+  }
   return `<div class="integrity-banner ${cls}">
     <span class="lbl">Scan Integrity: ${cap1(si.readiness)||"Unknown"}</span>
+    ${cause?`<span style="color:var(--amber)">${esc(cause)}</span>`:""}
     <span class="dim">${bits.map(esc).join(" · ")||"—"}</span>
     <details style="font-size:10px"><summary style="cursor:pointer;color:var(--dim)">details</summary>
-      <div class="note" style="margin-top:4px">Required session ${esc(si.required_market_session||"?")} · coverage ${si.universe_coverage_pct!=null?si.universe_coverage_pct+"%":"—"} · this is an operational warning, not a candidate risk score.</div>
+      <div class="note" style="margin-top:4px">Required session ${esc(si.required_market_session||"?")} · coverage ${si.universe_coverage_pct!=null?si.universe_coverage_pct+"%":"—"}${(si.readiness_reasons||[]).length?" · "+si.readiness_reasons.map(esc).join(" · "):""} · this is an operational warning, not a candidate risk score.</div>
     </details>
   </div>`;
 }
@@ -1169,7 +1204,11 @@ function integrityBanner(si){
 function programSummaryCard(pid,p,ls){
   const block=((ls||{}).programs||{})[pid];
   const top=block?(block.candidates||[]).slice(0,3):[];
-  const diag=(p.diagnostic_signal&&p.diagnostic_signal!=="NONE")?cap1(p.diagnostic_signal):"Flat or mixed";
+  // Honest diagnostic line: NONE means the read has not been computed —
+  // never substitute a market verdict for a missing one.
+  const diag=(p.diagnostic_signal&&p.diagnostic_signal!=="NONE")
+    ?esc(cap1(String(p.diagnostic_signal).replace(/_/g," ")))
+    :`<span class="dim">No diagnostic read yet</span>`;
   const rows=top.length?`<ol>${top.map(c=>`<li>${esc(c.ticker)}</li>`).join("")}</ol>`
     :`<div class="dim" style="font-size:10px">No candidates</div>`;
   return `<div class="psum${pid==="SWING"?" primary":""}">
@@ -1177,9 +1216,9 @@ function programSummaryCard(pid,p,ls){
     <div class="hold">${esc(p.expected_holding_period_td||"?")} trading days</div>
     <div class="stat"><b>${block?block.candidate_count||0:0}</b> active · <b>${block?block.new_count||0:0}</b> new</div>
     <div class="stat">Validation: ${verdictLabel(p.verdict)}</div>
-    <div class="stat">Diagnostic read: ${esc(diag)}</div>
+    <div class="stat">Diagnostic read: ${diag}</div>
     ${rows}
-    <span class="lnk" data-prog="${pid}">Open full ${esc(cap1(pid))} Research →</span>
+    <span class="lnk" data-prog="${pid}">Open full ${esc(p.name||cap1(pid))} →</span>
   </div>`;
 }
 

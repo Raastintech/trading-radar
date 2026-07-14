@@ -1651,6 +1651,11 @@ cmd_nightly() {
     # included) so the scan starts fully same-session instead of DEGRADED.
     cmd_scan_universe_manifest
     cmd_research_scanner
+    # Latest-scan program view right after the scanner (same ordering as
+    # premarket).  Without this the command center + digest mix tonight's
+    # scan-integrity stats with the morning scan's candidate lists until
+    # the 08:00 ET premarket timer fires.
+    cmd_latest_scan_programs
     cmd_research_coverage
     cmd_research_changes
     cmd_research_forward_tracker
