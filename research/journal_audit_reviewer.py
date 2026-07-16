@@ -59,7 +59,13 @@ AUDIT_HISTORY_REL = Path("data") / "research" / "journal_audit_history.jsonl"
 DEFAULT_MODEL = "claude-opus-4-8"
 MODEL_ENV_VAR = "JOURNAL_AUDIT_ANTHROPIC_MODEL"
 LLM_TIMEOUT_SECONDS = 90.0
-LLM_MAX_TOKENS = 4000
+# 2026-07-16: raised 4000 → 8000 after a real truncation — the 2026-07-16
+# nightly response hit the 4000-token cap mid-JSON (~9.5k chars) and fell
+# back with "JSONDecodeError: Expecting ',' delimiter ... char 9525".
+LLM_MAX_TOKENS = 8000
+# Raw response preserved here whenever the LLM reply cannot be parsed, so
+# a fallback night leaves the evidence needed to diagnose it.
+LLM_RAW_ERROR_REL = Path("logs") / "journal_audit_llm_raw_error.txt"
 
 RESEARCH_VERDICTS = ("RESEARCH_ONLY", "CAUTION", "READY_FOR_HUMAN_REVIEW")
 QUALITY_LEVELS = ("WEAK", "WEAK_TO_MIXED", "MIXED", "IMPROVING", "STRONG")
@@ -1736,11 +1742,31 @@ def _llm_audit(digest_text: str) -> Dict[str, Any]:
     if getattr(msg, "stop_reason", None) == "refusal":
         raise RuntimeError("model refused the request")
     text = "".join(getattr(b, "text", "") or "" for b in msg.content)
-    audit = _extract_json_object(text)
+    if getattr(msg, "stop_reason", None) == "max_tokens":
+        _save_raw_llm_error(text, "stop_reason=max_tokens")
+        raise RuntimeError(
+            f"LLM response truncated at max_tokens={LLM_MAX_TOKENS} "
+            f"({len(text)} chars) — raw saved to {LLM_RAW_ERROR_REL}")
+    try:
+        audit = _extract_json_object(text)
+    except Exception as exc:
+        _save_raw_llm_error(text, f"{type(exc).__name__}: {exc}")
+        raise
     audit["audit_source"] = "llm"
     audit["fallback_reason"] = None
     audit["model"] = model
     return audit
+
+
+def _save_raw_llm_error(text: str, reason: str) -> None:
+    """Best-effort dump of an unparseable LLM reply — diagnosis only."""
+    try:
+        path = REPO_ROOT / LLM_RAW_ERROR_REL
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).isoformat()
+        path.write_text(f"# {stamp} — {reason}\n{text}", encoding="utf-8")
+    except Exception:
+        pass
 
 
 # ── schema sanitation + hard invariants ──────────────────────────────────────

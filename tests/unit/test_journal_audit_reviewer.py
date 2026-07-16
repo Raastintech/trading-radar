@@ -1103,3 +1103,70 @@ def test_parse_ticker_list_strips_tier_annotations():
     raw = ("FRMM (UNPROFITABLE_FUNDED), ADP, HOOD, "
            "BAX (UNPROFITABLE_FUNDED) (+2 more)")
     assert jar._parse_ticker_list(raw) == ["FRMM", "ADP", "HOOD", "BAX"]
+
+
+def test_truncated_llm_response_raises_and_saves_raw(monkeypatch, tmp_path):
+    """A max_tokens-truncated reply must fail loudly (clear reason, raw
+    reply preserved) instead of dying inside json.loads."""
+    monkeypatch.setattr(jar, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(jar, "_resolve_api_key", lambda: "stub-key")
+
+    truncated = '{"research_verdict": "RESEARCH_ONLY", "what_is_wor'
+
+    class _Msg:
+        stop_reason = "max_tokens"
+        content = [type("B", (), {"text": truncated})()]
+
+    class _Messages:
+        @staticmethod
+        def create(**kwargs):
+            return _Msg()
+
+    class _Client:
+        def __init__(self, **kwargs):
+            self.messages = _Messages()
+
+    import sys as _sys
+    import types as _types
+    fake = _types.ModuleType("anthropic")
+    fake.Anthropic = _Client
+    monkeypatch.setitem(_sys.modules, "anthropic", fake)
+
+    import pytest as _pytest
+    with _pytest.raises(RuntimeError, match="truncated at max_tokens"):
+        jar._llm_audit("digest text")
+    raw = tmp_path / "logs" / "journal_audit_llm_raw_error.txt"
+    assert raw.exists()
+    assert "stop_reason=max_tokens" in raw.read_text()
+    assert truncated in raw.read_text()
+
+
+def test_unparseable_llm_response_saves_raw(monkeypatch, tmp_path):
+    monkeypatch.setattr(jar, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(jar, "_resolve_api_key", lambda: "stub-key")
+
+    class _Msg:
+        stop_reason = "end_turn"
+        content = [type("B", (), {"text": "not json at all"})()]
+
+    class _Messages:
+        @staticmethod
+        def create(**kwargs):
+            return _Msg()
+
+    class _Client:
+        def __init__(self, **kwargs):
+            self.messages = _Messages()
+
+    import sys as _sys
+    import types as _types
+    fake = _types.ModuleType("anthropic")
+    fake.Anthropic = _Client
+    monkeypatch.setitem(_sys.modules, "anthropic", fake)
+
+    import pytest as _pytest
+    with _pytest.raises(Exception):
+        jar._llm_audit("digest text")
+    raw = tmp_path / "logs" / "journal_audit_llm_raw_error.txt"
+    assert raw.exists()
+    assert "not json at all" in raw.read_text()
