@@ -246,13 +246,13 @@ def _read_adapter():
 # ── 13. Candidate cards not overloaded (one market-fit line max) ────────────
 
 
-def test_candidate_cards_one_market_fit_line():
-    assert "marketFitLine" in _HTML
-    # exactly one market-fit line per card (single call in hcCard)
-    assert _HTML.count("${marketFitLine(c,mc)}") == 1
-    # the fit line is a single deterministic string, not the full context
-    fn = _HTML[_HTML.index("function marketFitLine"):
-               _HTML.index("function hcCard")]
+def test_candidate_cards_one_market_fit_badge():
+    assert "marketFitBadge" in _HTML
+    # exactly one market-fit badge per card (single call in hcCard)
+    assert _HTML.count("${marketFitBadge(c,mc)}") == 1
+    # the fit read is a single deterministic string, not the full context
+    fn = _HTML[_HTML.index("function marketFit"):
+               _HTML.index("function hcCardDetails")]
     assert "context_tension" not in fn and "heartbeat" not in fn
 
 
@@ -301,4 +301,4 @@ def test_intel_payload_shape():
 def test_home_wires_all_three_panels():
     assert "marketContextStrip(s.market_context)" in _HTML
     assert "evidenceConfidencePanel(s.research_confidence)" in _HTML
-    assert "systemTrustPanel(s.system_trust)" in _HTML
+    assert "systemTrustPanel(s.system_trust,s.scan_integrity)" in _HTML

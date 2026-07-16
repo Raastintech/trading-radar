@@ -72,9 +72,10 @@ def test_digest_uses_business_deterioration_label():
 # ── 3-4. High-Conviction top-5 default; full set reachable ──────────────────
 
 
-def test_high_conviction_top5_default_and_controls():
-    assert "HCVIEW={cap:5}" in _HTML          # default cap 5
-    assert 'data-cap="5"' in _HTML and 'data-cap="10"' in _HTML
+def test_high_conviction_top_n_default_and_controls():
+    # default cap 6 (3-per-row grid → two clean rows); persists via UIVIEW
+    assert "cap:6" in _HTML
+    assert 'cap(6,"Top 6")' in _HTML and 'cap(12,"Top 12")' in _HTML
     assert 'data-cap="99999"' in _HTML        # View all
     assert "HCVIEW.cap=Number" in _HTML       # control mutates view state only
 
@@ -106,7 +107,7 @@ def test_emerging_not_error_styled():
 
 
 def test_rejected_tray_collapsed_and_grouped():
-    assert "DID NOT QUALIFY" in _HTML
+    assert "Did not qualify" in _HTML
     assert "rejectedTray" in _HTML
     assert "rej-tray" in _HTML                # collapsed <details>
     for group in ("Severe dilution", "Negative gross margin",
@@ -170,12 +171,16 @@ def test_no_scanner_or_routing_change_in_render_layer():
 # ── 13. single page-level scan-integrity banner ─────────────────────────────
 
 
-def test_single_integrity_banner():
-    assert "integrityBanner" in _HTML
-    assert "integrity-banner" in _HTML
-    assert "Scan Integrity:" in _HTML
-    # rendered once in renderHome, not per program card
-    assert _HTML.count("integrityBanner(s.scan_integrity)") == 1
+def test_scan_integrity_single_surface():
+    """The standalone integrity banner was folded into the status strip +
+    System Trust interpretation + Research Caveats: scan integrity is shown
+    once as a primary status value, and a non-READY cause surfaces exactly
+    once in the caveats drawer — never repeated per card."""
+    assert "integrityBanner" not in _HTML          # old banner fully retired
+    strip = _HTML.split("const primary=[")[1].split("];")[0]
+    assert '"Scan integrity"' in strip
+    assert "trustInterpretation" in _HTML
+    assert 'items.push({text:"Scan integrity: "+cause' in _HTML
 
 
 # ── 14. factor detail available via expansion ───────────────────────────────
@@ -235,7 +240,7 @@ def test_journal_has_concise_and_detailed(tmp_path):
 
 def test_controls_are_view_state_only():
     # the decision controls only set view-state vars and re-render
-    assert "HCVIEW.cap=Number(b.dataset.cap);renderHome()" in _HTML
+    assert "HCVIEW.cap=Number(b.dataset.cap);persistView();renderHome()" in _HTML
     assert "EOVIEW.tier=b.dataset.tier;renderHome()" in _HTML
     # no fetch/POST inside the wiring
     start = _HTML.index("function wireDecisionControls")

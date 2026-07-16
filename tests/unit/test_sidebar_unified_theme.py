@@ -100,7 +100,7 @@ def test_canonical_values_unchanged_in_artifacts():
 
 
 def test_top_lists_truncated_by_default():
-    assert "HCVIEW={cap:5}" in _HTML          # HC top 5
+    assert "cap:6" in _HTML                   # HC top 6 (3-col grid)
     assert 'EOVIEW={tier:"top"}' in _HTML      # emerging top 5
     # leaderboard has a filter + summary, not an unbounded wall on home
     assert "programSummaryCard" in _HTML       # programs compact (top 3)
@@ -128,7 +128,7 @@ def test_emerging_exploratory_styling():
 
 
 def test_rejected_collapsed_and_internals_hidden():
-    assert "DID NOT QUALIFY" in _HTML
+    assert "Did not qualify" in _HTML
     assert "rej-tray" in _HTML
     # Level-4 internals sit under details/accordions
     assert "Full program detail" in _HTML

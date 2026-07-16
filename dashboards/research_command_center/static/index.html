@@ -10,9 +10,19 @@
   --text:#d7dde8; --dim:#7b8496; --accent:#5aa2ff;
   --pos:#22c55e; --pos-bg:rgba(34,197,94,.13);
   --neg:#ef4444; --neg-bg:rgba(239,68,68,.12);
-  --amber:#f59e0b; --amber-bg:rgba(245,158,11,.13);
+  --amber:#d9a13f; --amber-bg:rgba(217,161,63,.11);
   --gray-bg:rgba(123,132,150,.10);
   --sidew:208px; --sidew-c:52px;
+  /* ── severity ladder (presentation only) ──
+     critical/blocked = restrained red · degraded-but-usable = muted amber ·
+     research caveat / unvalidated evidence = steel-blue · informational =
+     neutral slate · good/ready = muted green.  System-integrity problems and
+     research-evidence caveats must never share one color. */
+  --sev-critical:#d16060;      --sev-critical-bg:rgba(209,96,96,.10);
+  --sev-degraded:#d9a13f;      --sev-degraded-bg:rgba(217,161,63,.10);
+  --sev-caveat:#7f95b5;        --sev-caveat-bg:rgba(127,149,181,.10);
+  --sev-info:#7b8496;          --sev-info-bg:rgba(123,132,150,.10);
+  --sev-good:#3fae82;          --sev-good-bg:rgba(63,174,130,.10);
 }
 *{box-sizing:border-box} html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--text);font:12.5px/1.4 "SF Mono","Cascadia Code",Menlo,Consolas,monospace;display:flex;overflow:hidden}
@@ -57,14 +67,14 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 .page-header .pmeta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
 .freshness-chip{font-size:9.5px;padding:1px 7px;border-radius:9px;border:1px solid var(--research-border);color:var(--research-muted);background:var(--research-surface)}
 .freshness-chip.fresh{color:var(--research-emerald);border-color:rgba(63,174,130,.4)}
-.freshness-chip.stale{color:var(--research-amber);border-color:rgba(245,158,11,.4)}
+.freshness-chip.stale{color:var(--research-amber);border-color:rgba(217,161,63,.4)}
 .ro-disclosure{font-size:10px;color:var(--research-muted);border:1px dashed var(--research-border);border-radius:4px;padding:4px 8px;margin:0 0 10px}
 /* distinct state banners — loading / no-data / stale / missing / blocked /
    disabled / error each read differently (never one generic red) */
 .state{border-radius:6px;padding:8px 12px;margin:0 0 10px;font-size:11px;border:1px solid var(--research-border);background:var(--research-surface)}
 .state.loading{color:var(--research-muted)}
 .state.empty{color:var(--research-muted);border-style:dashed}
-.state.stale{color:var(--research-amber);border-color:rgba(245,158,11,.5)}
+.state.stale{color:var(--research-amber);border-color:rgba(217,161,63,.5)}
 .state.missing{color:var(--research-muted);border-color:var(--research-border)}
 .state.blocked{color:var(--research-red);border-color:rgba(239,68,68,.5)}
 .state.disabled{color:var(--research-muted);border-left:3px solid var(--research-steel)}
@@ -75,7 +85,7 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 .disclaimer{font-size:10.5px;color:var(--research-muted);border-left:3px solid var(--research-steel);padding:4px 10px;margin:0 0 10px;background:var(--research-surface)}
 /* Level-1 Market Context strip */
 .mkt-strip{border:1px solid var(--research-border);border-radius:8px;padding:10px 14px;margin-bottom:12px;background:var(--research-surface)}
-.mkt-strip h3,.evc-panel h3,.trust-panel h3{margin:0 0 8px;font-size:11px;color:var(--research-muted);text-transform:uppercase;letter-spacing:1px;font-weight:700}
+.mkt-strip h3,.evc-panel h3,.trust-panel h3{margin:0 0 8px;font-size:12px;color:var(--text);letter-spacing:.4px;font-weight:700}
 .mkt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px 16px}
 .mkt-cell .k{font-size:9.5px;color:var(--research-muted);text-transform:uppercase;letter-spacing:.6px}
 .mkt-cell .v{font-size:12.5px;color:var(--text);font-weight:600;margin-top:1px}
@@ -95,12 +105,30 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 .trust-TRUSTED{color:var(--research-emerald)} .trust-PARTIAL{color:var(--research-steel)}
 .trust-DEGRADED{color:var(--research-amber)} .trust-BLOCKED{color:var(--research-red)}
 .fit-line{font-size:9.5px;color:var(--research-muted);margin:1px 0 0 16px}
-/* diagnostic status-pill grid (global header) — one scannable pill per metric */
+/* ── Research System Status strip: one overall state + at most six primary
+   values; every lower-level diagnostic lives in the expandable drawer ── */
+.status-strip{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.status-strip .overall{display:inline-flex;gap:7px;align-items:center;font-size:11.5px;font-weight:700;padding:3px 12px;border-radius:14px;border:1px solid var(--border);background:var(--panel2)}
+.status-strip .overall .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.status-strip .overall.ready{color:var(--sev-good)} .status-strip .overall.ready .dot{background:var(--sev-good)}
+.status-strip .overall.degraded{color:var(--sev-degraded)} .status-strip .overall.degraded .dot{background:var(--sev-degraded)}
+.status-strip .overall.blocked{color:var(--sev-critical)} .status-strip .overall.blocked .dot{background:var(--sev-critical)}
+.status-strip .sitem{display:inline-flex;gap:6px;align-items:baseline;font-size:11px}
+.status-strip .sitem .sl{font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:var(--research-muted)}
+.status-strip .sitem .sv{color:var(--text);font-weight:600}
+.status-strip .spacer{flex:1}
+.mode-btn{background:var(--panel2);border:1px solid var(--border);color:var(--dim);border-radius:4px;font:inherit;font-size:10px;padding:2px 10px;cursor:pointer}
+.mode-btn:hover{color:var(--text)} .mode-btn.on{color:var(--accent);border-color:var(--accent)}
+details.diag-drawer{margin-top:5px}
+details.diag-drawer>summary{cursor:pointer;font-size:10px;color:var(--research-muted);user-select:none}
+details.diag-drawer>summary:hover{color:var(--text)}
+details.diag-drawer .status-grid{margin-top:6px}
+/* diagnostic status-pill grid (drawer) — one scannable pill per metric */
 .status-grid{display:flex;flex-wrap:wrap;gap:5px;align-items:stretch}
 .stat-pill{display:inline-flex;flex-direction:column;gap:1px;background:rgba(17,21,31,.6);border:1px solid var(--research-border);border-radius:5px;padding:3px 9px;line-height:1.25}
 .stat-pill .sl{font-size:8px;letter-spacing:.7px;text-transform:uppercase;color:var(--research-muted)}
 .stat-pill .sv{font-size:11px;font-weight:600;color:var(--text);display:flex;gap:4px;align-items:center}
-.stat-pill.warn{border-color:rgba(245,158,11,.45)} .stat-pill.warn .sv{color:var(--amber)}
+.stat-pill.warn{border-color:rgba(217,161,63,.45)} .stat-pill.warn .sv{color:var(--amber)}
 .stat-pill.bad{border-color:rgba(239,68,68,.5)} .stat-pill.bad .sv{color:var(--neg)}
 .stat-pill.ok .sv{color:var(--pos)} .stat-pill.info .sv{color:var(--accent)}
 .status-grid .grp-label{align-self:center;font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--research-muted);padding-right:2px}
@@ -115,7 +143,7 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 .alert{display:flex;gap:8px;align-items:flex-start;border-radius:6px;padding:7px 12px;margin:0 0 10px;font-size:11px}
 .alert .ai{font-size:13px;line-height:1}
 .alert .at{font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:9.5px;margin-bottom:2px}
-.alert.tension-alert{background:var(--amber-bg);border:1px solid rgba(245,158,11,.5);color:var(--amber)}
+.alert.tension-alert{background:var(--amber-bg);border:1px solid rgba(217,161,63,.5);color:var(--amber)}
 .alert.invalidation-alert{background:var(--neg-bg);border:1px solid rgba(239,68,68,.55);color:var(--neg)}
 .alert .abody{color:var(--text)}
 /* Open vs Matured summary strip (Forward Evidence header) */
@@ -123,6 +151,31 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 .om-pill{background:var(--research-surface);border:1px solid var(--research-border);border-radius:6px;padding:5px 12px;font-size:10.5px;color:var(--research-muted)}
 .om-pill b{color:var(--text);font-size:13px;margin-right:3px}
 .om-pill.matured b{color:var(--research-emerald)} .om-pill.open b{color:var(--research-steel)}
+/* ── deterministic plain-English interpretation line (one per panel) ── */
+.interp{margin-top:8px;font-size:11px;color:var(--text);border-top:1px solid rgba(35,42,59,.6);padding-top:6px;line-height:1.5}
+.interp::before{content:"» ";color:var(--research-muted)}
+/* ── snapshot row: Market Context · Evidence & Confidence · System Trust ── */
+.snap-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:14px}
+.snap-row .mkt-strip,.snap-row .evc-panel,.snap-row .trust-panel{margin-bottom:0}
+/* ── Research Caveats drawer: collapsed count line by default; grouped,
+   severity-differentiated explanations on expand ── */
+.caveats{border:1px solid var(--border);border-radius:8px;background:var(--panel);margin-bottom:14px}
+.caveats>summary{cursor:pointer;padding:7px 14px;font-size:11px;color:var(--research-muted);user-select:none;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.caveats>summary:hover{color:var(--text)}
+.caveats>summary .cv-count{color:var(--sev-caveat);font-weight:700}
+.caveats>summary .dw-count{color:var(--sev-degraded);font-weight:700}
+.caveats .cv-body{padding:4px 14px 10px}
+.cv-group{margin:6px 0}
+.cv-group .cv-title{font-size:10px;font-weight:700;letter-spacing:.5px;margin-bottom:2px}
+.cv-group.caveat .cv-title{color:var(--sev-caveat)}
+.cv-group.data .cv-title{color:var(--sev-degraded)}
+.cv-group .cv-item{font-size:10.5px;color:var(--research-muted);padding:2px 0 2px 10px;border-left:2px solid var(--border);margin:2px 0;line-height:1.5}
+.cv-group.caveat .cv-item{border-left-color:rgba(127,149,181,.45)}
+.cv-group.data .cv-item{border-left-color:rgba(217,161,63,.45)}
+/* market-fit badge — shown only when aligned or conflicted (never neutral) */
+.fit-bdg{display:inline-block;padding:0 7px;border-radius:8px;font-size:9px;font-weight:700;border:1px solid;white-space:nowrap}
+.fit-bdg.aligned{color:var(--sev-good);border-color:rgba(63,174,130,.45);background:var(--sev-good-bg)}
+.fit-bdg.conflict{color:var(--sev-degraded);border-color:rgba(217,161,63,.45);background:var(--sev-degraded-bg)}
 /* Executive Research Summary (Level 1) */
 .exec-summary{border:1px solid var(--border);border-left:3px solid var(--emerald);border-radius:8px;padding:12px 16px;margin-bottom:14px;background:var(--panel)}
 .exec-summary.deg{border-left-color:var(--amber)}
@@ -132,12 +185,6 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 .exec-grid .k{color:var(--dim)} .exec-grid .v{color:var(--text);font-weight:600}
 .exec-top{margin-top:8px;font-size:12px}
 .exec-top .tk{color:var(--emerald);font-weight:700}
-.exec-warn{margin-top:6px;font-size:10.5px;color:var(--amber)}
-/* single scan-integrity banner */
-.integrity-banner{border:1px solid var(--border);border-radius:6px;padding:7px 12px;margin-bottom:12px;font-size:11px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--panel)}
-.integrity-banner.deg{border-color:rgba(245,158,11,.5)}
-.integrity-banner.blk{border-color:rgba(239,68,68,.5)}
-.integrity-banner .lbl{font-weight:700}
 /* section header shared */
 .sec-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 6px}
 .sec-head h2{margin:0;font-size:14px;letter-spacing:.4px}
@@ -148,12 +195,15 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 /* High-Conviction Alpha (Level 2) — deep emerald, premium */
 .hc-wrap{border:1px solid var(--emerald-dim);border-top:2px solid var(--emerald);border-radius:8px;padding:12px 16px;margin-bottom:14px;background:var(--emerald-bg)}
 .hc-wrap .sec-head h2{color:var(--emerald)}
-.hc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
-.hc-card{border:1px solid var(--border);border-radius:6px;padding:10px 12px;background:var(--panel)}
+/* 3 cards/row desktop · 2 laptop · 1 mobile — readable width, roomier padding */
+.hc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:1500px){.hc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.hc-grid{grid-template-columns:1fr}}
+.hc-card{border:1px solid var(--border);border-radius:6px;padding:12px 15px;background:var(--panel);max-width:560px}
 .hc-card .hdr{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;justify-content:space-between}
 .hc-card .idn{display:flex;gap:7px;align-items:baseline;flex-wrap:wrap}
-.hc-card .rank{color:var(--dim);font-size:11px} .hc-card .tk{color:var(--emerald);font-weight:700;font-size:15px;letter-spacing:.3px}
-.hc-card .sc{font-weight:700;color:var(--text);font-size:15px}
+.hc-card .rank{color:var(--dim);font-size:11px} .hc-card .tk{color:var(--emerald);font-weight:700;font-size:17px;letter-spacing:.3px}
+.hc-card .sc{font-weight:700;color:var(--text);font-size:17px}
 .hc-card .sub{font-size:10px;color:var(--dim);margin:2px 0 6px}
 .sr-block{margin:4px 0 0}
 .sr-block .lab{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;margin:5px 0 2px}
@@ -170,7 +220,7 @@ details.cand-det .kv{margin-top:5px;background:var(--panel2);border:1px solid va
 /* Business-Deterioration risk badge — restrained, never system-error styling */
 .det{display:inline-block;padding:1px 8px;border-radius:9px;font-size:9.5px;font-weight:700;border:1px solid;white-space:nowrap}
 .det-low{color:var(--steel);border-color:rgba(139,150,168,.55);background:rgba(139,150,168,.08)}
-.det-medium{color:var(--amber);border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.08)}
+.det-medium{color:var(--amber);border-color:rgba(217,161,63,.45);background:rgba(217,161,63,.08)}
 .det-high{color:var(--neg);border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.08)}
 .det-unknown{color:var(--dim);border-color:var(--border);background:var(--gray-bg)}
 /* Emerging Opportunities (Level 2) — muted indigo/teal, exploratory */
@@ -253,9 +303,10 @@ body.side-collapsed #side-foot{display:none}
    BLOCKED is amber, not red — it is a gate, not a failure) · red = failure
    · gray = missing / immature / pending */
 .bdg{display:inline-block;padding:1px 8px;border-radius:9px;font-size:10px;font-weight:700;letter-spacing:.3px;border:1px solid;white-space:nowrap}
-.bdg.g{color:var(--pos);border-color:rgba(34,197,94,.5);background:var(--pos-bg)}
-.bdg.a{color:var(--amber);border-color:rgba(245,158,11,.5);background:var(--amber-bg)}
-.bdg.r{color:var(--neg);border-color:rgba(239,68,68,.5);background:var(--neg-bg)}
+.bdg.g{color:var(--sev-good);border-color:rgba(63,174,130,.5);background:var(--sev-good-bg)}
+.bdg.a{color:var(--sev-degraded);border-color:rgba(217,161,63,.5);background:var(--sev-degraded-bg)}
+.bdg.r{color:var(--sev-critical);border-color:rgba(209,96,96,.5);background:var(--sev-critical-bg)}
+.bdg.s{color:var(--sev-caveat);border-color:rgba(127,149,181,.5);background:var(--sev-caveat-bg)}
 .bdg.n{color:var(--dim);border-color:var(--border);background:var(--gray-bg)}
 
 #tabbar{display:flex;gap:2px;background:var(--panel);border-bottom:1px solid var(--border);padding:0 8px;flex-shrink:0;overflow-x:auto}
@@ -402,6 +453,12 @@ let BOARD=null, STATUS=null;
 let sortKey="research_score", sortDir=-1, filterText="", selectedTicker=null;
 let activePage="home";
 let openTabs=["home"];           // workspace tab row — local UI state only
+/* presentation-only view state (persisted in localStorage; artifacts,
+   scores, and rankings are never touched by any of it) */
+let DIAG_OPEN=false;             // diagnostics drawer open/closed (session)
+let UIVIEW=(()=>{ try{ return Object.assign({focus:false},
+  JSON.parse(localStorage.getItem("rcc_view")||"{}")); }catch(e){ return {focus:false}; } })();
+function persistView(){ try{ localStorage.setItem("rcc_view",JSON.stringify(UIVIEW)); }catch(e){} }
 
 const $=s=>document.querySelector(s);
 const fmt=(v,d=2)=>(v===null||v===undefined||Number.isNaN(v))?"—":Number(v).toFixed(d);
@@ -427,21 +484,25 @@ function heat(v){
   return `<span class="cell ${cls}">${v>0?"+":""}${Number(v).toFixed(1)}%</span>`;
 }
 
-/* ── status badge system ──
-   green = healthy · amber = caution or intentional safety gate (Phase 4B
-   BLOCKED is a gate, not a failure → amber) · red = failure · gray =
-   missing / immature / pending. Unknown values default to gray. */
+/* ── status badge system (severity-differentiated) ──
+   green = healthy · amber = system/data integrity degraded, or an
+   intentional safety gate (Phase 4B BLOCKED is a gate, not a failure →
+   amber) · steel-blue = research-evidence caveat (unvalidated / immature /
+   inconclusive — a research state, not a system problem) · red = failure ·
+   gray = missing / pending. Unknown values default to gray. */
 const BADGE_GREEN=["PASS","READY","FRESH","RESEARCH_ONLY","OK","UNBLOCKED","PROMISING","SAME-SESSION"];
-const BADGE_AMBER=["BLOCKED","NEED_MORE_DATA","INCONCLUSIVE","MIXED","PARTIAL","STALE",
-  "SUSPECT","DATA_QUARANTINE","IMMATURE_FORWARD_EVIDENCE","WARN","QUARANTINE",
-  "STALE_PRICE","INSUFFICIENT_HISTORY","BENCHMARK_MISSING","SUSPECT_FEED",
-  "TOO_EARLY","EARLY_SIGNAL","NO_FORWARD_EDGE","CONFLICTED",
+const BADGE_AMBER=["BLOCKED","STALE","SUSPECT","DATA_QUARANTINE","WARN","QUARANTINE",
+  "STALE_PRICE","BENCHMARK_MISSING","SUSPECT_FEED","CONFLICTED",
   "DEGRADED","SESSION_MISMATCH","UNGATED","UNAVAILABLE_STALE_SOURCE"];
+const BADGE_CAVEAT=["NEED_MORE_DATA","INCONCLUSIVE","MIXED","PARTIAL",
+  "IMMATURE_FORWARD_EVIDENCE","INSUFFICIENT_HISTORY","TOO_EARLY",
+  "EARLY_SIGNAL","NO_FORWARD_EDGE","INSUFFICIENT_MATURE_EVIDENCE"];
 const BADGE_RED=["FAIL","MISSING","ERROR"];
 function badgeClass(v){
   const u=String(v??"").toUpperCase();
   if(BADGE_GREEN.includes(u))return "g";
   if(BADGE_AMBER.includes(u))return "a";
+  if(BADGE_CAVEAT.includes(u))return "s";
   if(BADGE_RED.includes(u))return "r";
   return "n";  // NO_DATA, MISSING_ARTIFACT, TODO, unknown
 }
@@ -499,7 +560,8 @@ function stateBanner(kind,msg){
 
 /* ── sidebar + tabs (app shell) ── */
 function navLink(n){
-  return `<a data-id="${n.id}" class="${n.id===activePage?"active":""}" title="${n.label}">
+  return `<a data-id="${n.id}" class="${n.id===activePage?"active":""}" title="${n.label}"
+     tabindex="0" role="link" aria-current="${n.id===activePage?"page":"false"}">
      <span class="ini">${n.ini}</span><span class="lbl">${n.label}</span>
      ${n.stub?`<span class="ph">P${n.stub}</span>`:""}</a>`;
 }
@@ -515,7 +577,10 @@ function renderNav(){
   $("#nav").innerHTML = html
     +(ungrouped.length?`<div class="nav-group"><div class="nav-glabel">More</div>`
       +ungrouped.map(navLink).join("")+`</div>`:"");
-  document.querySelectorAll("#nav a").forEach(a=>a.onclick=()=>openPage(a.dataset.id));
+  document.querySelectorAll("#nav a").forEach(a=>{
+    a.onclick=()=>openPage(a.dataset.id);
+    a.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openPage(a.dataset.id);}};
+  });
 }
 function renderTabs(){
   $("#tabbar").innerHTML = openTabs.map(id=>
@@ -547,7 +612,6 @@ $("#side-toggle").onclick=()=>document.body.classList.toggle("side-collapsed");
 
 /* ── global header (persistent) — status values render as badges ── */
 function chip(label,value,cls){return `<span class="chip ${cls||""}">${label}: <b>${esc(value)}</b></span>`;}
-function chipB(label,value){return `<span class="chip">${label}: ${badge(value)}</span>`;}
 /* diagnostic status pill — one label/value container per tracked metric.
    `cls` = ""|"ok"|"warn"|"bad"|"info"; `raw` renders value HTML as-is. */
 function statPill(label,value,cls,raw){
@@ -555,39 +619,66 @@ function statPill(label,value,cls,raw){
   return `<span class="stat-pill ${cls||""}"><span class="sl">${esc(label)}</span>
     <span class="sv">${v}</span></span>`;
 }
+/* Overall research-system state — deterministic from scan integrity + trust.
+   BLOCKED > DEGRADED > READY.  Presentation only. */
+function overallSystemState(s){
+  const vals=[String(((s||{}).scan_integrity||{}).readiness||"").toUpperCase(),
+              String(((s||{}).system_trust||{}).overall||"").toUpperCase()];
+  if(vals.includes("BLOCKED"))return {cls:"blocked",label:"System: Blocked"};
+  if(vals.includes("DEGRADED"))return {cls:"degraded",label:"System: Degraded"};
+  return {cls:"ready",label:"System: Ready"};
+}
+/* Research System Status strip — one overall state + six primary values.
+   Everything below that severity lives in the expandable diagnostics
+   drawer: nothing is removed, only default visual weight is reduced. */
 function renderHeader(){
-  const s=STATUS||{}, p4=s.phase_4b||{};
-  // Row 1: safety-critical status — never hidden or demoted.
+  const s=STATUS||{}, p4=s.phase_4b||{}, si=s.scan_integrity||{};
+  const fwd=((s.high_conviction||{}).forward_validation||{});
+  const ov=overallSystemState(s);
+  const item=(l,v,raw)=>`<span class="sitem"><span class="sl">${esc(l)}</span>
+    <span class="sv">${raw?v:esc(v==null?"—":v)}</span></span>`;
   const primary=[
-    statPill("Mode", s.mode||"RESEARCH_ONLY","info"),
+    item("Mode", s.mode||"RESEARCH_ONLY"),
+    item("Research state", badge(s.operating_verdict??"?"),true),
+    item("Scan integrity", badge(si.readiness??"?"),true),
+    item("Benchmarks", badge(s.benchmark_readiness??"?"),true),
+    item("Regime", s.market_regime??"?"),
+    item("Forward validation", badge(fwd.verdict||s.tracker_verdict||"?"),true),
+  ];
+  // Diagnostics drawer — full detail, one click away, never deleted.
+  const diag=[
     statPill("Nightly", badge(s.nightly_status??"?"),null,true),
     statPill("Phase 4B", badge(p4.status??"?"),null,true),
-    statPill("Verdict",
-      `${badge(s.operating_verdict)} <span class="dim" style="font-size:8px">trk</span> ${badge(s.tracker_verdict)}`,
-      null,true),
+    statPill("Tracker verdict", badge(s.tracker_verdict??"?"),null,true),
     statPill("Matured 5d", s.matured_5d??"—"),
     statPill("Matured 10d", s.matured_10d??"—"),
-    statPill("Benchmarks", badge(s.benchmark_readiness??"?"),null,true),
-    statPill("Regime", s.market_regime??"?","info"),
-  ];
-  // Row 2: data-hygiene pills, grouped.
-  const si=s.scan_integrity||{};
-  const data=[
-    `<span class="grp-label">Data</span>`,
+    statPill("Total tracked", s.total_tracked??"—"),
     statPill("Freshness", badge(s.data_freshness??"?"),null,true),
-    statPill("Scan", badge(si.readiness??"?"),null,true),
     statPill("Session", si.required_market_session??"?", si.benchmarks_aligned===false?"warn":"info"),
     statPill("Stale skipped", s.stale_skipped??"—",(s.stale_skipped||0)>0?"warn":""),
     statPill("Suspect skipped", s.suspect_skipped??"—",(s.suspect_skipped||0)>0?"warn":""),
     statPill("Quarantine", s.quarantine_count??"—",(s.quarantine_count||0)>0?"warn":""),
   ];
   if((si.session_mismatch_excluded||0)>0)
-    data.push(statPill("Session mismatch", si.session_mismatch_excluded,"warn"));
+    diag.push(statPill("Session mismatch", si.session_mismatch_excluded,"warn"));
   if((s.missing_artifacts||[]).length)
-    data.push(statPill("Missing artifacts", s.missing_artifacts.join(", "),"bad"));
+    diag.push(statPill("Missing artifacts", s.missing_artifacts.join(", "),"bad"));
+  const nWarn=(s.warnings||[]).length;
   $("#gheader").innerHTML=
-    `<div class="status-grid">${primary.join("")}</div>`+
-    `<div class="status-grid" style="margin-top:5px">${data.join("")}</div>`;
+    `<div class="status-strip">
+       <span class="overall ${ov.cls}"><span class="dot"></span>${esc(ov.label)}</span>
+       ${primary.join("")}
+       <span class="spacer"></span>
+       <button id="focus-toggle" class="mode-btn ${UIVIEW.focus?"on":""}"
+         title="Focus mode: only the priority research content">${UIVIEW.focus?"Focus mode ✓":"Focus mode"}</button>
+     </div>
+     <details class="diag-drawer" ${DIAG_OPEN?"open":""}><summary>Diagnostics — nightly, maturity, data hygiene (${diag.length} items${nWarn?`, ${nWarn} warnings`:""})</summary>
+       <div class="status-grid">${diag.join("")}</div>
+     </details>`;
+  const fbtn=$("#focus-toggle");
+  if(fbtn)fbtn.onclick=()=>{UIVIEW.focus=!UIVIEW.focus;persistView();renderHeader();if(activePage==="home")renderHome();};
+  const dd=document.querySelector("#gheader details.diag-drawer");
+  if(dd)dd.ontoggle=()=>{DIAG_OPEN=dd.open;};
 }
 
 /* ── Research Home ── */
@@ -836,8 +927,12 @@ function detBadge(r){
   const tip=lab==="Unknown"?' title="Deterioration data may be insufficient or not applicable for this security."':"";
   return `<span class="det det-${cls}"${tip}>Business Deterioration: ${lab}</span>`;
 }
-/* view state — presentation only, never touches artifacts */
-let HCVIEW={cap:5}, EOVIEW={tier:"top"}, EXTVIEW={cap:5};
+/* view state — presentation only, never touches artifacts.  The HC view
+   (cap / program filter / classification filter / compact-vs-detailed /
+   neutral-fit visibility) persists across reloads via UIVIEW. */
+UIVIEW.hc=Object.assign({cap:6,program:"all",cls:"all",view:"compact",neutralFit:false},UIVIEW.hc||{});
+const HCVIEW=UIVIEW.hc;
+let EOVIEW={tier:"top"}, EXTVIEW={cap:5};
 
 const FACTOR_ROWS=[["quality_score","Quality"],["growth_score","Growth"],
   ["fundamental_momentum_score","Fundamental Momentum"],
@@ -877,71 +972,127 @@ function integrityBadge(same){
     :same===false?`<span class="bdg a">session mismatch</span>`:"";
 }
 
-/* deterministic candidate market-fit line (one line max) — sector vs the
-   current weak/leading sectors; never a trade instruction */
-function marketFitLine(c,mc){
-  if(!mc||!mc.present||!c.sector_etf&&!c.sector) return "";
+/* deterministic candidate market-fit — sector vs the current weak/leading
+   sectors; never a trade instruction.  Neutral fit is hidden by default
+   (it adds no information); aligned/conflicted render as a small badge. */
+function marketFit(c,mc){
+  if(!mc||!mc.present||(!c.sector_etf&&!c.sector)) return null;
   const etf=(c.sector_etf||"").toUpperCase();
   const weak=((mc.leadership||{}).weak||[]).map(x=>x.toUpperCase());
   const lead=((mc.leadership||{}).leading||[]).map(x=>x.toUpperCase());
-  let fit="Neutral";
-  if(etf&&lead.includes(etf)) fit="Aligned with sector leadership";
-  else if(etf&&weak.includes(etf)) fit="In a currently weak sector";
-  return `<div class="fit-line">Market fit: ${esc(fit)}</div>`;
+  if(etf&&lead.includes(etf)) return {state:"aligned",label:"Sector leading"};
+  if(etf&&weak.includes(etf)) return {state:"conflict",label:"Weak sector"};
+  return {state:"neutral",label:"Neutral"};
+}
+function marketFitBadge(c,mc){
+  const fit=marketFit(c,mc);
+  if(!fit) return "";
+  if(fit.state==="neutral")
+    return HCVIEW.neutralFit?`<span class="fit-bdg" style="color:var(--dim);border-color:var(--border)">Market fit: Neutral</span>`:"";
+  return `<span class="fit-bdg ${fit.state}" title="Market fit vs current sector leadership — context, not an instruction">${esc(fit.label)}</span>`;
+}
+/* card details block — inline when the section view is Detailed, behind a
+   disclosure when Compact.  Same content either way (canonical values). */
+function hcCardDetails(c,fwdVerdict){
+  const cs=c.component_scores||{};
+  return `${factorBars(cs,c.valuation_status)}
+    ${moreStrengthsRisks(c.why_selected,c.main_risks,HCVIEW.view==="detailed"?0:4,HCVIEW.view==="detailed"?0:1)}
+    <div class="kv" style="margin-top:6px">
+      ${kvRow("Classification",esc(c.classification||"—"))}
+      ${kvRow("Forward validation",`<span title="canonical: ${esc(fwdVerdict||"?")}">${fwdLabel(fwdVerdict)}</span>`)}
+      ${kvRow("Business deterioration",detLabel(c.dead_horse_risk))}
+      ${kvRow("Valuation",esc(c.valuation_status||"—"))}
+      ${kvRow("Bar / benchmark as-of",esc((c.bar_as_of_date||"?")+" / "+(c.benchmark_as_of_date||"?")))}
+      ${kvRow("Same-session",integrityBadge(c.same_session)||"—")}
+      ${kvRow("Status",badge("RESEARCH_ONLY"))}
+    </div>`;
 }
 function hcCard(c,rank,fwdVerdict,mc){
-  const cs=c.component_scores||{};
   const cls=esc(HC_CLASS_LABELS[c.classification]||c.classification||"");
+  const detailed=HCVIEW.view==="detailed";
+  // Compact face shows exceptions only: deterioration above Low, session
+  // problems, and non-neutral market fit.  Everything else is one click away.
+  const exceptions=[];
+  if(String(c.dead_horse_risk||"").toUpperCase()!=="LOW") exceptions.push(detBadge(c.dead_horse_risk));
+  if(c.same_session===false) exceptions.push(`<span class="bdg a">session mismatch</span>`);
+  const face=detailed
+    ?`${strengthsRisks((c.why_selected||[]).slice(0,4),(c.main_risks||[]).slice(0,2))}
+      ${hcCardDetails(c,fwdVerdict)}`
+    :`${strengthsRisks((c.why_selected||[]).slice(0,4),(c.main_risks||[]).slice(0,1))}
+      ${exceptions.length?`<div class="sr-block" style="margin-top:6px">${exceptions.join(" ")}</div>`:""}
+      <details class="cand-det"><summary>Full details</summary>${hcCardDetails(c,fwdVerdict)}</details>`;
   return `<div class="hc-card">
     <div class="hdr">
       <div class="idn">${rank?`<span class="rank">${rank}.</span>`:""}
-        <span class="tk">${esc(c.ticker)}</span></div>
+        <span class="tk">${esc(c.ticker)}</span>
+        ${marketFitBadge(c,mc)}</div>
       <span class="sc">${esc(c.high_conviction_score)}</span>
     </div>
     <div class="sub">${cls} · ${esc(c.program)} · ${esc(c.holding_period||"")}</div>
-    ${strengthsRisks((c.why_selected||[]).slice(0,4),(c.main_risks||[]).slice(0,2))}
-    <div class="sr-block" style="margin-top:6px">${detBadge(c.dead_horse_risk)}
-      <span class="dim" style="font-size:10px">Forward Validation: ${fwdLabel(fwdVerdict)}</span></div>
-    ${marketFitLine(c,mc)}
-    <details class="cand-det"><summary>Full details</summary>
-      ${factorBars(cs,c.valuation_status)}
-      ${moreStrengthsRisks(c.why_selected,c.main_risks,4,2)}
-      <div class="kv" style="margin-top:6px">
-        ${kvRow("Classification",esc(c.classification||"—"))}
-        ${kvRow("Valuation",esc(c.valuation_status||"—"))}
-        ${kvRow("Bar / benchmark as-of",esc((c.bar_as_of_date||"?")+" / "+(c.benchmark_as_of_date||"?")))}
-        ${kvRow("Same-session",integrityBadge(c.same_session)||"—")}
-        ${kvRow("Status",badge("RESEARCH_ONLY"))}
-      </div>
-    </details>
+    ${face}
   </div>`;
 }
 
+/* HC toolbar — program filter chips, classification toggles, view mode,
+   neutral-fit visibility.  Pure view state: filtering hides cards, never
+   reorders them, and the canonical shortlist is untouched. */
+const HC_PROGRAMS=[["all","All programs"],["TACTICAL","Tactical"],["SWING","Swing"],["LONG_TERM","Long-Term"]];
+const HC_CLASSES=[["all","All tiers"],["HIGH_CONVICTION","High Conviction"],["PROMISING","Promising"],["WATCH_FOR_ENTRY","Watch for Entry"]];
 function hcControls(){
-  const mk=(v,l)=>`<button class="hc-cap ${HCVIEW.cap===v?"on":""}" data-cap="${v}">${l}</button>`;
-  return `<div class="sec-ctrls">${mk(5,"Top 5")}${mk(10,"Top 10")}${mk(99999,"View all")}</div>`;
+  const cap=(v,l)=>`<button class="hc-cap ${HCVIEW.cap===v?"on":""}" data-cap="${v}">${l}</button>`;
+  const prog=HC_PROGRAMS.map(([v,l])=>`<button class="hc-prog ${HCVIEW.program===v?"on":""}" data-prog="${v}">${l}</button>`).join("");
+  const cls=HC_CLASSES.map(([v,l])=>`<button class="hc-cls ${HCVIEW.cls===v?"on":""}" data-cls="${v}">${l}</button>`).join("");
+  return `<div class="sec-ctrls">${cap(6,"Top 6")}${cap(12,"Top 12")}${cap(99999,"View all")}
+      <span class="dim" style="font-size:9px">·</span> ${prog}
+      <span class="dim" style="font-size:9px">·</span> ${cls}</div>
+    <div class="sec-ctrls">
+      <button class="hc-view ${HCVIEW.view==="compact"?"on":""}" data-view="compact">Compact</button>
+      <button class="hc-view ${HCVIEW.view==="detailed"?"on":""}" data-view="detailed">Detailed</button>
+      <button class="hc-fit ${HCVIEW.neutralFit?"on":""}" title="show or hide neutral market-fit badges">Neutral fit ${HCVIEW.neutralFit?"shown":"hidden"}</button>
+    </div>`;
+}
+function hcFiltered(shortlist){
+  return shortlist.filter(c=>
+    (HCVIEW.program==="all"||c.program===HCVIEW.program)&&
+    (HCVIEW.cls==="all"||c.classification===HCVIEW.cls));
+}
+/* deterministic High-Conviction one-liner from existing fields only */
+function hcInterpretation(hc,shown){
+  const q=(hc.counts||{}).qualified||0;
+  if(!shown.length) return `${q} qualified profiles; no candidates in the current filter.`;
+  const progCounts={};
+  shown.forEach(c=>{progCounts[c.program]=(progCounts[c.program]||0)+1;});
+  const domProg=Object.entries(progCounts).sort((a,b)=>b[1]-a[1])[0][0];
+  const cashGen=shown.filter(c=>/profitable/i.test((c.why_selected||[]).join(" "))
+    &&/free cash flow/i.test((c.why_selected||[]).join(" "))).length;
+  const quality=cashGen>=Math.ceil(shown.length/2)?" profitable, cash-generative and":"";
+  return `${q} qualified profiles; top candidates are${quality} mostly ${cap1(domProg.replace(/_/g," "))}-oriented.`;
 }
 
-function highConvictionSection(hc){
+function highConvictionSection(hc,opts){
+  opts=opts||{};
   if(!hc||!hc.present){
-    return `<div class="hc-wrap"><div class="sec-head"><h2>HIGH-CONVICTION ALPHA</h2></div>
+    return `<div class="hc-wrap"><div class="sec-head"><h2>High-Conviction Alpha</h2></div>
       <div class="hc-sub">Quality + Growth + Value + Momentum</div>
       <div class="note">No shortlist yet — run ./scripts/run_research_cycle.sh high-conviction-alpha</div></div>`;
   }
   const cts=hc.counts||{}, fwd=hc.forward_validation||{};
   const shortlist=hc.shortlist||[];
-  const shown=shortlist.slice(0,HCVIEW.cap);
+  const filtered=opts.focus?shortlist:hcFiltered(shortlist);
+  const shown=filtered.slice(0,opts.focus?3:HCVIEW.cap);
   const mc=(STATUS||{}).market_context;
-  const body=shortlist.length
-    ?`<div class="hc-grid">${shown.map((c,i)=>hcCard(c,i+1,fwd.verdict,mc)).join("")}</div>`
-    :`<div class="note">NO_HIGH_CONVICTION_CANDIDATES — no stock met the qualification standards in the latest scan.</div>`;
+  const body=shown.length
+    ?`<div class="hc-grid">${shown.map(c=>hcCard(c,shortlist.indexOf(c)+1,fwd.verdict,mc)).join("")}</div>`
+    :shortlist.length
+      ?`<div class="note">No candidates match the current program / tier filter.</div>`
+      :`<div class="note">NO_HIGH_CONVICTION_CANDIDATES — no stock met the qualification standards in the latest scan.</div>`;
   return `<div class="hc-wrap">
-    <div class="sec-head"><h2>HIGH-CONVICTION ALPHA</h2>
-      <span class="meta">Quality + Growth + Value + Momentum</span></div>
-    <div class="hc-sub">${cts.qualified||0} qualified · Forward Validation: ${fwdLabel(fwd.verdict,fwd)}</div>
-    ${shortlist.length?hcControls():""}
+    <div class="sec-head"><h2>High-Conviction Alpha</h2>
+      <span class="meta">Quality + Growth + Value + Momentum · Forward Validation: ${fwdLabel(fwd.verdict,fwd)}</span></div>
+    <div class="interp" style="border-top:none;padding-top:0;margin:0 0 6px">${esc(hcInterpretation(hc,shown))}</div>
+    ${shortlist.length&&!opts.focus?hcControls():""}
     ${body}
-    ${rejectedTray(hc.rejected||[])}
+    ${opts.focus?"":rejectedTray(hc.rejected||[])}
   </div>`;
 }
 
@@ -964,7 +1115,7 @@ function rejectedTray(rej){
   const rows=allGroups.map(([name,list])=>
     `<div class="rc">${esc(name)} <span class="cnt">(${list.length})</span></div>
      <div class="rsyms">${list.map(symTag).join("")}</div>`).join("");
-  return `<details class="rej-tray"><summary>DID NOT QUALIFY — ${rej.length}</summary>
+  return `<details class="rej-tray"><summary>Did not qualify — ${rej.length}</summary>
     <div class="rej-table">${rows}</div></details>`;
 }
 
@@ -984,7 +1135,7 @@ function extendedSection(hc){
     </div>`;
   }).join("");
   return `<div class="ext-wrap">
-    <div class="sec-head"><h2>STRONG PROFILES — WAIT FOR RESET</h2>
+    <div class="sec-head"><h2>Strong Profiles — Wait for Reset</h2>
       <span class="meta">${ext.length} names · strong business, poor current entry</span></div>
     <div class="ext-grid">${cards}</div>
     ${ext.length>EXTVIEW.cap?`<div class="sec-ctrls"><button class="ext-all ${EXTVIEW.cap>=99999?"on":""}">View all ${ext.length}</button></div>`:""}
@@ -1005,13 +1156,16 @@ function eoCard(w,rank){
       <ul class="sr-list sr-str">${dims.map(d=>`<li>${esc(d)}</li>`).join("")}</ul></div>
     <div class="eo-line"><b>Why not High Conviction:</b> ${esc(w.why_not_high_conviction||"")}</div>
     <div class="eo-line"><b>Primary risk:</b> ${esc(risk)}</div>
-    <div class="sr-block" style="margin-top:5px">${detBadge(w.business_deterioration_risk)}
-      <span class="dim" style="font-size:9.5px">coverage ${w.data_coverage!=null?Math.round(w.data_coverage*100)+"%":"—"} · Research Only</span></div>
+    ${String(w.business_deterioration_risk||"").toUpperCase()!=="LOW"
+      ?`<div class="sr-block" style="margin-top:5px">${detBadge(w.business_deterioration_risk)}
+         <span class="dim" style="font-size:9.5px">coverage ${w.data_coverage!=null?Math.round(w.data_coverage*100)+"%":"—"}</span></div>`
+      :`<div class="eo-line" style="font-size:9.5px">coverage ${w.data_coverage!=null?Math.round(w.data_coverage*100)+"%":"—"}</div>`}
   </div>`;
 }
-function emergingSection(eo){
+function emergingSection(eo,opts){
+  opts=opts||{};
   if(!eo||!eo.present){
-    return `<div class="eo-wrap"><div class="sec-head"><h2>EMERGING OPPORTUNITIES</h2></div>
+    return `<div class="eo-wrap"><div class="sec-head"><h2>Emerging Opportunities</h2></div>
       <div class="eo-sub">Higher-risk companies showing multi-factor emergence evidence. Separate from High Conviction.</div>
       <div class="note">${eo&&eo.watch_status==="NO_EMERGING_OUTLIERS"
         ?"No emerging opportunities met the multi-factor evidence bar today.":
@@ -1020,19 +1174,20 @@ function emergingSection(eo){
   const fwd=eo.forward_validation||{};
   const watch=eo.watch||[];
   let slice, label;
-  if(EOVIEW.tier==="secondary"){slice=watch.slice(5,15);label=`Secondary Review · ${Math.min(watch.length-5,10)} of ${watch.length}`;}
+  if(opts.focus){slice=watch.slice(0,3);label=`Priority Review · Top 3 of ${watch.length}`;}
+  else if(EOVIEW.tier==="secondary"){slice=watch.slice(5,15);label=`Secondary Review · ${Math.min(watch.length-5,10)} of ${watch.length}`;}
   else if(EOVIEW.tier==="all"){slice=watch;label=`Full Emerging Set · ${watch.length}`;}
   else {slice=watch.slice(0,5);label=`Priority Review · Top 5 of ${watch.length}`;}
-  const base=EOVIEW.tier==="secondary"?6:1;
+  const base=(!opts.focus&&EOVIEW.tier==="secondary")?6:1;
   const cards=slice.length
     ?`<div class="eo-grid">${slice.map((w,i)=>eoCard(w,base+i)).join("")}</div>`
     :`<div class="note">No names in this tier.</div>`;
   const mk=(t,l)=>`<button class="eo-tier ${EOVIEW.tier===t?"on":""}" data-tier="${t}">${l}</button>`;
   return `<div class="eo-wrap">
-    <div class="sec-head"><h2>EMERGING OPPORTUNITIES</h2>
+    <div class="sec-head"><h2>Emerging Opportunities</h2>
       <span class="meta">Higher-risk · pre-profit / turnaround · separate from High Conviction</span></div>
-    <div class="eo-sub">${label} · ${watch.length} total · Forward Validation: ${fwdLabel(fwd.verdict,fwd)} · research-only, not validated alpha</div>
-    <div class="sec-ctrls">${mk("top","Top 5")}${mk("secondary","Next 10")}${mk("all","View all "+watch.length)}</div>
+    <div class="eo-sub">${label} · ${watch.length} total · Forward Validation: ${fwdLabel(fwd.verdict,fwd)} · not validated alpha</div>
+    ${opts.focus?"":`<div class="sec-ctrls">${mk("top","Top 5")}${mk("secondary","Next 10")}${mk("all","View all "+watch.length)}</div>`}
     ${cards}
   </div>`;
 }
@@ -1058,15 +1213,36 @@ function contextAlerts(mc){
   return out.join("");
 }
 
-/* ── Level 1: Market Context strip (max 6 metrics + 3 drivers) ── */
+/* ── Market Context snapshot: 4 primary states, 4 secondary reads, one
+   deterministic interpretation line (composed from existing fields only —
+   never LLM text) ── */
 function staleTag(fr){return fr&&fr.stale?` <span class="freshness-chip stale">Stale</span>`:"";}
+const REGIME_PHRASES={
+  "Chop / Range":"Range-bound market",
+  "Bull Continuation":"Trending bull market",
+  "Bull Pullback / Buy-the-Dip":"Bull market in a pullback",
+  "Risk-Off":"Risk-off market",
+  "Volatility Expansion / Stress":"Stressed high-volatility market",
+  "Bear Rally / Unstable Rebound":"Unstable rebound market",
+};
+function marketInterpretation(mc){
+  const regime=((mc.regime||{}).current)||"";
+  const hb=((mc.heartbeat||{}).label)||"";
+  const breadth=((mc.breadth||{}).state)||"";
+  if(!regime&&!hb&&!breadth) return "";
+  const bits=[REGIME_PHRASES[regime]||(regime?regime+" market":"Market state unknown")];
+  if(hb) bits.push("with "+hb.toLowerCase());
+  let line=bits.join(" ");
+  if(breadth) line+="; breadth is "+breadth.toLowerCase();
+  return line+".";
+}
 function marketContextStrip(mc){
   if(!mc||!mc.present) return "";
   const f=mc.forecast||{}, hb=mc.heartbeat||{}, fr=mc.freshness||{};
   const cell=(k,v,sub)=>`<div class="mkt-cell"><div class="k">${k}</div>
     <div class="v">${esc(v||"—")}</div>${sub?`<div class="sub">${esc(sub)}</div>`:""}</div>`;
   const fcast=`${f.bias_5d?"5d "+cap1(f.bias_5d):""}${f.bias_10d?" · 10d "+cap1(f.bias_10d):""}`;
-  const drivers=(hb.drivers||[]).slice(0,3).map(d=>`• ${esc(d)}`).join("<br>");
+  const interp=marketInterpretation(mc);
   return `<div class="mkt-strip">
     <h3>Market Context${staleTag(fr)}${fr.generated_at?` <span class="freshness-chip">Updated ${esc(fmtET(fr.generated_at))}</span>`:""}</h3>
     <div class="mkt-grid">
@@ -1074,12 +1250,16 @@ function marketContextStrip(mc){
       ${cell("Forecast",fcast||"—","Confidence: "+cap1(f.confidence))}
       ${cell("Heartbeat",hb.label)}
       ${cell("Bias",(mc.bias||{}).posture)}
+    </div>
+    <div class="mkt-grid" style="margin-top:8px">
       ${cell("Breadth",(mc.breadth||{}).state,(mc.breadth||{}).pct_above_ma20!=null?Math.round(mc.breadth.pct_above_ma20*100)+"% > 20d MA":"")}
       ${cell("Volatility",(mc.volatility||{}).state,(mc.volatility||{}).vix!=null?"VIX "+mc.volatility.vix:"")}
       ${cell("Leadership",(mc.leadership||{}).label)}
       ${cell("Weakness",((mc.leadership||{}).weak||[]).join(" · ")||"—")}
     </div>
-    ${drivers?`<div class="fit-line" style="margin-left:0;margin-top:6px">${drivers}</div>`:""}
+    ${(hb.drivers||[]).length?`<details class="prog-det" style="margin-top:6px"><summary>Heartbeat drivers</summary>
+      <div class="note" style="margin-top:4px">${(hb.drivers||[]).slice(0,5).map(esc).join(" · ")}</div></details>`:""}
+    ${interp?`<div class="interp">${esc(interp)}</div>`:""}
   </div>`;
 }
 
@@ -1107,17 +1287,43 @@ function evidenceConfidencePanel(rc){
       ${cell("Benchmarks",badge(rc.benchmark_readiness))}
     </div>
     <div class="fit-line" style="margin-left:0">${motAt?"["+esc(String(fmtET(motAt)).slice(0,10))+"] ":""}${esc(mot.reason||"")}</div>
+    <div class="interp">${esc(evidenceInterpretation(rc))}</div>
   </div>`;
 }
+/* deterministic evidence one-liner — validated edge is only claimed when a
+   program verdict literally says VALIDATED_EDGE */
+function evidenceInterpretation(rc){
+  const pv=rc.program_verdicts||{};
+  const validated=Object.entries(pv).filter(([,v])=>v==="VALIDATED_EDGE").map(([k])=>cap1(k.replace(/_/g," ")));
+  if(validated.length)
+    return `Validated forward edge in ${validated.join(", ")}; other programs are still collecting evidence.`;
+  return "Research remains in evidence-collection mode; no validated forward edge yet.";
+}
 
-/* ── Level 5: Research System Trust (max 5 visible, rest expandable) ── */
-function systemTrustPanel(st){
+/* ── System Trust snapshot (max 5 visible, rest expandable, one
+   deterministic interpretation line) ── */
+function trustInterpretation(st,rootSi){
+  const si=st.scan_integrity||{}, m=(rootSi||{}).manifest||{};
+  const readiness=String(si.readiness||"").toUpperCase();
+  const bits=[];
+  if(si.same_session_coverage_pct!=null) bits.push(si.same_session_coverage_pct+"% same-session coverage");
+  const exByReason=m.excluded_by_reason||{};
+  const excluded=Object.values(exByReason).reduce((a,b)=>a+(b||0),0);
+  const aligned=m.aligned_final_universe_count;
+  if(excluded>0) bits.push(`${excluded}${aligned?` of ${aligned+excluded}`:""} names excluded`);
+  const stats=bits.join(", ")||"no integrity stats available";
+  if(readiness==="BLOCKED") return "Blocked: today’s scan should not be trusted — "+stats+".";
+  if(readiness==="DEGRADED") return "Usable but degraded: "+stats+".";
+  if(readiness==="READY") return "Fully usable: "+stats+".";
+  return "Trust state unknown — "+stats+".";
+}
+function systemTrustPanel(st,rootSi){
   if(!st||!st.present) return "";
   const si=st.scan_integrity||{}, ov=st.options_overlay||{}, ph=st.provider_health||{}, mcp=st.mcp_state||{};
   const overall=st.overall||"UNKNOWN";
   return `<div class="trust-panel">
     <div class="trust-head">
-      <h3 style="margin:0">Research System Trust</h3>
+      <h3 style="margin:0">System Trust</h3>
       <span class="trust-${esc(overall)}" style="font-weight:700;font-size:12px">${esc(overall)}</span>
       <span class="dim" style="font-size:9.5px">operational trust — separate from investment risk</span>
     </div>
@@ -1136,10 +1342,12 @@ function systemTrustPanel(st){
       </div>
       ${ov.note?`<div class="note" style="margin-top:6px">${esc(ov.note)}</div>`:""}
     </details>
+    <div class="interp">${esc(trustInterpretation(st,rootSi))}</div>
   </div>`;
 }
 
-/* ── Level 1: Executive Research Summary ── */
+/* ── Level 1: Executive Research Summary (six values + top 3 — no warning
+   text here; caveats live in the Research Caveats drawer below) ── */
 function executiveSummary(s){
   const hc=s.high_conviction||{}, eo=s.emerging_outlier||{}, si=s.scan_integrity||{};
   const rp=s.research_programs||{};
@@ -1150,7 +1358,6 @@ function executiveSummary(s){
   Object.entries(rp.programs||{}).forEach(([pid,p])=>{
     const n=(p.n_episodes)||0; if(n>best){best=n;primary=(p.name||pid);}
   });
-  const warns=(s.warnings||[]).slice(0,2);
   const fwd=(hc.forward_validation||{}).verdict;
   // accent follows operational state: emerald only when nothing is degraded
   const trust=String((s.system_trust||{}).overall||"").toUpperCase();
@@ -1158,47 +1365,57 @@ function executiveSummary(s){
   const tone=(readiness==="BLOCKED"||trust==="BLOCKED")?"blk"
     :(readiness==="DEGRADED"||trust==="DEGRADED")?"deg":"";
   return `<div class="exec-summary ${tone}">
-    <h2>TODAY’S RESEARCH SUMMARY</h2>
+    <h2>Executive Research Summary</h2>
     <div class="exec-grid">
       <div><span class="k">Market regime</span> · <span class="v">${esc(s.market_regime||"—")}</span></div>
-      <div><span class="k">Scan integrity</span> · <span class="v">${esc(cap1(si.readiness))}</span>${si.same_session_coverage_pct!=null?` <span class="k">(${si.same_session_coverage_pct}% same-session)</span>`:""}</div>
-      <div><span class="k">High Conviction</span> · <span class="v">${(hc.counts||{}).qualified||0}</span></div>
-      <div><span class="k">Top Emerging</span> · <span class="v">${Math.min((eo.counts||{}).watch||0,5)}</span></div>
       <div><span class="k">Primary program</span> · <span class="v">${esc(primary)}</span></div>
+      <div><span class="k">High Conviction</span> · <span class="v">${(hc.counts||{}).qualified||0}</span></div>
+      <div><span class="k">Emerging</span> · <span class="v">${(eo.counts||{}).watch||0}</span></div>
       <div><span class="k">Forward validation</span> · <span class="v">${fwdLabel(fwd,hc.forward_validation)}</span></div>
     </div>
     <div class="exec-top">Top research candidates: ${top3}</div>
-    ${warns.length?`<div class="exec-warn">⚠ ${warns.map(esc).join(" · ")}</div>`:""}
   </div>`;
+}
+
+/* ── Research Caveats drawer — deterministic classification of the nightly
+   warnings plus scan-integrity causes.  Collapsed by default: only the
+   severity counts show.  Research-evidence caveats (steel) and data
+   integrity warnings (amber) never share one style. ── */
+function classifyCaveat(text){
+  const t=String(text).toLowerCase();
+  if(/recall/.test(t)) return {group:"Scanner Recall Diagnostic",kind:"caveat"};
+  if(/options overlay/.test(t)) return {group:"Optional Overlay Disabled",kind:"caveat"};
+  if(/forward|matured|evidence|verdict|re-audit/.test(t)) return {group:"Evidence Maturity",kind:"caveat"};
+  return {group:"Data Integrity",kind:"data"};
+}
+function collectCaveats(s){
+  const items=(s.warnings||[]).map(w=>({text:String(w),...classifyCaveat(w)}));
+  const si=s.scan_integrity||{};
+  if(/DEGRADED|BLOCKED/i.test(String(si.readiness||""))){
+    const cause=(si.readiness_reasons||[]).find(x=>/degraded|blocked|excluded|fail|stale|mismatch/i.test(x));
+    if(cause) items.push({text:"Scan integrity: "+cause,group:"Data Integrity",kind:"data"});
+  }
+  return items;
+}
+function researchCaveats(s){
+  const items=collectCaveats(s);
+  if(!items.length) return "";
+  const nCv=items.filter(i=>i.kind==="caveat").length;
+  const nDw=items.filter(i=>i.kind==="data").length;
+  const counts=[nCv?`<span class="cv-count">${nCv} research caveat${nCv>1?"s":""}</span>`:"",
+                nDw?`<span class="dw-count">${nDw} data warning${nDw>1?"s":""}</span>`:""]
+    .filter(Boolean).join(" · ");
+  const groups={};
+  items.forEach(i=>{(groups[i.group]=groups[i.group]||{kind:i.kind,list:[]}).list.push(i.text);});
+  const body=Object.entries(groups).map(([name,g])=>
+    `<div class="cv-group ${g.kind}"><div class="cv-title">${esc(name)}</div>
+       ${g.list.map(t=>`<div class="cv-item">${esc(t)}</div>`).join("")}</div>`).join("");
+  return `<details class="caveats"><summary>Research Caveats — ${counts}
+      <span class="dim" style="font-size:9.5px">(context on today’s evidence, not emergencies — expand for detail)</span></summary>
+    <div class="cv-body">${body}</div>
+  </details>`;
 }
 function cap1(v){if(!v)return "—";const s=String(v).toLowerCase();return s.charAt(0).toUpperCase()+s.slice(1);}
-
-/* ── single page-level scan-integrity banner ── */
-function integrityBanner(si){
-  if(!si) return "";
-  const r=String(si.readiness||"").toUpperCase();
-  const cls=r==="BLOCKED"?"blk":r==="DEGRADED"?"deg":"";
-  const bits=[];
-  if(si.same_session_coverage_pct!=null) bits.push(`${si.same_session_coverage_pct}% same-session coverage`);
-  if(si.benchmarks_aligned===true) bits.push("benchmarks aligned");
-  if((si.session_mismatch_excluded||0)>0) bits.push(`${si.session_mismatch_excluded} names excluded`);
-  // When the scan is not READY, the CAUSE must be visible in the banner
-  // itself — not only the reassuring stats.  readiness_reasons carries the
-  // failing condition (e.g. manifest exclusions); show the non-healthy one.
-  let cause="";
-  if(cls){
-    const reasons=(si.readiness_reasons||[]).filter(x=>/degraded|blocked|excluded|fail|stale|mismatch/i.test(x));
-    cause=reasons[0]||"";
-  }
-  return `<div class="integrity-banner ${cls}">
-    <span class="lbl">Scan Integrity: ${cap1(si.readiness)||"Unknown"}</span>
-    ${cause?`<span style="color:var(--amber)">${esc(cause)}</span>`:""}
-    <span class="dim">${bits.map(esc).join(" · ")||"—"}</span>
-    <details style="font-size:10px"><summary style="cursor:pointer;color:var(--dim)">details</summary>
-      <div class="note" style="margin-top:4px">Required session ${esc(si.required_market_session||"?")} · coverage ${si.universe_coverage_pct!=null?si.universe_coverage_pct+"%":"—"}${(si.readiness_reasons||[]).length?" · "+si.readiness_reasons.map(esc).join(" · "):""} · this is an operational warning, not a candidate risk score.</div>
-    </details>
-  </div>`;
-}
 
 /* ── Level 3: compact program summary cards (top 3, one diagnostic line) ── */
 function programSummaryCard(pid,p,ls){
@@ -1255,12 +1472,31 @@ function renderHome(){
     .filter(pid=>(rp.programs||{})[pid])
     .map(pid=>programSummaryCard(pid,rp.programs[pid],ls)).join("")
     ||`<div class="note">No program validation yet — run ./scripts/run_research_cycle.sh research-programs</div>`;
-  $("#workspace").innerHTML=`
-    <!-- Level 1 — Executive Research Summary + Market Context -->
-    ${executiveSummary(s)}
-    ${integrityBanner(s.scan_integrity)}
-    ${contextAlerts(s.market_context)}
+  // Snapshot row — Market Context · Evidence & Confidence · System Trust
+  const snapshots=`<div class="snap-row">
     ${marketContextStrip(s.market_context)}
+    ${evidenceConfidencePanel(s.research_confidence)}
+    ${systemTrustPanel(s.system_trust,s.scan_integrity)}
+  </div>`;
+  // ── Focus Mode: daily-review view — priority content only (presentation
+  // toggle; nothing is recomputed, Full Mode exposes everything again) ──
+  if(UIVIEW.focus){
+    $("#workspace").innerHTML=`
+      ${executiveSummary(s)}
+      ${contextAlerts(s.market_context)}
+      ${snapshots}
+      ${highConvictionSection(s.high_conviction,{focus:true})}
+      ${emergingSection(s.emerging_outlier,{focus:true})}
+      <div class="page-note">Focus mode — showing priority research content only. Use the Focus mode button above to return to Full mode. All candidates are research-only.</div>`;
+    wireDecisionControls();
+    return;
+  }
+  $("#workspace").innerHTML=`
+    <!-- Level 1 — Executive Research Summary + caveats + snapshots -->
+    ${executiveSummary(s)}
+    ${researchCaveats(s)}
+    ${contextAlerts(s.market_context)}
+    ${snapshots}
     <div class="page-note">All candidates are research-only. Forward evidence is unvalidated unless otherwise stated.</div>
 
     <!-- Level 2 — Today's Best Research -->
@@ -1268,18 +1504,12 @@ function renderHome(){
     ${emergingSection(s.emerging_outlier)}
     ${extendedSection(s.high_conviction)}
 
-    <!-- Level 3 — Evidence & Confidence -->
-    ${evidenceConfidencePanel(s.research_confidence)}
-
     <!-- Research Programs (compact) -->
     <h2 class="pg" style="margin-top:6px">Research Programs</h2>
     <div class="prog-summary">${progCards}</div>
     <details class="prog-det" style="margin-bottom:14px"><summary>Full program detail (Tactical / Swing / Long-Term)</summary>
       <div class="cards" style="margin-top:8px">${researchProgramsSection(s.research_programs, s.latest_research_scan)}</div>
     </details>
-
-    <!-- Level 5 — Research System Trust -->
-    ${systemTrustPanel(s.system_trust)}
 
     <!-- Scanner internals & operations -->
     <h2 class="pg" style="margin-top:6px">Scanner Internals &amp; Operations</h2>
@@ -1328,8 +1558,13 @@ function renderHome(){
 }
 
 function wireDecisionControls(){
-  // presentation-only view state for the decision-support sections
-  document.querySelectorAll(".hc-cap").forEach(b=>b.onclick=()=>{HCVIEW.cap=Number(b.dataset.cap);renderHome();});
+  // presentation-only view state for the decision-support sections —
+  // handlers mutate UIVIEW/HCVIEW and re-render; artifacts are never touched
+  document.querySelectorAll(".hc-cap").forEach(b=>b.onclick=()=>{HCVIEW.cap=Number(b.dataset.cap);persistView();renderHome();});
+  document.querySelectorAll(".hc-prog").forEach(b=>b.onclick=()=>{HCVIEW.program=b.dataset.prog;persistView();renderHome();});
+  document.querySelectorAll(".hc-cls").forEach(b=>b.onclick=()=>{HCVIEW.cls=b.dataset.cls;persistView();renderHome();});
+  document.querySelectorAll(".hc-view").forEach(b=>b.onclick=()=>{HCVIEW.view=b.dataset.view;persistView();renderHome();});
+  document.querySelectorAll(".hc-fit").forEach(b=>b.onclick=()=>{HCVIEW.neutralFit=!HCVIEW.neutralFit;persistView();renderHome();});
   document.querySelectorAll(".eo-tier").forEach(b=>b.onclick=()=>{EOVIEW.tier=b.dataset.tier;renderHome();});
   document.querySelectorAll(".ext-all").forEach(b=>b.onclick=()=>{EXTVIEW.cap=EXTVIEW.cap>=99999?5:99999;renderHome();});
   document.querySelectorAll(".psum .lnk").forEach(l=>l.onclick=()=>openPage("board"));

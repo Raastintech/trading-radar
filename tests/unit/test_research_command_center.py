@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -466,8 +467,9 @@ def test_home_has_summary_cards():
         assert card_title in html, card_title
     # quick-action navigation cards
     assert "actionCard(" in html
-    # Level 1 executive summary is present
-    assert "executiveSummary" in html and "RESEARCH SUMMARY" in html
+    # Level 1 executive summary is present (title case, not shouting)
+    assert "executiveSummary" in html
+    assert "Executive Research Summary" in html
 
 
 def test_leaderboard_terminal_features():
@@ -543,20 +545,28 @@ def test_status_exposes_home_card_fields(fixture_store):
 
 
 def test_badge_system_covers_key_statuses():
-    """Consistent pill badges exist and the mapping covers the key states.
-    Phase 4B BLOCKED must map amber (safety gate), never red."""
+    """Consistent pill badges exist and the mapping covers the key states,
+    with system/data problems (amber) separated from research-evidence
+    caveats (steel).  Phase 4B BLOCKED must map amber (safety gate), never
+    red — and evidence states must never look like system emergencies."""
     html = _INDEX_HTML.read_text(encoding="utf-8")
-    for cls in (".bdg.g", ".bdg.a", ".bdg.r", ".bdg.n"):
+    for cls in (".bdg.g", ".bdg.a", ".bdg.s", ".bdg.r", ".bdg.n"):
         assert cls in html, cls
     assert "badgeClass" in html and "function badge(" in html
     green = html.split("BADGE_GREEN=")[1].split(";")[0]
     amber = html.split("BADGE_AMBER=")[1].split(";")[0]
+    caveat = html.split("BADGE_CAVEAT=")[1].split(";")[0]
     red = html.split("BADGE_RED=")[1].split(";")[0]
     for v in ("PASS", "READY", "FRESH", "RESEARCH_ONLY"):
         assert f'"{v}"' in green, v
-    for v in ("BLOCKED", "NEED_MORE_DATA", "INCONCLUSIVE", "MIXED", "PARTIAL",
-              "STALE", "DATA_QUARANTINE", "IMMATURE_FORWARD_EVIDENCE"):
+    # system/data integrity states stay amber (incl. the Phase 4B gate)
+    for v in ("BLOCKED", "STALE", "DATA_QUARANTINE", "DEGRADED", "SUSPECT"):
         assert f'"{v}"' in amber, v
+    # research-evidence caveats render steel, not amber
+    for v in ("NEED_MORE_DATA", "INCONCLUSIVE", "MIXED", "PARTIAL",
+              "IMMATURE_FORWARD_EVIDENCE", "TOO_EARLY"):
+        assert f'"{v}"' in caveat, v
+        assert f'"{v}"' not in amber, f"{v} must not be amber"
     assert '"BLOCKED"' not in red  # gate, not failure
     for v in ("FAIL", "MISSING", "ERROR"):
         assert f'"{v}"' in red, v
@@ -608,16 +618,26 @@ def test_phase_badges_muted():
     assert "var(--dim)" in ph_css and "var(--amber)" not in ph_css
 
 
-def test_header_two_row_grouping_keeps_safety_chips():
+def test_header_status_strip_six_primary_plus_drawer():
+    """Research System Status strip: one overall state, at most six primary
+    values, and every demoted diagnostic (matured counts, skip counters,
+    quarantine) preserved inside the expandable diagnostics drawer."""
     html = _INDEX_HTML.read_text(encoding="utf-8")
-    # primary row keeps every safety-critical metric as a status pill
+    assert 'class="status-strip"' in html
+    assert "overallSystemState" in html
+    # exactly the six agreed primary fields — no more
     primary = html.split("const primary=[")[1].split("];")[0]
-    for label in ('"Mode"', '"Nightly"', '"Phase 4B"', '"Verdict"',
-                  '"Matured 5d"', '"Matured 10d"', '"Benchmarks"'):
+    assert primary.count("item(") <= 6
+    for label in ('"Mode"', '"Research state"', '"Scan integrity"',
+                  '"Benchmarks"', '"Regime"', '"Forward validation"'):
         assert label in primary, label
-    # data row is grouped under a section label in the pill grid
-    assert 'class="grp-label">Data<' in html
-    assert "status-grid" in html
+    # lower-level diagnostics are demoted into the drawer, never deleted
+    drawer = html.split("const diag=[")[1].split("];")[0]
+    for label in ('"Nightly"', '"Phase 4B"', '"Tracker verdict"',
+                  '"Matured 5d"', '"Matured 10d"', '"Total tracked"',
+                  '"Stale skipped"', '"Suspect skipped"', '"Quarantine"'):
+        assert label in drawer, label
+    assert "diag-drawer" in html and "status-grid" in html
 
 
 def test_home_reason_renders_as_note_block():
@@ -1361,3 +1381,135 @@ def test_server_serves_api_and_rejects_writes(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+# ── Presentation refinement: research-cockpit pass (2026-07-16) ──────────────
+# All string-based checks on the static page: the refactor is presentation
+# only — scanner logic, scores, rankings, routing, and canonical enums are
+# produced upstream and merely rendered here.
+
+
+def test_severity_token_ladder_defined():
+    """Distinct severity CSS tokens: critical red, degraded amber, research
+    caveat steel, informational slate, good green — no single warning color."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for tok in ("--sev-critical:", "--sev-degraded:", "--sev-caveat:",
+                "--sev-info:", "--sev-good:"):
+        assert tok in html, tok
+    # bright retail amber is retired from the base token
+    assert "--amber:#f59e0b" not in html
+
+
+def test_research_caveats_drawer_collapsed_by_default():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'class="caveats"' in html
+    # collapsed: the <details> is emitted without an open attribute
+    assert '<details class="caveats" open' not in html
+    assert "researchCaveats" in html and "classifyCaveat" in html
+    # count line shows severity split before expanding
+    assert "research caveat" in html and "data warning" in html
+    # groups separate evidence caveats from data problems
+    for grp in ("Scanner Recall Diagnostic", "Optional Overlay Disabled",
+                "Evidence Maturity", "Data Integrity"):
+        assert grp in html, grp
+
+
+def test_market_context_snapshot_interpretation_deterministic():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "marketInterpretation" in html and "REGIME_PHRASES" in html
+    # composed from engine fields only — the function body never calls out
+    body = html.split("function marketInterpretation")[1].split("function ")[0]
+    for forbidden in ("fetch(", "llm", "LLM"):
+        assert forbidden not in body, forbidden
+    # panel-level interpretation lines exist for the other snapshots too
+    for fn in ("evidenceInterpretation", "trustInterpretation",
+               "hcInterpretation"):
+        assert fn in html, fn
+    assert 'class="interp"' in html
+
+
+def test_hc_grid_three_two_one_responsive():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert ".hc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))" in html
+    assert "@media(max-width:1500px){.hc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}" in html
+    assert "@media(max-width:900px){.hc-grid{grid-template-columns:1fr}}" in html
+    # cards never stretch past readable width
+    assert "max-width:560px" in html
+
+
+def test_hc_card_neutral_market_fit_hidden_by_default():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "marketFitBadge" in html
+    body = html.split("function marketFitBadge")[1].split("function ")[0]
+    # neutral renders nothing unless the operator opts in
+    assert 'fit.state==="neutral"' in body
+    assert "HCVIEW.neutralFit" in body
+    # aligned / conflicted render as small badges
+    assert "fit-bdg" in html and ".fit-bdg.aligned" in html \
+        and ".fit-bdg.conflict" in html
+
+
+def test_hc_card_interactions_are_view_state_only():
+    """Program / tier filters, compact-detailed toggle, and caps mutate
+    UIVIEW/HCVIEW and re-render — never fetch or write."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for ctl in ("hc-prog", "hc-cls", "hc-view", "hc-fit", "hc-cap"):
+        assert ctl in html, ctl
+    start = html.index("function wireDecisionControls")
+    body = html[start:html.index("function", start + 1)]
+    assert "renderHome()" in body
+    for forbidden in ("fetch(", "POST", "XMLHttpRequest"):
+        assert forbidden not in body, forbidden
+    # filtering hides cards but never reorders the canonical shortlist
+    assert "hcFiltered" in html
+    filt = html.split("function hcFiltered")[1].split("function ")[0]
+    assert ".sort(" not in filt
+
+
+def test_focus_mode_priority_content_only():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'id="focus-toggle"' in html and "UIVIEW.focus" in html
+    focus = html.split("if(UIVIEW.focus){")[1].split("return;")[0]
+    # focus shows: summary, alerts, snapshots, top-3 HC, top-3 emerging
+    for keep in ("executiveSummary", "contextAlerts", "snapshots",
+                 "highConvictionSection(s.high_conviction,{focus:true})",
+                 "emergingSection(s.emerging_outlier,{focus:true})"):
+        assert keep in focus, keep
+    # and hides the deep-dive sections
+    for hidden in ("researchCaveats", "programSummaryCard", "Scanner Internals",
+                   "extendedSection", "actionCard"):
+        assert hidden not in focus, hidden
+    # focus caps both lanes at the top 3
+    assert "slice(0,opts.focus?3:HCVIEW.cap)" in html
+    assert "watch.slice(0,3)" in html
+
+
+def test_no_visible_dead_horse_wording():
+    """The payload key dead_horse_risk is canonical and may be referenced in
+    code, but no user-visible label may say 'dead horse'."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    visible = re.sub(r"dead_horse_\w+", "", html)  # strip canonical key refs
+    assert "dead horse" not in visible.lower()
+    assert "Business Deterioration" in html
+
+
+def test_snapshot_row_groups_context_evidence_trust():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert 'class="snap-row"' in html
+    row = html.split('const snapshots=`<div class="snap-row">')[1].split("`;")[0]
+    for panel in ("marketContextStrip", "evidenceConfidencePanel",
+                  "systemTrustPanel"):
+        assert panel in row, panel
+
+
+def test_section_headers_not_shouting():
+    """Section titles use title case; the old all-caps headers are gone."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for old in ("HIGH-CONVICTION ALPHA", "EMERGING OPPORTUNITIES",
+                "STRONG PROFILES — WAIT FOR RESET", "TODAY’S RESEARCH SUMMARY",
+                "DID NOT QUALIFY"):
+        assert old not in html, old
+    for new in ("High-Conviction Alpha", "Emerging Opportunities",
+                "Strong Profiles — Wait for Reset",
+                "Executive Research Summary", "Did not qualify"):
+        assert new in html, new
