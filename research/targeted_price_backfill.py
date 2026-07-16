@@ -359,6 +359,7 @@ def build_plan(
     priority_only: bool = False,
     include_quarantine: bool = True,
     force_refresh: bool = False,
+    tickers: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Build a backfill plan without making provider calls.
@@ -371,8 +372,15 @@ def build_plan(
         include_quarantine=include_quarantine,
     )
 
-    # Apply candidate limit
-    candidates = all_candidates[:limit] if limit > 0 else all_candidates
+    if tickers:
+        explicit = [t.strip().upper() for t in tickers if t.strip()]
+        explicit = [t for t in explicit if not _is_invalid(t)]
+        for t in explicit:
+            ticker_source.setdefault(t, "explicit")
+        candidates = explicit
+    else:
+        # Apply candidate limit
+        candidates = all_candidates[:limit] if limit > 0 else all_candidates
 
     plan_entries: List[Dict[str, Any]] = []
     selected: List[str] = []
@@ -438,6 +446,7 @@ def build_plan(
             "priority_only": priority_only,
             "include_quarantine": include_quarantine,
             "force_refresh": force_refresh,
+            "explicit_tickers": sorted(candidates) if tickers else None,
         },
         "candidate_sources": [
             "daily_alpha_radar_latest.json",
@@ -591,6 +600,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
                     help="Exclude DATA_QUARANTINE tickers")
     ap.add_argument("--force-refresh", action="store_true", default=False,
                     help="Re-fetch even if deep parquet is recent")
+    ap.add_argument("--tickers", nargs="+", default=None, metavar="TICKER",
+                    help="Restrict the plan to these tickers only (bypasses "
+                         "candidate collection and --limit; still honors "
+                         "skip rules unless --force-refresh)")
     ap.add_argument("--json-out", type=str, default=None,
                     help="Custom JSON output path (overrides default)")
     ap.add_argument("--text-out", type=str, default=None,
@@ -624,6 +637,7 @@ def main(argv=None) -> int:
         priority_only=args.priority_only,
         include_quarantine=args.include_quarantine,
         force_refresh=args.force_refresh,
+        tickers=args.tickers,
     )
 
     if not dry_run:

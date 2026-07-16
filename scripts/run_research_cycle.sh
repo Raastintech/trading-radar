@@ -1449,6 +1449,20 @@ cmd_research_programs() {
         "$PY" research/research_programs.py "$@"
 }
 
+cmd_forward_milestones() {
+    # Forward-evidence re-audit hook (LLM audit task 52439f07a3b5).
+    # Cache-only, cred-free: reads the forward tracker + high-conviction
+    # forward sidecars, detects maturity milestone crossings (first 20d
+    # cohort; shortlist 10d episodes >= verdict floor) against a
+    # write-once state file, and flags RE-AUDIT DUE in
+    # cache/research/forward_evidence_milestones_latest.json for the
+    # digest + journal audit to consume on the same cycle.  Changes no
+    # verdict, gate, or ranking; nothing auto-executes.
+    log "[CACHE] forward-evidence milestones (re-audit hook)"
+    run_or_warn "forward-evidence milestones" \
+        "$PY" research/forward_evidence_milestones.py "$@"
+}
+
 cmd_feedback_queue_review() {
     # Feedback queue review — consumer side of the journal audit.  Cache-
     # only, cred-free session-start summary of the LLM audit's queued
@@ -1699,6 +1713,11 @@ cmd_nightly() {
     # summary / digest can surface both.
     cmd_emerging_outlier
     cmd_high_conviction_filter_audit
+    # Forward-evidence re-audit hook — after the forward tracker and the
+    # high-conviction forward validation (its two inputs), before the
+    # summary/digest/audit so a milestone crossing surfaces as RE-AUDIT DUE
+    # on the same nightly the sample matures.
+    cmd_forward_milestones
     # Nightly Operator Summary — runs LAST so it reads every sidecar the
     # nightly cycle just refreshed.  Cache-only; no provider calls.
     # No strategy abbreviations or trade language in output.
@@ -1850,6 +1869,7 @@ case "$SUB" in
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
+    forward-milestones)        cmd_forward_milestones         "${POS[@]}" ;;
     latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
     high-conviction-alpha)     cmd_high_conviction_alpha      "${POS[@]}" ;;
     emerging-outlier)          cmd_emerging_outlier           "${POS[@]}" ;;

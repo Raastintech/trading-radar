@@ -128,6 +128,10 @@ class ArtifactStore:
         return self.research_dir / "high_conviction_forward_latest.json"
 
     @property
+    def forward_milestones_json(self) -> Path:
+        return self.research_dir / "forward_evidence_milestones_latest.json"
+
+    @property
     def high_conviction_history_jsonl(self) -> Path:
         return self.root / "data" / "research" / "high_conviction_history.jsonl"
 

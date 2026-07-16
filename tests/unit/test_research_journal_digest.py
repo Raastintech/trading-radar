@@ -639,3 +639,41 @@ def test_scanner_section_declares_recall_diagnostics(fixture_root):
 def test_no_recall_sidecar_adds_no_declaration(fixture_root):
     note = _note(fixture_root)
     assert "scanner-recall diagnostics report" not in note
+
+
+def test_tier_tagged_separates_unprofitable_names(monkeypatch):
+    """Task 6f8b80c8e077: high-priority / top-research lists carry a
+    fundamental-quality tier tag for names below PROFITABLE_CASHGEN."""
+    import dashboards.research_command_center.journal_digest as jd
+    fundamentals = {
+        "BAX": {"quality_label": "UNPROFITABLE_FUNDED"},
+        "FBIN": {"quality_label": "PROFITABLE_CASHGEN"},
+        "UNK": {"quality_label": "UNKNOWN"},
+        "MISS": {"fallback": True, "quality_label": "UNKNOWN"},
+    }
+    monkeypatch.setattr(jd, "build_fundamentals",
+                        lambda t, store: fundamentals.get(t, {"fallback": True}))
+    tagged = jd._tier_tagged(["BAX", "FBIN", "UNK", "MISS"], object())
+    assert tagged == ["BAX (UNPROFITABLE_FUNDED)", "FBIN", "UNK", "MISS"]
+    # no store -> untagged passthrough, never crashes
+    assert jd._tier_tagged(["BAX"], None) == ["BAX"]
+
+
+def test_scanner_section_lists_carry_tier_tags(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    monkeypatch.setattr(jd, "build_fundamentals", lambda t, store: {
+        "quality_label": ("UNPROFITABLE_FUNDED" if t == "AVTR"
+                          else "PROFITABLE_CASHGEN")})
+    inputs = {
+        "radar": {"priority_tickers": {"HIGH_PRIORITY_RESEARCH": ["AVTR", "FBIN"]}},
+        "summary": {},
+        "scanner": {},
+        "store": object(),
+        "recall_diagnostics": None,
+    }
+    lines = jd._section_scanner(inputs, ["AVTR", "FBIN"], [])
+    high_line = next(l for l in lines if l.startswith("- High-priority:"))
+    top_line = next(l for l in lines if l.startswith("- Top research names:"))
+    assert "AVTR (UNPROFITABLE_FUNDED)" in high_line
+    assert "FBIN" in high_line and "FBIN (" not in high_line
+    assert "AVTR (UNPROFITABLE_FUNDED)" in top_line

@@ -102,6 +102,12 @@ def run() -> Dict:
 def _disclosures(trace: Dict) -> List[str]:
     ts = trace["summary"]
     return [
+        "Winner recall traces the COUNCIL FUNNEL DB stages (scan_results / veto_log / "
+        "decisions), all frozen since the 2026-06-13 decommission — the headline recall "
+        "decays toward 0% mechanically as winner windows pass the last DB writes and "
+        "does NOT measure the live research board (verified 2026-07-16: the research "
+        "watchlist history caught 137/237 ≥80% winners at least once). Live-board "
+        "recall is the prospective scanner-recall cohorts tracker.",
         "Alpha board+overlay are historized via research_delta since ~2026-05-20 "
         "(~6 days); per-ticker Stock Lens + Gatekeeper were NOT — funnel_historizer.py "
         "now closes that gap for FUTURE autopsies.",
@@ -202,12 +208,20 @@ def _summary(review: Dict) -> Dict:
     return {
         "generated_at": review["generated_at"],
         "winner_recall_pct": h["winner_recall_pct"],
+        # The recall above traces winners through the COUNCIL FUNNEL DB stages
+        # (scan_results / veto_log / decisions), which stopped logging at the
+        # 2026-06-13 decommission — so it decays toward 0% mechanically as
+        # winner windows move past the last DB writes.  It is an autopsy of
+        # the dead funnel, NOT a measurement of the live research board;
+        # live-board recall accrues in scanner_recall_cohorts_latest.json.
+        "measured_pipeline": "decommissioned_council_funnel_autopsy",
         "late_detection": ts["by_detection_timing"]["late"],
         "blind_misses": ts["by_detection_timing"]["blind"],
         "n_winners_ge_80pct": h["n_winners_ge_80pct"],
         "main_failure": h["main_root_cause"],
         "best_simple_baseline_recall_pct": h["best_simple_baseline_recall_pct"],
-        "one_liner": (f"Scanner Truth: recall {h['winner_recall_pct']}% · "
+        "one_liner": (f"Scanner Truth (legacy-funnel autopsy): recall "
+                      f"{h['winner_recall_pct']}% · "
                       f"main miss {h['main_root_cause']} · "
                       f"simple-RS baseline {h['best_simple_baseline_recall_pct']}%"),
     }

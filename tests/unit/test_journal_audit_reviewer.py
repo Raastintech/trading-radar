@@ -1095,3 +1095,11 @@ def test_missing_recall_declaration_keeps_p0_action():
     audit = jar.audit_daily_digest(digest, use_llm=False)
     assert [a for a in audit["next_system_actions"]
             if a["area"] == "scanner_recall"]
+
+
+def test_parse_ticker_list_strips_tier_annotations():
+    """Digest name lists may carry '(QUALITY_TIER)' suffixes — the parser
+    must keep the ticker instead of dropping the token."""
+    raw = ("FRMM (UNPROFITABLE_FUNDED), ADP, HOOD, "
+           "BAX (UNPROFITABLE_FUNDED) (+2 more)")
+    assert jar._parse_ticker_list(raw) == ["FRMM", "ADP", "HOOD", "BAX"]

@@ -113,6 +113,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     filter_audit = _load_json(store.filter_audit_json)
     options_coverage = _load_json(store.options_coverage_json)
     recall_diagnostics = _load_json(store.scanner_recall_diagnostics_json)
+    forward_milestones = _load_json(store.forward_milestones_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -146,6 +147,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "filter_audit": filter_audit,
         "options_coverage": options_coverage,
         "recall_diagnostics": recall_diagnostics,
+        "forward_milestones": forward_milestones,
         "missing": missing,
     }
 
@@ -390,6 +392,27 @@ def _options_overlay_line(inputs: Dict[str, Any]) -> str:
     return line
 
 
+def _tier_tagged(tickers: List[str], store) -> List[str]:
+    """Suffix names whose fundamental tier is below PROFITABLE_CASHGEN so
+    review order is visible in the name lists themselves.  Display only —
+    no score, ranking, or scanner behavior reads this."""
+    if store is None:
+        return list(tickers)
+    out = []
+    for t in tickers:
+        tag = None
+        try:
+            f = build_fundamentals(t, store)
+            label = f.get("quality_label")
+            if (not f.get("fallback") and label
+                    and label not in ("PROFITABLE_CASHGEN", "UNKNOWN")):
+                tag = label
+        except Exception:
+            tag = None
+        out.append(f"{t} ({tag})" if tag else str(t))
+    return out
+
+
 def _section_scanner(inputs: Dict[str, Any], top: List[str],
                      reset_reclaim: List[str]) -> List[str]:
     radar = inputs["radar"] or {}
@@ -403,14 +426,15 @@ def _section_scanner(inputs: Dict[str, Any], top: List[str],
     quarantine = (counts.get("DATA_QUARANTINE")
                   if counts.get("DATA_QUARANTINE") is not None
                   else alpha.get("data_quarantine_count"))
+    store = inputs.get("store")
     lines = [
         "## 2. Scanner / Why Names Appeared",
         f"- Total candidates: {_fmt(radar.get('total_candidates') or scanner.get('watchlist_size'))}",
-        f"- High-priority: {_join(high)}",
+        f"- High-priority: {_join(_tier_tagged(high, store))}",
         f"- Reset/reclaim watch: {_join(reset_reclaim)}",
         f"- Extended/crowded: {_fmt(counts.get('EXTENDED_CROWDED') or alpha.get('extended_crowded_count'))}"
         f" | data quarantine / young listing: {_fmt(quarantine)}",
-        f"- Top research names: {_join(top)}",
+        f"- Top research names: {_join(_tier_tagged(top, store))}",
     ]
     by_ticker = {str(w.get("ticker") or "").upper(): w
                  for w in scanner.get("watchlist") or []}
@@ -674,6 +698,31 @@ def _section_forward(inputs: Dict[str, Any]) -> List[str]:
         f"- Post-fix evidence: {post_fix}",
     ]
     lines += _maturity_eta_lines(inputs)
+    lines += _milestone_lines(inputs)
+    return lines
+
+
+def _milestone_lines(inputs: Dict[str, Any]) -> List[str]:
+    """Forward-evidence re-audit hook readout.  On the crossing date the
+    line leads with RE-AUDIT DUE so the nightly audit re-examines the
+    forward verdicts with the newly matured sample; afterwards the
+    crossing stays visible as a dated fact."""
+    fm = inputs.get("forward_milestones")
+    if not fm:
+        return []
+    lines: List[str] = []
+    due = set(fm.get("reaudit_due_for") or [])
+    for m in fm.get("milestones") or []:
+        if not m.get("crossed"):
+            continue
+        label = m.get("label") or m.get("id")
+        detail = f"{label} (value {m.get('value')}, crossed {m.get('crossed_at')})"
+        if m.get("id") in due:
+            lines.append(f"- RE-AUDIT DUE — forward-evidence milestone crossed "
+                         f"today: {detail} — re-examine tracker / program / "
+                         "shortlist verdicts against the newly matured sample")
+        else:
+            lines.append(f"- Forward-evidence milestone: {detail}")
     return lines
 
 

@@ -192,10 +192,11 @@ PROGRAM_VERDICTS = ("VALIDATED_EDGE", "PROMISING_BUT_UNPROVEN",
 
 def _parse_ticker_list(raw: str) -> List[str]:
     """Comma-separated tickers from a digest line; '(+N more)' and
-    non-ticker tokens are dropped."""
+    non-ticker tokens are dropped.  A trailing '(QUALITY_TIER)' annotation
+    (e.g. 'FRMM (UNPROFITABLE_FUNDED)') is stripped, keeping the ticker."""
     out: List[str] = []
     for token in re.sub(r"\(\+\d+\s+more\)", "", raw or "").split(","):
-        token = token.strip()
+        token = re.sub(r"\s*\([A-Z_]+\)$", "", token.strip())
         if token and re.fullmatch(_TICKER, token) and token not in out:
             out.append(token)
     return out
@@ -470,6 +471,10 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         # actionable; a RESULT line ("Backfill: N succeeded") is not.
         "backfill_plan_pending": bool(
             re.search(r"backfill plan:\s*\d+\s+tickers?\s+need", lower)),
+        # Forward-evidence milestone hook fired: a maturity threshold was
+        # crossed today, so the forward verdicts must be re-examined
+        # against the newly matured sample.
+        "forward_reaudit_due": "re-audit due" in lower,
     }
 
 
@@ -1135,6 +1140,22 @@ def build_next_system_actions(
             "median/average forward return, and post-selection max "
             "drawdown at 5d/10d/20d, split into high-priority vs "
             "watch-only cohorts."))
+
+    # P0 — forward-evidence milestone crossed today (re-audit hook fired):
+    # the verdicts on file were computed before this sample existed.
+    if signals.get("forward_reaudit_due"):
+        actions.append(_action(
+            "P0", "forward_evidence",
+            "Re-examine the forward-evidence verdicts against the newly "
+            "matured sample: re-read the tracker, research-program, and "
+            "high-conviction shortlist verdicts produced this cycle and "
+            "state whether each changed, stayed, or needs more data. "
+            "Do not change any gate or ranking from this re-read alone.",
+            "A maturity milestone crossed today (RE-AUDIT DUE in the "
+            "digest) — prior verdicts predate the sample that just "
+            "matured.",
+            "The audit records a per-verdict re-read (tracker / programs "
+            "/ shortlist) dated on or after the milestone crossing."))
 
     # P0 — 20d matured horizon missing from current artifacts
     if signals.get("matured_20d_missing"):

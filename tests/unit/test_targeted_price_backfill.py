@@ -368,3 +368,40 @@ def test_no_execution_imports():
     src = Path(ROOT / "research" / "targeted_price_backfill.py").read_text()
     for sym in forbidden:
         assert sym not in src, f"Forbidden symbol '{sym}' found in targeted_price_backfill.py"
+
+
+# ── Test 12: Explicit --tickers restriction ──────────────────────────────────
+
+def test_explicit_tickers_restrict_plan():
+    """build_plan(tickers=[...]) plans exactly those tickers, ignoring the
+    collected candidate pool and --limit, and tags unknown sources 'explicit'."""
+    with (
+        patch.object(mod, "_load_json", return_value=None),
+        patch.object(mod, "_bar_count", return_value=(150, "deep")),
+        patch.object(mod, "_recently_refreshed", return_value=False),
+        patch.object(mod, "_young_listing_tickers", return_value=set()),
+        patch.object(mod, "collect_and_dedupe",
+                     return_value=(["POOL1", "POOL2"], {"POOL1": "test"}, [])),
+    ):
+        plan = mod.build_plan(min_bars=300, limit=1, max_provider_calls=25,
+                              tickers=["navn", " blln "])
+    tickers = [e["ticker"] for e in plan["entries"]]
+    assert tickers == ["NAVN", "BLLN"]
+    assert plan["params"]["explicit_tickers"] == ["BLLN", "NAVN"]
+    sources = {e["ticker"]: e["source"] for e in plan["entries"]}
+    assert sources["NAVN"] == "explicit"
+    assert plan["selected_for_backfill"] == 2
+
+
+def test_explicit_tickers_drop_invalid_symbols():
+    """Benchmarks and blanks are rejected even when passed explicitly."""
+    with (
+        patch.object(mod, "_load_json", return_value=None),
+        patch.object(mod, "_bar_count", return_value=(150, "deep")),
+        patch.object(mod, "_recently_refreshed", return_value=False),
+        patch.object(mod, "_young_listing_tickers", return_value=set()),
+        patch.object(mod, "collect_and_dedupe", return_value=([], {}, [])),
+    ):
+        plan = mod.build_plan(min_bars=300, tickers=["GOOD", "SPY", ""])
+    tickers = [e["ticker"] for e in plan["entries"]]
+    assert tickers == ["GOOD"]

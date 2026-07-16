@@ -355,6 +355,19 @@ def test_warnings_scanner_recall_low():
     assert len(recall_warn) >= 1
 
 
+def test_warnings_scanner_recall_labeled_as_legacy_funnel():
+    """The scanner-truth recall traces the decommissioned council funnel —
+    the warning must say so instead of presenting it as live-board recall."""
+    sidecars = _make_sidecars()
+    ctx = _build_market_context(sidecars["forecast"])
+    snap = _build_alpha_snapshot(sidecars["alpha_radar"], sidecars["scanner"])
+    fwd = _build_forward_evidence(sidecars["forward"])
+    warns = _build_warnings(sidecars, ctx, fwd, snap)
+    recall_warn = [w for w in warns if "recall" in w.lower()]
+    assert recall_warn and "Legacy council-funnel recall" in recall_warn[0]
+    assert "decommissioned" in recall_warn[0]
+
+
 def test_warnings_forward_immature():
     sidecars = _make_sidecars()
     ctx = _build_market_context(sidecars["forecast"])
