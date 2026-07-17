@@ -1406,11 +1406,12 @@ def test_research_caveats_drawer_collapsed_by_default():
     # collapsed: the <details> is emitted without an open attribute
     assert '<details class="caveats" open' not in html
     assert "researchCaveats" in html and "classifyCaveat" in html
-    # count line shows severity split before expanding
-    assert "research caveat" in html and "data warning" in html
-    # groups separate evidence caveats from data problems
-    for grp in ("Scanner Recall Diagnostic", "Optional Overlay Disabled",
-                "Evidence Maturity", "Data Integrity"):
+    # count line shows the three-way severity split before expanding
+    assert "Research caveats:" in html and "Data warnings:" in html \
+        and "Optional overlays disabled:" in html
+    # groups separate evidence caveats / recall / overlay / data coverage
+    for grp in ("Scanner recall", "Options overlay",
+                "Evidence maturity", "Data coverage"):
         assert grp in html, grp
 
 
@@ -1513,3 +1514,74 @@ def test_section_headers_not_shouting():
                 "Strong Profiles — Wait for Reset",
                 "Executive Research Summary", "Did not qualify"):
         assert new in html, new
+
+
+# ── Final visual-polish pass (2026-07-16, second iteration) ─────────────────
+
+
+def test_diagnostics_drawer_collapsed_by_default():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "let DIAG_OPEN=false" in html
+    # the drawer opens only from persisted-in-session toggle state
+    assert '${DIAG_OPEN?"open":""}' in html
+    assert "Diagnostics —" in html
+
+
+def test_system_trust_calm_headlines():
+    """DEGRADED renders as 'Usable with caveats' (canonical kept in title);
+    the strip overall pill carries the integrity detail as a tooltip."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert '"System Trust: Usable with caveats"' in html
+    assert '"System Trust: Blocked"' in html and '"System Trust: Ready"' in html
+    assert "TRUST_LABELS" in html
+    assert 'DEGRADED:"Usable with caveats"' in html
+    assert 'title="canonical: ${esc(overall)}"' in html
+    assert 'title="${esc(ov.detail)}"' in html   # strip tooltip detail
+    # degraded badge is an outline, not a filled orange block
+    assert ".bdg.a{color:var(--sev-degraded)" in html
+    assert "background:transparent" in html.split(".bdg.a{")[1].split("}")[0]
+
+
+def test_exec_summary_interpretation_and_prominent_toggle():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "execInterpretation" in html
+    body = html.split("function execInterpretation")[1].split("function ")[0]
+    assert "primary research lane" in body
+    assert "high-conviction profiles qualified" in body
+    # Focus/Full segmented toggle lives in the Executive Summary header
+    assert 'class="view-seg' in html and "Focus Mode" in html \
+        and "Full Mode" in html
+    assert '.exec-top .tk' in html               # candidate chips styled
+
+
+def test_snapshot_interpretations_lead_their_panels():
+    """Market Context and Evidence & Confidence show the plain-English line
+    directly under the title, before the metric grid."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    mkt = html.split('<h3>Market Context')[1].split("</div>`;")[0]
+    assert mkt.index('class="interp"') < mkt.index('mkt-grid')
+    evc = html.split("Evidence &amp; Confidence</h3>")[1].split("</div>`;")[0]
+    assert evc.index('class="interp"') < evc.index("evc-grid")
+    # EVC verdict anchors render larger than the per-program details
+    assert "evc-grid anchors" in html and "evc-grid details" in html
+
+
+def test_hc_classification_is_clean_badge():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "clsBadge" in html and ".cls-bdg" in html
+    # title case labels; canonical enum preserved in the tooltip
+    assert 'HIGH_CONVICTION:"High Conviction"' in html
+    assert 'title="canonical: ${esc(classification)}"' in html
+    # neutral market fit lives in details as a kv row, never on the face
+    details = html.split("function hcCardDetails")[1].split("function hcCard(")[0]
+    assert 'kvRow("Market fit"' in details
+
+
+def test_interactive_affordances():
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    assert "details>summary{cursor:pointer" in html
+    assert "focus-visible" in html
+    assert "button:focus-visible" in html
+    # sidebar active state is emphasized; footer de-emphasized
+    assert "#nav a.active" in html and "font-weight:700" in html
+    assert "#srv-meta{opacity:.65}" in html
