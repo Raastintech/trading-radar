@@ -1,6 +1,6 @@
 # Participation Bottleneck Audit (Phase 1G.17)
 
-Generated: 2026-07-15T16:30:07Z · window since 2026-05-01 ·
+Generated: 2026-07-17T16:30:05Z · window since 2026-05-01 ·
 research-only / read-only — no signals, no proposals, no execution change.
 
 ## Verdict
