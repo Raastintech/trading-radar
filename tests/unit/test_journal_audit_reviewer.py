@@ -87,6 +87,9 @@ RESEARCH-ONLY. Not a trade signal.
 def _no_llm_env(monkeypatch):
     """Never let a real key leak into the LLM path during tests."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("LLM_FAIL_OPEN", raising=False)
     monkeypatch.setenv("GEM_TRADER_SKIP_DOTENV", "true")  # no env-file load
 
 
@@ -1105,32 +1108,37 @@ def test_parse_ticker_list_strips_tier_annotations():
     assert jar._parse_ticker_list(raw) == ["FRMM", "ADP", "HOOD", "BAX"]
 
 
+class _FakeLLMClient:
+    """Provider-shaped stub matching core.llm_clients.LLMClient surface."""
+
+    provider_name = "deepseek"
+
+    def __init__(self, text: str, stop_reason: str = "end"):
+        self._text = text
+        self._stop_reason = stop_reason
+
+    def is_configured(self):
+        return True
+
+    def model_for_role(self, role):
+        return "deepseek-reasoner"
+
+    def complete(self, prompt, **kwargs):
+        from core.llm_clients import LLMResponse
+        return LLMResponse(text=self._text, model="deepseek-reasoner",
+                           provider=self.provider_name,
+                           stop_reason=self._stop_reason)
+
+
 def test_truncated_llm_response_raises_and_saves_raw(monkeypatch, tmp_path):
     """A max_tokens-truncated reply must fail loudly (clear reason, raw
     reply preserved) instead of dying inside json.loads."""
     monkeypatch.setattr(jar, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(jar, "_resolve_api_key", lambda: "stub-key")
 
     truncated = '{"research_verdict": "RESEARCH_ONLY", "what_is_wor'
-
-    class _Msg:
-        stop_reason = "max_tokens"
-        content = [type("B", (), {"text": truncated})()]
-
-    class _Messages:
-        @staticmethod
-        def create(**kwargs):
-            return _Msg()
-
-    class _Client:
-        def __init__(self, **kwargs):
-            self.messages = _Messages()
-
-    import sys as _sys
-    import types as _types
-    fake = _types.ModuleType("anthropic")
-    fake.Anthropic = _Client
-    monkeypatch.setitem(_sys.modules, "anthropic", fake)
+    monkeypatch.setattr(
+        jar, "_get_llm_client",
+        lambda: _FakeLLMClient(truncated, stop_reason="max_tokens"))
 
     import pytest as _pytest
     with _pytest.raises(RuntimeError, match="truncated at max_tokens"):
@@ -1143,26 +1151,9 @@ def test_truncated_llm_response_raises_and_saves_raw(monkeypatch, tmp_path):
 
 def test_unparseable_llm_response_saves_raw(monkeypatch, tmp_path):
     monkeypatch.setattr(jar, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(jar, "_resolve_api_key", lambda: "stub-key")
-
-    class _Msg:
-        stop_reason = "end_turn"
-        content = [type("B", (), {"text": "not json at all"})()]
-
-    class _Messages:
-        @staticmethod
-        def create(**kwargs):
-            return _Msg()
-
-    class _Client:
-        def __init__(self, **kwargs):
-            self.messages = _Messages()
-
-    import sys as _sys
-    import types as _types
-    fake = _types.ModuleType("anthropic")
-    fake.Anthropic = _Client
-    monkeypatch.setitem(_sys.modules, "anthropic", fake)
+    monkeypatch.setattr(
+        jar, "_get_llm_client",
+        lambda: _FakeLLMClient("not json at all"))
 
     import pytest as _pytest
     with _pytest.raises(Exception):
@@ -1170,3 +1161,51 @@ def test_unparseable_llm_response_saves_raw(monkeypatch, tmp_path):
     raw = tmp_path / "logs" / "journal_audit_llm_raw_error.txt"
     assert raw.exists()
     assert "not json at all" in raw.read_text()
+
+
+def test_llm_audit_records_provider_and_safety_fields(monkeypatch, tmp_path):
+    """A successful provider reply must stamp model+provider, and the
+    final artifact must carry the forced research-only safety contract
+    even when the LLM tries to claim otherwise."""
+    monkeypatch.setattr(jar, "REPO_ROOT", tmp_path)
+    reply = ('{"research_verdict": "RESEARCH_ONLY", '
+             '"promote_to_signal": true, "may_change_scores": true}')
+    monkeypatch.setattr(
+        jar, "_get_llm_client", lambda: _FakeLLMClient(reply))
+
+    audit = jar._llm_audit("digest text")
+    assert audit["model"] == "deepseek-reasoner"
+    assert audit["llm_provider"] == "deepseek"
+
+    monkeypatch.setattr(jar, "_llm_audit", lambda text: dict(audit))
+    final = jar.audit_daily_digest("digest text")
+    assert final["research_only"] is True
+    assert final["promote_to_signal"] is False
+    assert final["may_change_scores"] is False
+    assert final["may_change_rankings"] is False
+    assert final["may_change_gates"] is False
+    assert final["may_change_verdicts"] is False
+    assert final["llm_provider"] == "deepseek"
+
+
+def test_llm_failure_fails_open_by_default(monkeypatch):
+    """LLM_FAIL_OPEN default: an LLM crash degrades to the fallback audit
+    so the nightly keeps running."""
+    def boom(text):
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(jar, "_llm_audit", boom)
+    audit = jar.audit_daily_digest(make_digest())
+    assert audit["audit_source"] == "rule_based_fallback"
+    assert "provider down" in (audit["fallback_reason"] or "")
+
+
+def test_llm_failure_propagates_when_fail_open_disabled(monkeypatch):
+    """LLM_FAIL_OPEN=false is a debugging mode: the failure must surface
+    instead of silently falling back."""
+    monkeypatch.setenv("LLM_FAIL_OPEN", "false")
+
+    def boom(text):
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(jar, "_llm_audit", boom)
+    with pytest.raises(RuntimeError, match="provider down"):
+        jar.audit_daily_digest(make_digest())

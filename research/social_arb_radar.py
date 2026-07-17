@@ -2543,7 +2543,7 @@ def _load_regime_context() -> Dict[str, Any]:
         return {}
 
 
-def _anthropic_prompt(candidates: Sequence[Candidate], regime_ctx: Dict[str, Any]) -> str:
+def _llm_review_prompt(candidates: Sequence[Candidate], regime_ctx: Dict[str, Any]) -> str:
     regime_block = ""
     if regime_ctx:
         leading = ", ".join(regime_ctx.get("leading_sectors") or []) or "none"
@@ -2611,28 +2611,25 @@ def _anthropic_prompt(candidates: Sequence[Candidate], regime_ctx: Dict[str, Any
     )
 
 
-def _resolve_anthropic_api_key() -> str:
-    """ANTHROPIC_API_KEY with the canonical credential file (SNIPER_ENV_PATH)
-    taking precedence over an inherited shell value — a stale
-    ``export ANTHROPIC_API_KEY=...`` in the invoking shell must not shadow a
-    rotated key in trading.env.  Same convention as
-    research/journal_audit_reviewer.py; GEM_TRADER_SKIP_DOTENV disables the
-    file read (tests / cred-free tooling)."""
-    if os.getenv("GEM_TRADER_SKIP_DOTENV", "").lower() not in ("1", "true", "yes"):
-        env_path = os.getenv("SNIPER_ENV_PATH", "").strip()
-        if env_path:
-            try:
-                from dotenv import dotenv_values
-                v = (dotenv_values(env_path).get("ANTHROPIC_API_KEY")
-                     or "").strip()
-                if v:
-                    return v
-            except Exception:
-                pass
-    return os.getenv("ANTHROPIC_API_KEY", "").strip()
+def _get_llm_client():
+    """Active provider client from core/llm_clients (default: DeepSeek).
+    ROOT is already on sys.path (module preamble)."""
+    try:
+        from core.llm_clients import get_llm_client
+    except ImportError:
+        return None
+    return get_llm_client()
 
 
-def anthropic_review(candidates: Sequence[Candidate], args: argparse.Namespace, stats: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+def llm_review(candidates: Sequence[Candidate], args: argparse.Namespace, stats: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """LLM noise-filter review via the configured provider (default:
+    DeepSeek ``deepseek-chat``).
+
+    The stats/artifact key stays ``"anthropic"`` for sidecar back-compat
+    (pre-migration readers key on it); the ``provider`` field inside it
+    records which provider actually ran.  Any failure degrades to an empty
+    review dict — the radar never blocks on the LLM.
+    """
     review_count = min(len(candidates), max(0, min(args.anthropic_limit, DEFAULT_REVIEW_LIMIT)))
     if review_count <= 0:
         stats["anthropic"] = {"called": False, "reason": "no candidates after deterministic filtering", "review_count": 0}
@@ -2640,40 +2637,42 @@ def anthropic_review(candidates: Sequence[Candidate], args: argparse.Namespace, 
     if args.skip_anthropic:
         stats["anthropic"] = {"called": False, "reason": "skipped by flag", "review_count": 0}
         return {}
-    api_key = _resolve_anthropic_api_key()
-    if not api_key:
-        stats["anthropic"] = {"called": False, "reason": "ANTHROPIC_API_KEY not set", "review_count": 0}
-        return {}
-    try:
-        import anthropic
-    except Exception:
-        stats["anthropic"] = {"called": False, "reason": "anthropic package unavailable", "review_count": 0}
+    client = _get_llm_client()
+    if client is None:
+        stats["anthropic"] = {
+            "called": False,
+            "reason": "LLM provider not configured (default deepseek — set DEEPSEEK_API_KEY)",
+            "review_count": 0,
+        }
         return {}
 
     top = list(candidates)[:review_count]
     regime_ctx = _load_regime_context()
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        # Full dated model ID to avoid silent fallback to older versions.
-        # Override via SOCIAL_ARB_ANTHROPIC_MODEL env var.
-        model = os.getenv("SOCIAL_ARB_ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-        # max_tokens budget: each review ≈ 600–800 tokens; 10 reviews need ~7–8K.
-        msg = client.messages.create(
-            model=model,
-            max_tokens=9000,
-            temperature=0,
-            system=(
+        # Optional explicit model override; empty means the provider's
+        # chat-role default.  The legacy SOCIAL_ARB_ANTHROPIC_MODEL var is
+        # honoured only when the Anthropic fallback is the active provider.
+        model_override = os.getenv("SOCIAL_ARB_LLM_MODEL", "").strip() or None
+        if client.provider_name == "anthropic" and not model_override:
+            model_override = os.getenv("SOCIAL_ARB_ANTHROPIC_MODEL", "").strip() or None
+        # max_tokens budget: each review ≈ 600–800 tokens; 10 reviews need
+        # ~7–8K (the client clamps to the provider output ceiling).
+        parsed = client.complete_json(
+            system_prompt=(
                 "You are a conservative market research analyst. This is research-only. "
                 "You never approve trades, generate entry/exit prices, create paper signals, "
                 "or trigger any automated action. Output must be machine-parseable JSON."
             ),
-            messages=[{"role": "user", "content": _anthropic_prompt(top, regime_ctx)}],
+            user_prompt=_llm_review_prompt(top, regime_ctx),
+            schema_name="social_arb_reviews",
+            max_tokens=9000,
+            role="chat",
+            model=model_override,
+            temperature=0,
+            artifact=str(SOCIAL_JSON_PATH),
         )
-        stats["api_attempts"]["anthropic_messages"] = stats["api_attempts"].get("anthropic_messages", 0) + 1
-        text = ""
-        for block in msg.content:
-            text += getattr(block, "text", "") or ""
-        parsed = _extract_json_object(text)
+        stats["api_attempts"]["llm_messages"] = stats["api_attempts"].get("llm_messages", 0) + 1
+        llm_meta = parsed.pop("_llm", {}) or {}
         reviews = parsed.get("reviews") if isinstance(parsed, dict) else None
         if not isinstance(reviews, list):
             reviews = []
@@ -2682,11 +2681,25 @@ def anthropic_review(candidates: Sequence[Candidate], args: argparse.Namespace, 
             for r in reviews
             if isinstance(r, dict) and r.get("id")
         }
-        stats["anthropic"] = {"called": True, "model": model, "review_count": review_count, "parsed_reviews": len(out)}
+        stats["anthropic"] = {
+            "called": True,
+            "provider": client.provider_name,
+            "model": llm_meta.get("model") or client.model_for_role("chat"),
+            "review_count": review_count,
+            "parsed_reviews": len(out),
+        }
         return out
     except Exception as exc:
-        stats["anthropic"] = {"called": False, "reason": f"Anthropic failed: {type(exc).__name__}: {exc}", "review_count": 0}
+        stats["anthropic"] = {
+            "called": False,
+            "reason": f"LLM review failed ({client.provider_name}): {type(exc).__name__}: {exc}",
+            "review_count": 0,
+        }
         return {}
+
+
+# Back-compat alias (pre-migration name).
+anthropic_review = llm_review
 
 
 def _extract_json_object(text: str) -> Dict[str, Any]:
@@ -2754,7 +2767,10 @@ def _render_text(artifact: Dict[str, Any]) -> str:
     lines.append(f"version: {artifact.get('version')}  mode: {artifact.get('mode')}  built_at: {artifact.get('built_at')}")
     lines.append(f"raw_items: {artifact.get('raw_item_count', 0)}  normalized: {artifact.get('normalized_item_count', 0)}  dropped: {(artifact.get('dropped_noise') or {}).get('total', 0)}")
     anth = artifact.get("anthropic") or {}
-    lines.append(f"anthropic: called={anth.get('called')} review_count={anth.get('review_count', 0)} reason={anth.get('reason', '')}")
+    lines.append(
+        f"llm_review: provider={anth.get('provider', 'deepseek')} "
+        f"called={anth.get('called')} review_count={anth.get('review_count', 0)} "
+        f"reason={anth.get('reason', '')}")
     lines.append("")
     items = artifact.get("items") or []
     if not items:
@@ -2765,17 +2781,17 @@ def _render_text(artifact: Dict[str, Any]) -> str:
             verdict = row.get("anthropic_verdict", "NOT_RUN")
             cconf = row.get("confidence_pct")
             tsens = row.get("time_sensitivity", "UNKNOWN")
-            claude_tag = ""
+            llm_tag = ""
             if verdict not in ("NOT_RUN", ""):
-                claude_tag = f"  claude={verdict}"
+                llm_tag = f"  llm={verdict}"
                 if cconf is not None:
-                    claude_tag += f"({cconf}%)"
+                    llm_tag += f"({cconf}%)"
                 if tsens and tsens != "UNKNOWN":
-                    claude_tag += f"  timing={tsens}"
+                    llm_tag += f"  timing={tsens}"
             lines.append(
                 f"{i}. {row.get('ticker')}  {row.get('bucket')}  "
                 f"conf {row.get('confidence')}({row.get('confidence_score')})  "
-                f"noise {row.get('noise_risk')}  {markers}{claude_tag}"
+                f"noise {row.get('noise_risk')}  {markers}{llm_tag}"
             )
             lines.append(f"   label: {row.get('news_label')}")
             lines.append(f"   why: {row.get('why_it_matters')}")
@@ -2837,13 +2853,21 @@ def build_radar(args: argparse.Namespace) -> Dict[str, Any]:
         max_age_hours=float(getattr(args, "google_trends_max_age_hours", 72.0)),
     )
     candidates = score_candidates(groups, snapshot, args, stats, drop_stats)
-    reviews = anthropic_review(candidates, args, stats)
+    reviews = llm_review(candidates, args, stats)
     reviewed = apply_reviews(candidates, reviews, drop_stats)
     reviewed.sort(key=lambda c: (-c.deterministic_score, c.noise_risk, c.ticker))
     visible = reviewed[: min(DEFAULT_VISIBLE_LIMIT, args.limit)]
 
     artifact = {
         "version": VERSION,
+        # Forced research-only safety contract — published invariants of
+        # every artifact that embeds LLM output, never model claims.
+        "research_only": True,
+        "promote_to_signal": False,
+        "may_change_scores": False,
+        "may_change_rankings": False,
+        "may_change_gates": False,
+        "may_change_verdicts": False,
         "mode": args.mode,
         "built_at": _utc_now().isoformat(),
         "sample_data": bool(args.offline_sample),
@@ -2860,7 +2884,7 @@ def build_radar(args: argparse.Namespace) -> Dict[str, Any]:
             "not sleeve approval",
             "no Alpha Discovery scoring changes",
             "cache-first",
-            "hard noise filtering before Anthropic",
+            "hard noise filtering before LLM review",
         ],
         "sources_used": {
             "news_api": stats["source_status"].get("news_api", "not used"),
@@ -2913,6 +2937,9 @@ def build_radar(args: argparse.Namespace) -> Dict[str, Any]:
                 "noise-risk penalty",
             ],
             "anthropic_contract": {
+                # Legacy key name kept for sidecar back-compat; the review
+                # is served by the configured LLM provider (default deepseek).
+                "provider": stats.get("anthropic", {}).get("provider", "deepseek"),
                 "review_cap": min(args.anthropic_limit, DEFAULT_REVIEW_LIMIT),
                 "only_after_deterministic_filtering": True,
                 "allowed_verdicts": ["KEEP", "DROP", "NOISE"],

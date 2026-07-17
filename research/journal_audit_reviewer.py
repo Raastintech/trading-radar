@@ -22,10 +22,11 @@ Doctrine:
     filter, never changes a threshold, and never promotes a ticker —
     a looser configuration may only be *proposed* after its own forward
     evidence proves it works.
-  - CRED-FREE.  No dependency on core.config; the Anthropic key is
-    optional.  If the LLM call fails, times out, has no API key, or
-    returns invalid JSON, a deterministic rule-based fallback audit is
-    returned instead — the nightly cycle never blocks on the LLM.
+  - CRED-FREE.  No dependency on core.config; the LLM provider key is
+    optional (default provider: DeepSeek via core/llm_clients — see
+    docs/ops/LLM_PROVIDER.md).  If the LLM call fails, times out, has no
+    API key, or returns invalid JSON, a deterministic rule-based fallback
+    audit is returned instead — the nightly cycle never blocks on the LLM.
   - GROUNDED.  The audit may only reference what is in the digest text;
     hard invariants (Phase 4B blocked => RESEARCH_ONLY, immature forward
     evidence => never STRONG) are re-enforced on LLM output.
@@ -55,9 +56,13 @@ FEEDBACK_QUEUE_REL = Path("logs") / "research_engine_feedback_queue.jsonl"
 JOURNAL_JSONL_REL = Path("data") / "research" / "journal.jsonl"
 AUDIT_HISTORY_REL = Path("data") / "research" / "journal_audit_history.jsonl"
 
-# Env override, mirroring the social-arb reviewer convention.
-DEFAULT_MODEL = "claude-opus-4-8"
-MODEL_ENV_VAR = "JOURNAL_AUDIT_ANTHROPIC_MODEL"
+# Optional explicit model override for the active provider; empty means
+# "use the provider's reasoner-role default" (deepseek-reasoner for the
+# default DeepSeek provider).  The pre-migration
+# JOURNAL_AUDIT_ANTHROPIC_MODEL var is honoured only when the provider is
+# the explicitly re-enabled Anthropic fallback.
+MODEL_ENV_VAR = "JOURNAL_AUDIT_LLM_MODEL"
+LEGACY_ANTHROPIC_MODEL_ENV_VAR = "JOURNAL_AUDIT_ANTHROPIC_MODEL"
 LLM_TIMEOUT_SECONDS = 90.0
 # 2026-07-16: raised 4000 → 8000 after a real truncation — the 2026-07-16
 # nightly response hit the 4000-token cap mid-JSON (~9.5k chars) and fell
@@ -1695,54 +1700,62 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
     raise ValueError("response did not contain a JSON object")
 
 
-def _resolve_api_key() -> str:
-    """ANTHROPIC_API_KEY with the repo's canonical credential file
-    (SNIPER_ENV_PATH) taking precedence over an inherited shell value —
-    a stale ``export ANTHROPIC_API_KEY=...`` in the invoking shell must
-    not shadow a rotated key in trading.env.  GEM_TRADER_SKIP_DOTENV
-    disables the file read (tests / cred-free tooling)."""
-    if os.getenv("GEM_TRADER_SKIP_DOTENV", "").lower() not in ("1", "true", "yes"):
-        env_path = os.getenv("SNIPER_ENV_PATH", "").strip()
-        if env_path:
-            try:
-                from dotenv import dotenv_values
-                v = (dotenv_values(env_path).get("ANTHROPIC_API_KEY")
-                     or "").strip()
-                if v:
-                    return v
-            except Exception:
-                pass
-    return os.getenv("ANTHROPIC_API_KEY", "").strip()
+def _get_llm_client():
+    """Active LLM client from core/llm_clients (lazy, cred-free import).
+    Bootstraps sys.path for direct-script invocation
+    (``python research/journal_audit_reviewer.py``)."""
+    try:
+        from core.llm_clients import get_llm_client
+    except ImportError:
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from core.llm_clients import get_llm_client
+    return get_llm_client()
+
+
+def _llm_fail_open() -> bool:
+    """LLM_FAIL_OPEN consult with an inline default (True) so a broken
+    core/llm_clients import can never block the nightly."""
+    try:
+        from core.llm_clients import llm_fail_open
+        return llm_fail_open()
+    except ImportError:
+        return os.getenv("LLM_FAIL_OPEN", "").strip().lower() not in (
+            "0", "false", "no", "off")
 
 
 def _llm_audit(digest_text: str) -> Dict[str, Any]:
-    """Single Anthropic messages call.  Raises on any problem — the caller
-    converts every failure into the deterministic fallback."""
-    api_key = _resolve_api_key()
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
-    import anthropic  # local import — cred-free module load
+    """Single completion via the configured provider (default: DeepSeek
+    ``deepseek-reasoner`` — this is the reasoning-heavy audit path).
+    Raises on any problem — the caller converts every failure into the
+    deterministic fallback."""
+    client = _get_llm_client()
+    if client is None:
+        raise RuntimeError(
+            "LLM provider not configured "
+            "(default deepseek — set DEEPSEEK_API_KEY in trading.env)")
+    model_override = None
+    if client.provider_name == "anthropic":
+        model_override = (os.getenv(LEGACY_ANTHROPIC_MODEL_ENV_VAR, "").strip()
+                          or None)
+    model_override = os.getenv(MODEL_ENV_VAR, "").strip() or model_override
 
-    client = anthropic.Anthropic(
-        api_key=api_key, timeout=LLM_TIMEOUT_SECONDS, max_retries=1)
-    model = os.getenv(MODEL_ENV_VAR, DEFAULT_MODEL)
     context = json.dumps(
         _build_llm_context(extract_digest_signals(digest_text)),
         ensure_ascii=False, indent=2)
-    msg = client.messages.create(
-        model=model,
-        max_tokens=LLM_MAX_TOKENS,
+    resp = client.complete(
+        _USER_PROMPT_TEMPLATE.format(context=context, digest=digest_text),
         system=_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": _USER_PROMPT_TEMPLATE.format(
-                context=context, digest=digest_text),
-        }],
+        role="reasoner",
+        model=model_override,
+        max_tokens=LLM_MAX_TOKENS,
+        timeout=LLM_TIMEOUT_SECONDS,
+        artifact=str(AUDIT_SIDECAR_REL),
     )
-    if getattr(msg, "stop_reason", None) == "refusal":
+    if resp.stop_reason == "refusal":
         raise RuntimeError("model refused the request")
-    text = "".join(getattr(b, "text", "") or "" for b in msg.content)
-    if getattr(msg, "stop_reason", None) == "max_tokens":
+    text = resp.text
+    if resp.stop_reason == "max_tokens":
         _save_raw_llm_error(text, "stop_reason=max_tokens")
         raise RuntimeError(
             f"LLM response truncated at max_tokens={LLM_MAX_TOKENS} "
@@ -1754,7 +1767,8 @@ def _llm_audit(digest_text: str) -> Dict[str, Any]:
         raise
     audit["audit_source"] = "llm"
     audit["fallback_reason"] = None
-    audit["model"] = model
+    audit["model"] = resp.model
+    audit["llm_provider"] = resp.provider
     return audit
 
 
@@ -1949,6 +1963,7 @@ def sanitize_audit(audit: Dict[str, Any],
         "audit_source": audit.get("audit_source") or "rule_based_fallback",
         "fallback_reason": audit.get("fallback_reason"),
         "model": audit.get("model"),
+        "llm_provider": audit.get("llm_provider"),
     }
     # Hard invariants, independent of who produced the audit:
     if signals.get("phase4b_blocked") or signals.get("forward_negative"):
@@ -2022,6 +2037,11 @@ def audit_daily_digest(digest_text: str, *,
         try:
             audit = _llm_audit(digest_text)
         except Exception as exc:
+            # LLM_FAIL_OPEN=true (default): degrade to the deterministic
+            # fallback so the nightly never blocks on the LLM.  Setting it
+            # false propagates the failure (debugging/verification only).
+            if not _llm_fail_open():
+                raise
             audit = build_fallback_audit(
                 digest_text,
                 reason=f"{type(exc).__name__}: {exc}"[:200])
@@ -2048,8 +2068,27 @@ def audit_daily_digest(digest_text: str, *,
     clean["generated_at"] = datetime.now(timezone.utc).isoformat()
     clean["digest_sha256"] = hashlib.sha256(
         digest_text.encode("utf-8")).hexdigest()
-    clean["research_only"] = True
+    _apply_safety_fields(clean)
     return clean
+
+
+def _apply_safety_fields(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Force the research-only safety contract onto the audit artifact —
+    published invariants, not model claims.  Inline fallback keeps the
+    module usable even if core/llm_clients is unimportable."""
+    try:
+        from core.llm_clients import apply_safety_fields
+        return apply_safety_fields(obj)
+    except ImportError:
+        obj.update({
+            "research_only": True,
+            "promote_to_signal": False,
+            "may_change_scores": False,
+            "may_change_rankings": False,
+            "may_change_gates": False,
+            "may_change_verdicts": False,
+        })
+        return obj
 
 
 def _jsonl_has_digest(path: Path, digest_sha: str,

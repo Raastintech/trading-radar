@@ -332,7 +332,8 @@
 #                  e.g. ./scripts/run_research_cycle.sh dry-run nightly
 #
 # COST LABELS:
-#   [PROVIDER] — calls Alpaca / FMP / yfinance / Anthropic.
+#   [PROVIDER] — calls Alpaca / FMP / yfinance / the LLM provider
+#                (default DeepSeek; see docs/ops/LLM_PROVIDER.md).
 #   [CACHE]    — reads cached parquets / JSON only; no network cost.
 #
 # Provider failures during a cycle (e.g. Social Arb cadence skip, Alpha
@@ -368,7 +369,7 @@ DATE_FMT="%Y-%m-%d %H:%M:%S"
 # Default is Mon-Fri — daily post-close. News-catalyst signals decay in
 # hours, not days, so the previous 3x/week cadence published headlines
 # that were 2-3 trading days stale by the next render. Provider cost is
-# small (~50-80 FMP calls + 2-4 News API + ~10 Anthropic Haiku messages
+# small (~50-80 FMP calls + 2-4 News API + ~10 LLM review messages
 # per run; News API free tier 100/day is the binding constraint).
 # DEFAULT_MIN_RUN_INTERVAL_HOURS (10h) prevents duplicate runs in the
 # same session if the timer fires repeatedly.

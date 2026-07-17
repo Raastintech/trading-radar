@@ -2,7 +2,7 @@
 """
 dashboards/gem_trader_hq.py — GEM Trader HQ v2
 
-Retro terminal trading desk.  Alpaca + FMP + Claude Haiku.
+Retro terminal trading desk.  Alpaca + FMP + LLM analysis (default: DeepSeek).
 
 Modes (press key):
   1 = Monitor   2 = Research   3 = Risk   4 = Scanner
@@ -70,25 +70,19 @@ try:
 except ImportError:
     print("pip install rich"); sys.exit(1)
 
-try:
-    import anthropic as _ant
-    _CLAUDE_OK = bool(os.environ.get("ANTHROPIC_API_KEY"))
-except Exception:
-    _ant = None; _CLAUDE_OK = False
+def _get_llm_client():
+    """Return the configured LLM client (default: DeepSeek via
+    core/llm_clients), or None when no provider is configured.
 
-def _get_claude_client():
-    """Return a fresh Anthropic client using the current key from the environment.
-
-    Reading the key on each call (rather than caching it at import time) means
-    a key rotation in trading.env takes effect on the next analysis request
+    Resolving on each call (rather than caching at import time) means a
+    key rotation in trading.env takes effect on the next analysis request
     without requiring a dashboard restart.
     """
-    if _ant is None:
+    try:
+        from core.llm_clients import get_llm_client
+        return get_llm_client()
+    except Exception:
         return None
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not key:
-        return None
-    return _ant.Anthropic(api_key=key)
 
 try:
     from zoneinfo import ZoneInfo; _ET = ZoneInfo("America/New_York")
@@ -2128,11 +2122,13 @@ CREATE TABLE IF NOT EXISTS scan_results (
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CLAUDE ANALYZER — structured, quant-aware
+# LLM ANALYZER — structured, quant-aware (provider via core/llm_clients)
 # ══════════════════════════════════════════════════════════════════════════════
 
-class ClaudeAnalyzer:
-    MAX   = int(os.environ.get("CLAUDE_DAILY_BUDGET", "20"))
+class LLMAnalyzer:
+    # LLM_DAILY_BUDGET wins; CLAUDE_DAILY_BUDGET honoured as legacy alias.
+    MAX   = int(os.environ.get("LLM_DAILY_BUDGET",
+                               os.environ.get("CLAUDE_DAILY_BUDGET", "20")))
     TTL   = 1800
 
     def __init__(self):
@@ -2168,9 +2164,9 @@ class ClaudeAnalyzer:
         self._reset()
         if self._calls >= self.MAX:
             return self._stub(ticker, f"Daily budget ({self.MAX}) reached")
-        client = _get_claude_client()
+        client = _get_llm_client()
         if not client:
-            return self._stub(ticker, "ANTHROPIC_API_KEY not set")
+            return self._stub(ticker, "LLM not configured (set DEEPSEEK_API_KEY)")
         if len(bars) < 20:
             return self._stub(ticker, "Insufficient price data (<20 bars)")
 
@@ -2289,16 +2285,15 @@ to know what level would change the picture. Use concrete numbers from the STRUC
 block (EMA20/EMA50/ATR/52w levels), not generic phrases."""
 
         try:
-            resp = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=420,
-                messages=[{"role":"user","content":prompt}]
-            )
-            raw = resp.content[0].text.strip()
+            resp = client.complete(prompt, role="chat", max_tokens=420,
+                                   artifact="dashboard_ai_analysis")
+            raw = resp.text.strip()
+            model_used = resp.model
         except Exception as exc:
             return self._stub(ticker, f"API error: {type(exc).__name__}")
 
         result = self._parse(raw, ticker)
+        result["_model"] = model_used
         result["_spark"] = sparkline(closes, 40)
         result["_rsi"]   = rsi
         result["_ema20"] = ema20
@@ -2335,6 +2330,10 @@ block (EMA20/EMA50/ATR/52w levels), not generic phrases."""
                 "action":"—","inputs":"—","_ts":time.time(),"_spark":"","_rsi":None,
                 "_ema20":None,"_ema50":None,"_macd":"—","_atr":None,"_vol_r":None,
                 "_close":None,"_chg":None}
+
+
+# Back-compat alias (pre-DeepSeek-migration name; tests and older callers).
+ClaudeAnalyzer = LLMAnalyzer
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4953,7 +4952,7 @@ class PB:  # PanelBuilder — all static
         if not ticker:
             t.append("Enter a ticker to begin analysis", style="dim")
         elif ana is None:
-            t.append(f"Analyzing {ticker}…  (Claude Haiku)", style="dim italic")
+            t.append(f"Analyzing {ticker}…  (LLM)", style="dim italic")
         else:
             bias   = str(ana.get("bias","—")).upper()
             sleeve = str(ana.get("sleeve_resemblance", ana.get("strategy_fit","—"))).upper()
@@ -5128,7 +5127,8 @@ class PB:  # PanelBuilder — all static
                 row("Inputs used:",       _clip(inputs, 60), "dim")
 
             age = claude.age_str(ticker)
-            t.append(f"\n  [dim]cached {age}  ·  claude-haiku-4-5  ·  "
+            model_label = str((ana or {}).get("_model") or "llm")
+            t.append(f"\n  [dim]cached {age}  ·  {model_label}  ·  "
                      f"{claude.calls()}/{claude.budget()} calls today[/]")
 
         title = f"[bold]AI ANALYSIS[/]" + (f" — [bold white]{ticker}[/]" if ticker else "")

@@ -919,23 +919,20 @@ def _deterministic_prose_summary(result: GatekeeperResult) -> str:
 
 
 def _try_llm_summary(result: GatekeeperResult) -> Optional[str]:
-    """Best-effort: if an Anthropic-style client is present and credentials
-    exist, render a plain-English summary. If anything goes wrong, return
-    None — the deterministic verdict is unaffected.
+    """Best-effort: if the configured LLM provider (default: DeepSeek via
+    core/llm_clients) has credentials, render a plain-English summary. If
+    anything goes wrong, return None — the deterministic verdict is
+    unaffected.
 
     The LLM cannot mutate the result; the caller passes only the
     finalised GatekeeperResult and uses the returned text as a *display
     annotation*. The deterministic verdict is final.
     """
     try:
-        import os
-        if not os.getenv("ANTHROPIC_API_KEY"):
+        from core.llm_clients import get_llm_client
+        client = get_llm_client()
+        if client is None:
             return None
-        try:
-            import anthropic  # type: ignore
-        except Exception:
-            return None
-        client = anthropic.Anthropic()
         prompt_payload = {
             "ticker": result.ticker,
             "final_status_DETERMINISTIC": result.final_status,
@@ -951,25 +948,21 @@ def _try_llm_summary(result: GatekeeperResult) -> Optional[str]:
                 for g in result.gates
             ],
         }
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        resp = client.complete(
+            (
+                "You are a research-only commentator. Summarise the deterministic "
+                "executive-gatekeeper verdict below in plain English (≤200 words). "
+                "You MUST NOT change, override, or argue with the deterministic "
+                "verdict. Do not invent new evidence. Do not recommend orders, "
+                "execution, or sizing beyond what is stated. Begin by restating "
+                "the final_status_DETERMINISTIC verbatim.\n\n"
+                f"Verdict JSON:\n{json.dumps(prompt_payload, indent=2)}"
+            ),
+            role="chat",
             max_tokens=350,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "You are a research-only commentator. Summarise the deterministic "
-                    "executive-gatekeeper verdict below in plain English (≤200 words). "
-                    "You MUST NOT change, override, or argue with the deterministic "
-                    "verdict. Do not invent new evidence. Do not recommend orders, "
-                    "execution, or sizing beyond what is stated. Begin by restating "
-                    "the final_status_DETERMINISTIC verbatim.\n\n"
-                    f"Verdict JSON:\n{json.dumps(prompt_payload, indent=2)}"
-                ),
-            }],
+            artifact="executive_gatekeeper_summary",
         )
-        # Anthropic SDK returns content blocks; concatenate the text parts.
-        parts = [b.text for b in getattr(msg, "content", []) if getattr(b, "type", None) == "text"]
-        return "\n".join(parts).strip() or None
+        return resp.text.strip() or None
     except Exception:
         logger.debug("LLM summary failed; falling back to deterministic prose", exc_info=True)
         return None
