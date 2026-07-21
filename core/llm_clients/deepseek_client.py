@@ -45,8 +45,18 @@ DEFAULT_CHAT_MODEL = "deepseek-chat"
 DEFAULT_REASONER_MODEL = "deepseek-reasoner"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_MAX_TOKENS = 4000
-# DeepSeek's hard output ceiling; requests above it are clamped, not errored.
-PROVIDER_MAX_OUTPUT_TOKENS = 8192
+# App-level output-token guardrail (NOT the provider's hard ceiling —
+# requests above it are clamped locally, not errored by DeepSeek). The old
+# 8192 value here was copied from the legacy deepseek-reasoner alias and
+# was silently truncating callers that request more (e.g. the journal
+# auditor's LLM_MAX_TOKENS=8000 consistently hit this wall, and
+# social_arb_radar's max_tokens=9000 was silently cut to 8192). Per current
+# DeepSeek API docs (api-docs.deepseek.com/quick_start/pricing, checked
+# 2026-07-21), the configured reasoner model deepseek-v4-pro supports up
+# to 384K output tokens / 1M context — 65536 here is a generous
+# in-repo ceiling well below that, not a provider limit we're bumping
+# into again.
+PROVIDER_MAX_OUTPUT_TOKENS = 65536
 
 _FINISH_REASON_MAP = {
     "stop": "end",

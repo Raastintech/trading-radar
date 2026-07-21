@@ -174,8 +174,8 @@ def test_complete_truncation_maps_to_max_tokens(monkeypatch):
 def test_complete_clamps_max_tokens_to_provider_ceiling(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", FAKE_KEY)
     calls = _capture_post(monkeypatch, _FakeResponse(payload=_chat_payload()))
-    DeepSeekClient().complete("hi", max_tokens=9000)
-    assert calls["body"]["max_tokens"] == 8192
+    DeepSeekClient().complete("hi", max_tokens=100_000)
+    assert calls["body"]["max_tokens"] == 65536
 
 
 def test_complete_explicit_model_override_wins(monkeypatch):

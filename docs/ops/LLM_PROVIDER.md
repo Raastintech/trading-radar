@@ -19,7 +19,7 @@ why the package lives here rather than `research/llm_clients/`):
 | File | Purpose |
 |------|---------|
 | `core/llm_clients/base.py` | `LLMClient` contract, `LLMResponse`, `LLMError`, role constants, forced safety fields, `resolve_secret` (trading.env-over-shell key resolution) |
-| `core/llm_clients/deepseek_client.py` | DeepSeek client (OpenAI-compatible `/chat/completions`, lazy `requests` import, output-token clamp 8192) |
+| `core/llm_clients/deepseek_client.py` | DeepSeek client (OpenAI-compatible `/chat/completions`, lazy `requests` import, output-token guardrail `PROVIDER_MAX_OUTPUT_TOKENS=65536` — an in-repo cap, not the provider's actual ceiling; DeepSeek's docs report up to 384K output tokens for `deepseek-v4-pro`/`deepseek-v4-flash`) |
 | `core/llm_clients/anthropic_client.py` | Anthropic fallback — used **only** when explicitly re-enabled |
 | `core/llm_clients/provider.py` | `get_llm_client()` factory + `get_llm_status()` key-free snapshot |
 

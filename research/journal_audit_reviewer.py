@@ -63,11 +63,21 @@ AUDIT_HISTORY_REL = Path("data") / "research" / "journal_audit_history.jsonl"
 # the explicitly re-enabled Anthropic fallback.
 MODEL_ENV_VAR = "JOURNAL_AUDIT_LLM_MODEL"
 LEGACY_ANTHROPIC_MODEL_ENV_VAR = "JOURNAL_AUDIT_ANTHROPIC_MODEL"
-LLM_TIMEOUT_SECONDS = 90.0
-# 2026-07-16: raised 4000 → 8000 after a real truncation — the 2026-07-16
+LLM_TIMEOUT_SECONDS = 240.0
+# 2026-07-16: raised 4000 -> 8000 after a real truncation — the 2026-07-16
 # nightly response hit the 4000-token cap mid-JSON (~9.5k chars) and fell
 # back with "JSONDecodeError: Expecting ',' delimiter ... char 9525".
-LLM_MAX_TOKENS = 8000
+# 2026-07-21: raised 8000 -> 16000 — 8000 was still truncating (usage log
+# shows completion_tokens=8000 exactly, i.e. the model used its whole
+# budget and got cut mid-response on 2026-07-18 and 2026-07-21). The
+# 8000 cap was also hitting core/llm_clients/deepseek_client.py's
+# PROVIDER_MAX_OUTPUT_TOKENS clamp (was 8192, now 65536 — see that file),
+# so both layers were capping this call; 16000 gives real headroom under
+# the new clamp. Timeout raised 90s -> 240s to match: the 8000-token
+# completion on 2026-07-21 already took ~133s, so a larger budget needs
+# more wall-clock room. This is a nightly batch job — latency isn't
+# user-facing.
+LLM_MAX_TOKENS = 16000
 # Raw response preserved here whenever the LLM reply cannot be parsed, so
 # a fallback night leaves the evidence needed to diagnose it.
 LLM_RAW_ERROR_REL = Path("logs") / "journal_audit_llm_raw_error.txt"
