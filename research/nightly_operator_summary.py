@@ -425,28 +425,6 @@ def _build_warnings(
 ) -> List[str]:
     warnings: List[str] = []
 
-    # Scanner recall.  The scanner-truth figure traces the decommissioned
-    # council funnel (DB stages frozen 2026-06-13) and decays toward 0%
-    # mechanically — present it as the legacy autopsy it is, and point at
-    # the prospective cohorts tracker for the live research board.
-    st = sidecars.get("scanner_truth") or {}
-    if st:
-        recall_pct = st.get("winner_recall_pct")
-        main_fail = st.get("main_failure", "")
-        baseline = st.get("best_simple_baseline_recall_pct")
-        if recall_pct is not None and recall_pct < 5:
-            bl_note = f" (simple-RS baseline: {baseline}%)" if baseline else ""
-            cohorts = _load_json(RESEARCH_DIR / "scanner_recall_cohorts_latest.json") or {}
-            live_note = ""
-            if cohorts:
-                live_note = (" — live research-board recall accruing via "
-                             f"scanner-recall cohorts: {cohorts.get('verdict', 'UNKNOWN')}")
-            warnings.append(
-                f"Legacy council-funnel recall {recall_pct}% (autopsy of the pipeline "
-                f"decommissioned 2026-06-13, not the live board) — main miss: "
-                f"{main_fail}{bl_note}{live_note}"
-            )
-
     # Forward evidence maturity
     if forward.get("available") and forward.get("verdict") == "NEED_MORE_DATA":
         mat = forward.get("matured_count", 0)
@@ -515,6 +493,31 @@ def _build_warnings(
                    + (f"— run targeted-backfill --execute to fill" if bf_selected > 0
                       else "— cache depth adequate"))
         warnings.append(msg)
+
+    # Scanner recall.  The scanner-truth figure traces the decommissioned
+    # council funnel (DB stages frozen 2026-06-13) and decays toward 0%
+    # mechanically — present it as the legacy autopsy it is, and point at
+    # the prospective cohorts tracker for the live research board. Appended
+    # last (not first) so it doesn't outrank live-board warnings above it —
+    # 2026-07-22 journal audit flagged it as distracting from the live
+    # scanner-recall cohorts signal when it led the list.
+    st = sidecars.get("scanner_truth") or {}
+    if st:
+        recall_pct = st.get("winner_recall_pct")
+        main_fail = st.get("main_failure", "")
+        baseline = st.get("best_simple_baseline_recall_pct")
+        if recall_pct is not None and recall_pct < 5:
+            bl_note = f" (simple-RS baseline: {baseline}%)" if baseline else ""
+            cohorts = _load_json(RESEARCH_DIR / "scanner_recall_cohorts_latest.json") or {}
+            live_note = ""
+            if cohorts:
+                live_note = (" — live research-board recall accruing via "
+                             f"scanner-recall cohorts: {cohorts.get('verdict', 'UNKNOWN')}")
+            warnings.append(
+                f"Legacy council-funnel recall {recall_pct}% (autopsy of the pipeline "
+                f"decommissioned 2026-06-13, not the live board) — main miss: "
+                f"{main_fail}{bl_note}{live_note}"
+            )
 
     return warnings[:8]  # cap at 8
 

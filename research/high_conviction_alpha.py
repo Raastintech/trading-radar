@@ -305,8 +305,13 @@ def score_fundamental_momentum(fund: Dict[str, Any]
     reasons: List[str] = []
     risks: List[str] = []
     pts = 50.0
-    # acceleration: latest quarter q/q vs the average quarterly pace over 3q
-    if gq is not None and g3 is not None:
+    # acceleration: latest quarter q/q vs the average quarterly pace over 3q.
+    # g3 <= -100 means the 3q revenue base cratered (or flipped sign) — the
+    # implied per-quarter rate is undefined (fractional power of a negative
+    # base), not just a large negative number, so skip the comparison rather
+    # than raise (2026-07-22: EWBC rev_growth_3q_pct=-175.72 crashed this
+    # with a float/complex TypeError and silently froze the nightly sidecar).
+    if gq is not None and g3 is not None and g3 > -100:
         implied_q = (1.0 + g3 / 100.0) ** (1.0 / 3.0) - 1.0
         if gq / 100.0 > implied_q + 0.01:
             pts += 16
@@ -314,6 +319,9 @@ def score_fundamental_momentum(fund: Dict[str, Any]
         elif gq / 100.0 < implied_q - 0.01:
             pts -= 12
             risks.append("revenue growth decelerating")
+    elif gq is not None and g3 is not None:
+        pts -= 12
+        risks.append(f"revenue base collapsed {g3:.0f}% (3q) — acceleration undefined")
     if om is not None:
         if om >= 10:
             pts += 8

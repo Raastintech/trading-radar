@@ -1135,6 +1135,17 @@ def _section_review_queue(inputs: Dict[str, Any], top: List[str],
         if notes:
             lines.append("  - Red flags in review order: "
                          + "; ".join(notes))
+    # A ticker can independently earn a top-candidate slot (from the
+    # program/alpha board) and a DATA_QUARANTINE flag (from the radar's
+    # own field-coverage check) — the two lists are built from different
+    # sources and don't cross-exclude. Surface the overlap here instead of
+    # leaving the reader to notice the same ticker in both sections with no
+    # explanation (2026-07-22 journal audit: MSFT case).
+    quarantine_overlap = [t for t in review_first if t in quarantine]
+    if quarantine_overlap:
+        lines.append("  - Also flagged DATA_QUARANTINE (see 'Avoid for now' "
+                     "below — a data-coverage gap, not a signal reversal): "
+                     + _join(quarantine_overlap, cap=6))
     lines += [
         f"- Watch only: {_join(watch_only, cap=6)}",
         f"- Avoid for now / data issue: {_join(quarantine, cap=6)}",
