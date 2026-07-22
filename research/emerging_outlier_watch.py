@@ -151,7 +151,13 @@ def emergence_evidence(item: Dict[str, Any], fund: Dict[str, Any]
         lumpy = (" — may include one-off/milestone revenue"
                  if g3 >= LUMPY_GROWTH_3Q_PCT else "")
         _add("STRONG_REVENUE_GROWTH", f"revenue +{g3:.0f}% (3q basis){lumpy}")
-    if gq is not None and g3 is not None:
+    # g3 <= -100 means the 3q revenue base cratered (or flipped sign) — the
+    # implied per-quarter rate is undefined (fractional power of a negative
+    # base), not just a large negative number, so skip rather than raise.
+    # Same class of bug as the 2026-07-22 EWBC crash in high_conviction_alpha.py
+    # (rev_growth_3q_pct=-175.72%); this module has its own separate copy of
+    # the computation, so the fix there didn't cover this one.
+    if gq is not None and g3 is not None and g3 > -100:
         implied_q = (1.0 + g3 / 100.0) ** (1.0 / 3.0) - 1.0
         if gq / 100.0 > implied_q + 0.01:
             _add("REVENUE_ACCELERATION", "latest-quarter growth accelerating")
