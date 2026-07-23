@@ -6,9 +6,15 @@ forward-tracking outputs are reference material. Paper evidence,
 governance, sleeve allocation, and execution are unaffected by this
 runbook.
 
-**Dashboard:** read-only. `dashboards/gem_trader_hq.py` consumes the
-JSON artifacts under `cache/research/` and never calls a provider. All
-provider work happens through `scripts/run_research_cycle.sh`.
+**Command Center dashboard:** read-only and cache-only. The web
+Research Command Center reads JSON artifacts under `cache/research/` and is
+the source of truth for cache-only research review. All provider work happens
+through `scripts/run_research_cycle.sh`.
+
+**TUI:** `dashboards/gem_trader_hq.py` has research panels that read the same
+cache sidecars and are useful for same-source checks, but the full terminal
+also contains live operational panels that can pull provider, broker, and DB
+data. Do not treat the whole TUI as fully cache-only.
 
 ---
 
@@ -25,7 +31,7 @@ What this does:
    `logs/regime_forecast_latest.txt`.
 2. **[PROVIDER]** runs the Alpha Discovery board, refreshing
    `cache/research/alpha_discovery_board_latest.json`.
-3. **[PROVIDER, cadence-gated]** runs Social Arb on Tue / Thu / Sun.
+3. **[PROVIDER, cadence-gated]** runs Social Arb on Mon-Fri post-close by default.
    On other days the script logs:
    `Social Arb skipped — cadence day not reached. Use --force-social to override.`
 4. **[CACHE]** runs the forward-tracking resolver against cached
@@ -60,7 +66,7 @@ the forward-tracking summaries.
 ```
 
 - **[PROVIDER]** regime forecast + Alpha Discovery board.
-- No Social Arb, no resolver.
+- No Social Arb, no resolver. It refreshes scanner/routing artifacts and then refreshes High-Conviction, Emerging Outlier, and scan-exclusion impact sidecars from those latest artifacts.
 
 Then in the dashboard:
 
@@ -131,8 +137,7 @@ been tuned on these outcomes, so the numbers are honest.
 
 ## Cadence override
 
-Default Social Arb cadence is `Tue, Thu, Sun` (`RESEARCH_SOCIAL_DAYS=2,4,7`).
-Override via env or CLI:
+Default Social Arb cadence is Mon-Fri post-close (`RESEARCH_SOCIAL_DAYS=1,2,3,4,5`). The runner evaluates the day in market time (`America/New_York`). Override via env or CLI:
 
 ```bash
 # one-off override
@@ -150,7 +155,7 @@ export RESEARCH_SOCIAL_DAYS=2,4   # Tue + Thu only
 | `Stock Lens missing for X` in Mode 2 | no cached lens for that ticker | `./scripts/run_research_cycle.sh lens X` |
 | `Forward tracking summary missing` in Risk mode | resolver hasn't run | `./scripts/run_research_cycle.sh resolve` |
 | dashboard says forecast is `STALE` | last cycle didn't run | run `nightly` or `forecast` |
-| nightly skipped Social Arb | not a cadence day | `--force-social` if you intended to run it |
+| nightly skipped Social Arb | not a configured cadence day | set `RESEARCH_SOCIAL_DAYS` or use `--force-social` if you intended to run it |
 
 ## File map
 

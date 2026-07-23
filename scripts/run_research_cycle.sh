@@ -1384,6 +1384,16 @@ cmd_latest_scan_programs() {
         "$PY" research/latest_scan_programs.py "$@"
 }
 
+cmd_scan_exclusion_impact() {
+    # Scan-exclusion impact report. Cache-only/read-only audit of names
+    # removed by the validated manifest after the delta refresh. It reports
+    # reachability/clusters only; it never reruns scanner scoring or infers
+    # ranks for excluded names.
+    log "[CACHE] scan-exclusion impact report (read-only)"
+    run_or_warn "scan exclusion impact" \
+        "$PY" research/scan_exclusion_impact_report.py "$@"
+}
+
 cmd_high_conviction_alpha() {
     # High-Conviction Alpha Shortlist — selective quality/growth/value/
     # momentum qualification layer ABOVE the Tactical/Swing/Long-Term
@@ -1546,6 +1556,12 @@ cmd_premarket() {
     cmd_research_forward_tracker
     cmd_ten_x_candidates
     cmd_daily_alpha_radar
+    # Keep downstream qualification/display lanes aligned with the latest
+    # premarket scanner + program-routing artifact. These commands are
+    # cache-only/read-only on the engine and do not alter scanner output.
+    cmd_high_conviction_alpha
+    cmd_emerging_outlier
+    cmd_scan_exclusion_impact
     log "premarket cycle complete"
 }
 
@@ -1713,6 +1729,7 @@ cmd_nightly() {
     # V1 evaluation.  Then the V1 filter audit (diagnostic) so the operator
     # summary / digest can surface both.
     cmd_emerging_outlier
+    cmd_scan_exclusion_impact
     cmd_high_conviction_filter_audit
     # Forward-evidence re-audit hook — after the forward tracker and the
     # high-conviction forward validation (its two inputs), before the
@@ -1872,6 +1889,7 @@ case "$SUB" in
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
     forward-milestones)        cmd_forward_milestones         "${POS[@]}" ;;
     latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
+    scan-exclusion-impact)     cmd_scan_exclusion_impact      "${POS[@]}" ;;
     high-conviction-alpha)     cmd_high_conviction_alpha      "${POS[@]}" ;;
     emerging-outlier)          cmd_emerging_outlier           "${POS[@]}" ;;
     filter-audit)              cmd_high_conviction_filter_audit "${POS[@]}" ;;

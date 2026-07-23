@@ -138,6 +138,18 @@ def build_report(root: Optional[Path] = None) -> Dict[str, Any]:
         overlay_state = "PARTIAL"
     else:
         overlay_state = "ENABLED"
+    if overlay_state == "DISABLED":
+        selection_status = "NOT_USED_IN_SELECTION"
+        selection_note = (
+            "Options overlay disabled — insufficient coverage; not used in "
+            "selection.")
+        used_in_selection = False
+    else:
+        selection_status = "OPTIONAL_CONTEXT_ONLY"
+        selection_note = (
+            "Options overlay available only as optional context; scanner "
+            "selection and ranking are not changed by this report.")
+        used_in_selection = None
 
     reason_counts: Dict[str, int] = {}
     for r in rows:
@@ -156,6 +168,9 @@ def build_report(root: Optional[Path] = None) -> Dict[str, Any]:
         "uncovered": len(uncovered),
         "coverage_pct": round(coverage * 100, 1),
         "overlay_state": overlay_state,
+        "selection_status": selection_status,
+        "selection_note": selection_note,
+        "used_in_selection": used_in_selection,
         "overlay_guard_thresholds": {"disabled_below_pct": 50,
                                      "partial_below_pct": 80},
         "radar_agrees": (radar_cov.get("state") == overlay_state
@@ -182,6 +197,7 @@ def render_text(report: Dict[str, Any]) -> str:
         f"({report['coverage_pct']}%) -> overlay {report['overlay_state']}",
         f"  covered: {', '.join(report['covered_tickers']) or 'none'}",
         f"  status counts: {report['status_counts']}",
+        f"  selection status: {report.get('selection_note')}",
         f"  structural cause: {report['structural_cause']}",
         "",
         "  CONSUMERS (required vs optional):",

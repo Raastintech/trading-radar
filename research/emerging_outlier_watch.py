@@ -49,6 +49,7 @@ from research.high_conviction_alpha import (  # noqa: E402  (frozen V1 reuse)
     VERSION as HCA_VERSION, HOLDING_PERIODS, SHORTLIST_CLASSES,
     CLS_QUALITY_BUT_EXTENDED, PROGRAM_ORDER, ROUTED_REL, SCANNER_REL,
     dead_horse_risk, evaluate_candidate, _num, _load_json)
+from research.artifact_dependency_audit import dependency_audit  # noqa: E402
 
 VERSION = "EMERGING_OUTLIER_WATCH_V1"
 LANE = "EMERGING_OUTLIER_WATCH"
@@ -324,10 +325,23 @@ def build_watch(root: Optional[Path] = None,
                 now: Optional[datetime] = None) -> Dict[str, Any]:
     root = Path(root) if root else REPO_ROOT
     now = now or _utcnow()
+    generated_at = now.isoformat()
     routed_doc = _load_json(root / ROUTED_REL)
+    scanner = _load_json(root / SCANNER_REL)
+    source_dependencies = dependency_audit(
+        artifact_kind="emerging_outlier_watch",
+        artifact_timestamp=generated_at,
+        scanner_doc=scanner,
+        routed_doc=routed_doc,
+    )
     base = {
         "kind": "emerging_outlier_watch", "version": VERSION,
-        "generated_at": now.isoformat(), "research_only": True,
+        "generated_at": generated_at, "research_only": True,
+        "artifact_timestamp": generated_at,
+        "eo_artifact_timestamp": generated_at,
+        "source_dependencies": source_dependencies,
+        "cadence_status": source_dependencies["status"],
+        "stale_for_latest_scan": source_dependencies["stale_for_latest_scan"],
         "based_on_hca_version": HCA_VERSION,
         "guardrails": {
             "separate_from_high_conviction": True,

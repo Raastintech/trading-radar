@@ -70,6 +70,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from research.artifact_dependency_audit import dependency_audit  # noqa: E402
+
 # ── pre-registered version + artifact paths ─────────────────────────────────
 
 VERSION = "HIGH_CONVICTION_ALPHA_V1"
@@ -818,14 +820,26 @@ def build_shortlist(root: Optional[Path] = None,
                     now: Optional[datetime] = None) -> Dict[str, Any]:
     root = Path(root) if root else REPO_ROOT
     now = now or _utcnow()
+    generated_at = now.isoformat()
     routed_doc = _load_json(root / ROUTED_REL)
     scanner = _load_json(root / SCANNER_REL)
+    source_dependencies = dependency_audit(
+        artifact_kind="high_conviction_alpha",
+        artifact_timestamp=generated_at,
+        scanner_doc=scanner,
+        routed_doc=routed_doc,
+    )
 
     base = {
         "kind": "high_conviction_alpha",
         "version": VERSION,
-        "generated_at": now.isoformat(),
+        "generated_at": generated_at,
+        "artifact_timestamp": generated_at,
+        "hc_artifact_timestamp": generated_at,
         "research_only": True,
+        "source_dependencies": source_dependencies,
+        "cadence_status": source_dependencies["status"],
+        "stale_for_latest_scan": source_dependencies["stale_for_latest_scan"],
         "weights": WEIGHTS,
         "guardrails": {
             "no_selection_change": True,

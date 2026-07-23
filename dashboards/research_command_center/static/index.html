@@ -1138,6 +1138,7 @@ function highConvictionSection(hc,opts){
     <div class="sec-head"><h2>High-Conviction Alpha</h2>
       <span class="meta">Quality + Growth + Value + Momentum · Forward Validation: ${fwdLabel(fwd.verdict,fwd)}</span></div>
     <div class="interp" style="border-top:none;padding-top:0;margin:0 0 6px">${esc(hcInterpretation(hc,shown))}</div>
+    ${hc.stale_for_latest_scan?`<div class="note">High-Conviction list stale vs latest scan</div>`:""}
     ${shortlist.length&&!opts.focus?hcControls():""}
     ${body}
     ${opts.focus?"":rejectedTray(hc.rejected||[])}
@@ -1235,6 +1236,7 @@ function emergingSection(eo,opts){
     <div class="sec-head"><h2>Emerging Opportunities</h2>
       <span class="meta">Higher-risk · pre-profit / turnaround · separate from High Conviction</span></div>
     <div class="eo-sub">${label} · ${watch.length} total · Forward Validation: ${fwdLabel(fwd.verdict,fwd)} · not validated alpha</div>
+    ${eo.stale_for_latest_scan?`<div class="note">Emerging Outlier list stale vs latest scan</div>`:""}
     ${opts.focus?"":`<div class="sec-ctrls">${mk("top","Top 5")}${mk("secondary","Next 10")}${mk("all","View all "+watch.length)}</div>`}
     ${cards}
   </div>`;
@@ -1321,8 +1323,10 @@ function evidenceConfidencePanel(rc){
   // date so its (older) counts are never read as current tracker state.
   const motAt=(mot.freshness||{}).generated_at;
   const resolverWarn=String(ft.resolver_status||"").toUpperCase()==="WARN";
+  const watchWarn=(ft.watchlist_resolution_warning_count||0)>0;
   const resSub="next "+esc(ft.next_maturity_due||"—")
-    +(resolverWarn?` · resolver WARN${ft.unresolved_missing_price!=null?" ("+ft.unresolved_missing_price+" missing prices)":""}`:"");
+    +(resolverWarn?` · resolver WARN${ft.unresolved_missing_price!=null?" ("+ft.unresolved_missing_price+" missing prices)":""}`:"")
+    +(watchWarn?` · watchlist ${ft.watchlist_resolution_warning_count} weak horizon(s)`:"");
   // Forward-evidence anchor label — deterministic: validated only when a
   // program verdict literally says so; otherwise the collection is in
   // progress (a research maturity state, not a failure).
@@ -1341,7 +1345,7 @@ function evidenceConfidencePanel(rc){
       ${cell("Tactical",termLabel(pv.TACTICAL))}
       ${cell("Swing",termLabel(pv.SWING))}
       ${cell("Long-Term",termLabel(pv.LONG_TERM))}
-      ${cell("Resolution",(ft.resolution_coverage_pct!=null?ft.resolution_coverage_pct+"%":"—")+(resolverWarn?' <span class="bdg a">WARN</span>':""),resSub)}
+      ${cell("Resolution",(ft.resolution_coverage_pct!=null?ft.resolution_coverage_pct+"%":"—")+((resolverWarn||watchWarn)?' <span class="bdg a">WARN</span>':""),resSub)}
       ${cell("Benchmarks",badge(rc.benchmark_readiness))}
     </div>
     <div class="fit-line" style="margin-left:0">${motAt?"["+esc(String(fmtET(motAt)).slice(0,10))+"] ":""}${esc(mot.reason||"")}</div>
@@ -1370,7 +1374,7 @@ function trustInterpretation(st,rootSi){
   if(excluded>0) bits.push(`${excluded}${aligned?` of ${aligned+excluded}`:""} names excluded`);
   const stats=bits.join(", ")||"no integrity stats available";
   if(readiness==="BLOCKED") return "Blocked: today’s scan should not be trusted — "+stats+".";
-  if(readiness==="DEGRADED") return "Usable but degraded: "+stats+".";
+  if(readiness==="DEGRADED") return si.impact_wording||"Usable with caveats — "+stats+".";
   if(readiness==="READY") return "Fully usable: "+stats+".";
   return "Trust state unknown — "+stats+".";
 }
@@ -1381,6 +1385,7 @@ function systemTrustPanel(st,rootSi){
   if(!st||!st.present) return "";
   const si=st.scan_integrity||{}, ov=st.options_overlay||{}, ph=st.provider_health||{}, mcp=st.mcp_state||{};
   const overall=st.overall||"UNKNOWN";
+  const optSelectionNote=ov.selection_note||"Options overlay disabled — insufficient coverage; not used in selection.";
   const m=(rootSi||{}).manifest||{};
   const excluded=Object.values(m.excluded_by_reason||{}).reduce((a,b)=>a+(b||0),0);
   const denom=m.aligned_final_universe_count!=null?m.aligned_final_universe_count+excluded:null;
@@ -1396,7 +1401,7 @@ function systemTrustPanel(st,rootSi){
       <span>Universe coverage <b>${si.universe_coverage_pct!=null?si.universe_coverage_pct+"%":"—"}</b></span>
       ${excluded>0?`<span>Exclusions <b>${excluded}${denom?" / "+denom:""}</b></span>`:""}
       <span>Provider <b>${esc(ph.status)}</b></span>
-      <span>Options overlay <b>${esc(cap1(ov.state))}</b>${ov.informational?' <span class="dim">— known limitation</span>':""}</span>
+      <span>Options overlay <b>${esc(cap1(ov.state))}</b>${ov.informational?' <span class="dim">— not used in selection</span>':""}</span>
     </div>
     <details class="prog-det" style="margin-top:4px"><summary>System operations detail</summary>
       <div class="trust-row" style="margin-top:6px">
@@ -1404,6 +1409,7 @@ function systemTrustPanel(st,rootSi){
         <span>Data freshness <b>${esc(cap1(st.data_freshness))}</b></span>
         <span>Provider freshness <b>${(ph.freshness||{}).stale?"Stale":"Current"}</b></span>
       </div>
+      ${ov.informational?`<div class="note" style="margin-top:6px">${esc(optSelectionNote)}</div>`:""}
       ${ov.note?`<div class="note" style="margin-top:6px">${esc(ov.note)}</div>`:""}
     </details>
     <div class="interp">${esc(trustInterpretation(st,rootSi))}</div>
@@ -2111,6 +2117,19 @@ function renderDataQuality(){
 /* ── Phase 3: Forward Evidence (cohort analytics) ── */
 const pct=(v,d=2)=>(v===null||v===undefined)?"—":`${v>0?"+":""}${Number(v).toFixed(d)}%`;
 const wr=v=>(v===null||v===undefined)?"—":`${(v*100).toFixed(0)}%`;
+function resolutionCoveragePanel(rc,warnings,reco){
+  const rows=Object.entries(rc||{}).filter(([,b])=>(b.calendar_mature||0)>0);
+  if(!rows.length&&!warnings?.length) return "";
+  const body=rows.map(([h,b])=>`<tr><td class="tick">${esc(h)}</td>
+    <td>${b.resolved??"—"}/${b.calendar_mature??"—"}</td>
+    <td>${b.coverage_pct!=null?b.coverage_pct+"%":"—"}</td>
+    <td>${b.unresolved??"—"}</td>
+    <td>${esc(b.resolution_status||"UNKNOWN")}</td>
+    <td>${(b.unresolved_tickers_sample||[]).map(esc).join(", ")}</td></tr>`).join("");
+  const warn=(warnings||[]).length?`<div class="note">${warnings.map(esc).join("<br>")}</div>`:"";
+  const rec=reco?`<div class="note">${esc(reco)}</div>`:"";
+  return card("Resolution Coverage",`${warn}<table><tr><th>Horizon</th><th>Resolved</th><th>Coverage</th><th>Unresolved</th><th>Status</th><th>Unresolved sample</th></tr>${body}</table>${rec}`);
+}
 function cohortTable(title,rows,opts={}){
   if(!rows||!rows.length) return card(title,`<div style="color:var(--dim);font-size:11px">no data</div>`);
   const isTracker=!!opts.tracker;
@@ -2175,6 +2194,7 @@ function renderForward(){
       ${pageHeader("Forward Evidence","Cohort forward returns and program verdicts",{generated_at:d.generated_at})}
       ${omStrip}
       <div class="disclaimer">Tracker verdicts are shown unmodified. Computed cohorts carry stats + maturity only — no verdicts. Do not pool pre-fix and post-fix eras.</div>
+      ${resolutionCoveragePanel(d.resolution_coverage,d.resolution_warnings,d.unresolved_repair_recommendation)}
       ${cohortTable("By label — tracker-published verdicts",d.by_label,{tracker:true})}
       ${cohortBars("Mean 10d vs SPY by label (matured entries)",d.by_label,"avg_ret_vs_spy")}
       ${cohortTable(`Era split — price-cache fix boundary ${esc(d.price_fix_boundary)}`,era)}

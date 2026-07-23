@@ -5,8 +5,9 @@ the research scanner watchlist.
 
 For each ticker that appears in research_scanner_latest.json, records the date
 of first appearance, score, label, and category.  On subsequent runs, computes
-forward price returns at 5d, 10d, 20d, and 60d using the cached price parquets,
-alongside SPY, QQQ, and sector-ETF benchmark returns at the same horizons.
+forward price returns at every configured research horizon using the cached
+price parquets, alongside SPY, QQQ, IWM, and sector-ETF benchmark returns at
+the same horizons.
 
 Verdict ladder (per bucket):
   NEED_MORE_DATA   — fewer than 10 matured entries
@@ -107,6 +108,11 @@ SAMPLE_ROBUST = "ROBUST"              # ≥ 100 matured observations
 SAMPLE_THRESHOLD_PROVISIONAL = 10
 SAMPLE_THRESHOLD_MEANINGFUL = 30
 SAMPLE_THRESHOLD_ROBUST = 100
+
+# Below this, a matured horizon is not treated as clean evidence; the
+# verdict ladder remains unchanged, but the artifact reports the attrition
+# warning beside the stats.
+MIN_RESOLUTION_COVERAGE_PCT = 90.0
 
 
 def _sample_status(n_matured: int) -> str:
@@ -431,19 +437,79 @@ def _benchmark_readiness(history: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _market_cap_bucket(value: Any) -> str:
+    try:
+        mc = float(value)
+    except Exception:
+        return "UNKNOWN"
+    if mc < 300_000_000:
+        return "MICRO_CAP"
+    if mc < 2_000_000_000:
+        return "SMALL_CAP"
+    if mc < 10_000_000_000:
+        return "MID_CAP"
+    if mc < 200_000_000_000:
+        return "LARGE_CAP"
+    return "MEGA_CAP"
+
+
+def _security_type(ticker: str) -> str:
+    t = str(ticker or "").upper()
+    if t.endswith(("WS", "WT")) or (len(t) >= 5 and t.endswith("W")):
+        return "POSSIBLE_WARRANT"
+    if len(t) >= 5 and t.endswith(("U", "R")):
+        return "POSSIBLE_UNIT_OR_RIGHT"
+    if "." in t or "-" in t:
+        return "UNSUPPORTED_SHARE_CLASS_FORMAT"
+    return "COMMON_STOCK_OR_ADR"
+
+
+def _last_price_date(closes_with_dates: List[tuple]) -> Optional[str]:
+    return closes_with_dates[-1][0] if closes_with_dates else None
+
+
+def _unresolved_reason(closes_with_dates: List[tuple], appearance_date: str,
+                       horizon: int) -> str:
+    if not appearance_date:
+        return "appearance_date_missing"
+    if not closes_with_dates:
+        return "price_parquet_missing_or_empty"
+    idx = None
+    for i, (d, _) in enumerate(closes_with_dates):
+        if d >= appearance_date:
+            idx = i
+            break
+    if idx is None:
+        return "price_history_ends_before_appearance"
+    if idx + horizon >= len(closes_with_dates):
+        return "missing_horizon_bar"
+    return "resolver_not_filled_or_invalid_price"
+
+
 def _resolution_coverage(history: Dict[str, Dict[str, Any]],
                          spy_closes: List[tuple]) -> Dict[str, Any]:
-    """Phase 5.1 (A4): quantify silent resolution attrition.  An entry
-    whose appearance date plus the horizon fits inside the SPY trading
-    calendar SHOULD have a resolved return; entries that do not (missing
-    or truncated price parquets — warrants, micro-caps, delistings) are
-    a survivorship hole that must be reported next to every verdict."""
+    """Quantify silent resolution attrition by horizon.
+
+    An entry whose appearance date plus the horizon fits inside the SPY
+    trading calendar SHOULD have a resolved return.  Unresolved mature rows
+    are a survivorship hole, so each horizon carries full unresolved cohort
+    detail and a warning when coverage falls below the configured floor.
+    """
     spy_dates = [d for d, _ in spy_closes]
     out: Dict[str, Any] = {}
-    for h in (5, 10, 20):
+    close_cache: Dict[str, List[tuple]] = {}
+    source_artifact = str(HISTORY_JSONL.relative_to(ROOT))
+
+    for h in HORIZONS:
         expected = 0
         resolved = 0
-        unresolved_tickers: List[str] = []
+        unresolved_details: List[Dict[str, Any]] = []
+        reason_counts: Dict[str, int] = {}
+        security_counts: Dict[str, int] = {}
+        market_cap_counts: Dict[str, int] = {}
+        source_counts: Dict[str, int] = {}
+        sector_counts: Dict[str, int] = {}
+
         for rec in history.values():
             date = rec.get("appearance_date") or ""
             idx = None
@@ -456,15 +522,76 @@ def _resolution_coverage(history: Dict[str, Dict[str, Any]],
             expected += 1
             if rec.get(f"ret_{h}d") is not None:
                 resolved += 1
-            elif rec["ticker"] not in unresolved_tickers:
-                unresolved_tickers.append(rec["ticker"])
+                continue
+
+            ticker = str(rec.get("ticker") or "").upper()
+            if ticker not in close_cache:
+                close_cache[ticker] = _load_closes_with_dates(ticker)
+            closes = close_cache[ticker]
+            reason = _unresolved_reason(closes, date, h)
+            security_type = _security_type(ticker)
+            market_cap_bucket = _market_cap_bucket(rec.get("market_cap"))
+            universe_source = rec.get("universe_source") or rec.get("source") or "UNKNOWN"
+            sector = rec.get("sector") or "UNKNOWN"
+
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            security_counts[security_type] = security_counts.get(security_type, 0) + 1
+            market_cap_counts[market_cap_bucket] = market_cap_counts.get(market_cap_bucket, 0) + 1
+            source_counts[universe_source] = source_counts.get(universe_source, 0) + 1
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            unresolved_details.append({
+                "ticker": ticker,
+                "appearance_date": date,
+                "horizon": f"{h}d",
+                "reason": reason,
+                "security_type": security_type,
+                "market_cap_bucket": market_cap_bucket,
+                "market_cap": rec.get("market_cap"),
+                "sector": rec.get("sector"),
+                "industry": rec.get("industry"),
+                "watchlist_label": rec.get("watchlist_label"),
+                "category": rec.get("category"),
+                "research_program": rec.get("research_program"),
+                "source_artifact": source_artifact,
+                "price_last_date": _last_price_date(closes),
+            })
+
+        unresolved = expected - resolved
+        coverage = round(resolved / expected * 100, 1) if expected else None
+        unresolved_pct = round(unresolved / expected * 100, 1) if expected else None
+        status = "NOT_MATURE"
+        warning = None
+        if coverage is not None:
+            status = "OK" if coverage >= MIN_RESOLUTION_COVERAGE_PCT else "WARN"
+            if status == "WARN":
+                warning = (
+                    f"{h}d resolution coverage {coverage}% below "
+                    f"{MIN_RESOLUTION_COVERAGE_PCT:.0f}% floor; evidence at "
+                    "this horizon is not clean."
+                )
         out[f"{h}d"] = {
             "calendar_mature": expected,
             "resolved": resolved,
-            "unresolved": expected - resolved,
-            "coverage_pct": round(resolved / expected * 100, 1)
-            if expected else None,
-            "unresolved_tickers_sample": unresolved_tickers[:10],
+            "unresolved": unresolved,
+            "unresolved_pct": unresolved_pct,
+            "coverage_pct": coverage,
+            "resolution_status": status,
+            "warning": warning,
+            "min_resolution_coverage_pct": MIN_RESOLUTION_COVERAGE_PCT,
+            "unresolved_tickers": [d["ticker"] for d in unresolved_details],
+            "unresolved_tickers_sample": [d["ticker"] for d in unresolved_details[:10]],
+            "unresolved_detail": unresolved_details,
+            "reason_counts": reason_counts,
+            "security_type_counts": security_counts,
+            "market_cap_bucket_counts": market_cap_counts,
+            "source_counts": source_counts,
+            "sector_counts": sector_counts,
+            "repair_recommendation": (
+                "Run targeted price backfill for unresolved mature episodes, "
+                "then rerun research-forward-tracker; prioritize the largest "
+                "reason/security-type clusters."
+                if unresolved else None
+            ),
         }
     return out
 
@@ -723,6 +850,16 @@ def run_forward_tracker() -> Dict[str, Any]:
     overall_verdict = _compute_verdicts(all_entries, "ALL")
     bench_readiness = _benchmark_readiness(history)
     resolution_coverage = _resolution_coverage(history, spy_closes)
+    resolution_warnings = [
+        blk["warning"] for blk in resolution_coverage.values()
+        if blk.get("warning")
+    ]
+    unresolved_repair_recommendation = (
+        "Run targeted price backfill for unresolved mature episodes, then "
+        "rerun research-forward-tracker; do not treat weak-resolution "
+        "horizons as clean evidence until coverage recovers."
+        if resolution_warnings else None
+    )
 
     # Per-program rollup (routing only — program VERDICTS come from the
     # pre-registered gates in research/research_programs.py, not here)
@@ -749,6 +886,8 @@ def run_forward_tracker() -> Dict[str, Any]:
         "verdicts_by_label": verdicts,
         "benchmark_readiness": bench_readiness,
         "resolution_coverage": resolution_coverage,
+        "resolution_warnings": resolution_warnings,
+        "unresolved_repair_recommendation": unresolved_repair_recommendation,
         "program_counts": program_counts,
         "priority_split": _priority_split(all_entries),
         "tracked_horizons_td": HORIZONS,
@@ -802,7 +941,11 @@ def _format_text(result: Dict[str, Any]) -> str:
                 f"  {h:>4}: {blk.get('resolved', 0)}/"
                 f"{blk.get('calendar_mature', 0)} resolved "
                 f"({cov if cov is not None else 'n/a'}%) — "
-                f"{blk.get('unresolved', 0)} unresolved")
+                f"{blk.get('unresolved', 0)} unresolved "
+                f"[{blk.get('resolution_status') or 'UNKNOWN'}]"
+            )
+            if blk.get("warning"):
+                lines.append(f"       warning: {blk['warning']}")
 
     pc = result.get("program_counts") or {}
     if pc:

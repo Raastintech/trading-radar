@@ -29,6 +29,84 @@ from dashboards.research_command_center.presentation import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
+CURRENT_FOR_LATEST_SCAN = "CURRENT_FOR_LATEST_SCAN"
+STALE_FOR_LATEST_SCAN = "STALE_FOR_LATEST_SCAN"
+SOURCE_UNKNOWN = "SOURCE_UNKNOWN"
+
+
+def _parse_dep_ts(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _scan_hash(scanner: Dict[str, Any], routed: Dict[str, Any]) -> Optional[str]:
+    integ = scanner.get("scan_integrity") or {}
+    return (scanner.get("scan_universe_manifest_hash")
+            or integ.get("manifest_hash")
+            or routed.get("scanner_manifest_hash")
+            or routed.get("manifest_universe_hash"))
+
+
+def _dependency_audit(artifact_kind: str, artifact_timestamp: Optional[str],
+                      scanner_doc: Optional[Dict[str, Any]],
+                      routed_doc: Optional[Dict[str, Any]],
+                      recorded: Optional[Dict[str, Any]] = None
+                      ) -> Dict[str, Any]:
+    scanner = scanner_doc or {}
+    routed = routed_doc or {}
+    previous = recorded or {}
+    source_scan_ts = scanner.get("generated_at") or routed.get("scan_timestamp")
+    source_routing_ts = routed.get("generated_at")
+    source_scan_hash = _scan_hash(scanner, routed)
+    source_routing_hash = (routed.get("scanner_manifest_hash")
+                           or routed.get("manifest_universe_hash"))
+
+    artifact_dt = _parse_dep_ts(artifact_timestamp)
+    scan_dt = _parse_dep_ts(source_scan_ts)
+    routing_dt = _parse_dep_ts(source_routing_ts)
+    stale_reasons: List[str] = []
+    if artifact_dt and scan_dt and artifact_dt < scan_dt:
+        stale_reasons.append(
+            f"artifact {artifact_timestamp} older than source scan {source_scan_ts}")
+    if artifact_dt and routing_dt and artifact_dt < routing_dt:
+        stale_reasons.append(
+            f"artifact {artifact_timestamp} older than program routing {source_routing_ts}")
+    if previous.get("source_scan_timestamp") and source_scan_ts \
+            and previous.get("source_scan_timestamp") != source_scan_ts:
+        stale_reasons.append("recorded source scan differs from latest scan")
+    if previous.get("source_program_routing_timestamp") and source_routing_ts \
+            and previous.get("source_program_routing_timestamp") != source_routing_ts:
+        stale_reasons.append("recorded program routing differs from latest routing")
+    if previous.get("source_scan_hash") and source_scan_hash \
+            and previous.get("source_scan_hash") != source_scan_hash:
+        stale_reasons.append("recorded source scan hash differs from latest hash")
+
+    if stale_reasons:
+        status = STALE_FOR_LATEST_SCAN
+    elif artifact_dt and (scan_dt or routing_dt):
+        status = CURRENT_FOR_LATEST_SCAN
+    else:
+        status = SOURCE_UNKNOWN
+    return {
+        "artifact_kind": artifact_kind,
+        "artifact_timestamp": artifact_timestamp,
+        "source_scan_timestamp": source_scan_ts,
+        "source_scan_hash": source_scan_hash,
+        "source_program_routing_timestamp": source_routing_ts,
+        "source_program_routing_hash": source_routing_hash,
+        "status": status,
+        "stale_for_latest_scan": status == STALE_FOR_LATEST_SCAN,
+        "stale_reasons": stale_reasons,
+    }
+
+
 RESEARCH_ONLY_FOOTER = "Research only — not a signal or recommendation."
 
 # Fallback / data-quality states
@@ -194,6 +272,10 @@ class ArtifactStore:
         return self.research_dir / "scan_universe_manifest_latest.json"
 
     @property
+    def scan_exclusion_impact_json(self) -> Path:
+        return self.research_dir / "scan_exclusion_impact_latest.json"
+
+    @property
     def legacy_universe_snapshot_json(self) -> Path:
         return self.root / "cache" / "universe" / "universe_snapshot_latest.json"
 
@@ -205,6 +287,19 @@ def _load_json(path: Path) -> Optional[Dict[str, Any]]:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _downstream_dependency_audit(artifact_kind: str,
+                                 payload: Dict[str, Any],
+                                 store: "ArtifactStore") -> Dict[str, Any]:
+    return _dependency_audit(
+        artifact_kind=artifact_kind,
+        artifact_timestamp=payload.get("generated_at")
+        or payload.get("artifact_timestamp"),
+        scanner_doc=_load_json(store.scanner_json),
+        routed_doc=_load_json(store.latest_scan_programs_json),
+        recorded=payload.get("source_dependencies") or {},
+    )
 
 
 def _age_hours(iso_ts: Optional[str]) -> Optional[float]:
@@ -359,6 +454,14 @@ def build_high_conviction(
         "verdict_reason": fwd.get("verdict_reason"),
         "n_history_rows": fwd.get("n_history_rows"),
     }
+    deps = _downstream_dependency_audit(
+        "high_conviction_alpha", payload, store)
+    payload["source_dependencies"] = deps
+    payload["cadence_status"] = deps["status"]
+    payload["stale_for_latest_scan"] = deps["stale_for_latest_scan"]
+    payload["cadence_warning"] = (
+        "High-Conviction list stale vs latest scan"
+        if deps["stale_for_latest_scan"] else None)
     payload["age_hours"] = _age_hours(payload.get("generated_at"))
     return payload
 
@@ -381,6 +484,14 @@ def build_emerging_outlier(
     payload["forward_validation"] = {
         "present": bool(fwd.get("present")), "verdict": fwd.get("verdict"),
         "verdict_reason": fwd.get("verdict_reason")}
+    deps = _downstream_dependency_audit(
+        "emerging_outlier_watch", payload, store)
+    payload["source_dependencies"] = deps
+    payload["cadence_status"] = deps["status"]
+    payload["stale_for_latest_scan"] = deps["stale_for_latest_scan"]
+    payload["cadence_warning"] = (
+        "Emerging Outlier list stale vs latest scan"
+        if deps["stale_for_latest_scan"] else None)
     payload["age_hours"] = _age_hours(payload.get("generated_at"))
     return payload
 
@@ -523,6 +634,9 @@ def build_research_confidence(
             and (fmat + fopen) > 0:
         res_cov = round(100.0 * fmat / (fmat + fopen), 1)
 
+    tracker_resolution = status_fwd.get("resolution_coverage") or {}
+    tracker_resolution_warnings = status_fwd.get("resolution_warnings") or []
+
     return {
         "present": bool(programs.get("present") or mot),
         "research_only": True,
@@ -550,6 +664,11 @@ def build_research_confidence(
             "total_matured": (fmat or 0) + (fres.get("lens_matured") or 0),
             "unresolved_missing_price": fres.get("unresolved_missing_price"),
             "resolver_status": fres.get("resolver_status"),
+            "watchlist_resolution_coverage": tracker_resolution,
+            "watchlist_resolution_warnings": tracker_resolution_warnings,
+            "watchlist_resolution_warning_count": len(tracker_resolution_warnings),
+            "unresolved_repair_recommendation":
+                status_fwd.get("unresolved_repair_recommendation"),
             "freshness": _staleness(fres.get("generated_at")),
         },
         "benchmark_readiness": build_status_benchmark_readiness(store),
@@ -604,6 +723,9 @@ def build_system_trust(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
             "coverage_pct": options.get("coverage_pct"),
             # DISABLED here is a known coverage limitation, not a crash
             "informational": options.get("overlay_state") == "DISABLED",
+            "selection_status": options.get("selection_status"),
+            "selection_note": options.get("selection_note"),
+            "used_in_selection": options.get("used_in_selection"),
             "note": options.get("structural_cause"),
             "freshness": _staleness(options.get("generated_at")),
         },
@@ -658,6 +780,7 @@ def build_scan_integrity(store: Optional[ArtifactStore] = None) -> Dict[str, Any
     discovery = _load_json(store.discovery_coverage_json) or {}
     board = _load_json(store.alpha_board_json) or {}
     manifest = _load_json(store.scan_manifest_json) or {}
+    exclusion_impact = _load_json(store.scan_exclusion_impact_json) or {}
 
     integrity = scanner.get("scan_integrity") or {}
     readiness = integrity.get("readiness") or "UNKNOWN"
@@ -691,6 +814,14 @@ def build_scan_integrity(store: Optional[ArtifactStore] = None) -> Dict[str, Any
         "alpha_discovery_legacy_status": (board_seed.get("legacy_snapshot") or {}).get("status"),
         "gated_consumers": ["market_posture", "regime_breadth", "liquid_top_lens_tier"],
     }
+
+    impact_wording = exclusion_impact.get("impact_wording")
+    if not impact_wording and readiness == "DEGRADED":
+        excluded = manifest.get("excluded_count")
+        if excluded:
+            impact_wording = (
+                f"Usable with caveats — {excluded} names excluded after "
+                "delta refresh.")
 
     return {
         "readiness": readiness,
@@ -734,6 +865,15 @@ def build_scan_integrity(store: Optional[ArtifactStore] = None) -> Dict[str, Any
         "dead_symbol_exclusions": (refresh.get("excluded_dead_count")
                                    or (scanner.get("scan_integrity") or {}).get("dead_symbol_excluded_count")),
         "stale_source_consumers": stale_source_consumers,
+        "impact_wording": impact_wording,
+        "exclusion_impact": {
+            "present": bool(exclusion_impact),
+            "generated_at": exclusion_impact.get("generated_at"),
+            "excluded_count": exclusion_impact.get("excluded_count"),
+            "summary": exclusion_impact.get("summary") or {},
+            "warnings": exclusion_impact.get("warnings") or [],
+            "artifact": "cache/research/scan_exclusion_impact_latest.json",
+        },
     }
 
 
@@ -1382,6 +1522,10 @@ def build_forward_cohorts(store: Optional[ArtifactStore] = None) -> Dict[str, An
         "by_category": by_category,
         "by_source": by_source,
         "by_era": by_era,
+        "resolution_coverage": (forward or {}).get("resolution_coverage") or {},
+        "resolution_warnings": (forward or {}).get("resolution_warnings") or [],
+        "unresolved_repair_recommendation":
+            (forward or {}).get("unresolved_repair_recommendation"),
         "price_fix_boundary": PRICE_FIX_BOUNDARY,
         "caveats": [
             "by_label rows are the tracker's published verdicts (unmodified).",
