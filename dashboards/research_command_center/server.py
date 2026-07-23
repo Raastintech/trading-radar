@@ -48,6 +48,7 @@ from dashboards.research_command_center.data_adapter import (  # noqa: E402
     build_fundamentals,
     build_high_conviction,
     build_leaderboard,
+    build_research_operating_policy,
     build_sector_compass,
     build_social_overview,
     build_status,
@@ -181,6 +182,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(build_forward_cohorts(self.store))
             elif path == "/api/cohort-attribution":
                 self._json(build_cohort_attribution(self.store))
+            elif path == "/api/research-operating-policy":
+                self._json(build_research_operating_policy(self.store))
             elif path == "/api/sectors":
                 self._json(build_sector_compass(self.store))
             elif path == "/api/social":

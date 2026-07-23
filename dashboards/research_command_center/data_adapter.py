@@ -150,6 +150,10 @@ class ArtifactStore:
         return self.research_dir / "cohort_attribution_latest.json"
 
     @property
+    def research_operating_policy_json(self) -> Path:
+        return self.research_dir / "research_operating_policy_latest.json"
+
+    @property
     def radar_json(self) -> Path:
         return self.research_dir / "daily_alpha_radar_latest.json"
 
@@ -970,6 +974,8 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "research_confidence": build_research_confidence(store),
         "system_trust": build_system_trust(store),
         "cohort_attribution": build_cohort_attribution(store, compact=True),
+        "research_operating_policy":
+            build_research_operating_policy(store, compact=True),
         "high_conviction": build_high_conviction(store),
         "emerging_outlier": build_emerging_outlier(store),
         "research_programs": build_research_programs(store),
@@ -1496,6 +1502,32 @@ def build_cohort_attribution(
         return {
             "generated_at": payload.get("generated_at"),
             "primary_horizon": payload.get("primary_horizon"),
+            "dashboard_summary": payload.get("dashboard_summary") or {},
+            "guardrails": payload.get("guardrails") or {},
+            "fallback": None,
+            "research_only_footer": RESEARCH_ONLY_FOOTER,
+        }
+    out = dict(payload)
+    out.setdefault("fallback", None)
+    out.setdefault("research_only_footer", RESEARCH_ONLY_FOOTER)
+    return out
+
+
+def build_research_operating_policy(
+        store: Optional[ArtifactStore] = None,
+        *, compact: bool = False) -> Dict[str, Any]:
+    """Evidence-weighted operator policy sidecar. Cache-only passthrough;
+    never recomputes scanner/routing logic and never mutates candidates."""
+    store = store or ArtifactStore()
+    payload = _load_json(store.research_operating_policy_json)
+    if payload is None:
+        return {"fallback": MISSING_ARTIFACT,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+    if compact:
+        return {
+            "generated_at": payload.get("generated_at"),
+            "primary_horizon": payload.get("primary_horizon"),
+            "alpha_proven": payload.get("alpha_proven"),
             "dashboard_summary": payload.get("dashboard_summary") or {},
             "guardrails": payload.get("guardrails") or {},
             "fallback": None,

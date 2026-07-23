@@ -115,6 +115,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     recall_diagnostics = _load_json(store.scanner_recall_diagnostics_json)
     forward_milestones = _load_json(store.forward_milestones_json)
     cohort_attribution = _load_json(store.cohort_attribution_json)
+    research_operating_policy = _load_json(store.research_operating_policy_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -150,6 +151,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "recall_diagnostics": recall_diagnostics,
         "forward_milestones": forward_milestones,
         "cohort_attribution": cohort_attribution,
+        "research_operating_policy": research_operating_policy,
         "missing": missing,
     }
 
@@ -779,6 +781,33 @@ def _section_cohort_attribution(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _section_research_operating_policy(inputs: Dict[str, Any]) -> List[str]:
+    policy = inputs.get("research_operating_policy") or {}
+    lines = ["## Research Operating Policy"]
+    if not policy:
+        return lines + [
+            "- Operating policy sidecar missing; run research/research_operating_policy.py.",
+            "- Treat cohort attribution as diagnostic only until policy guidance is available.",
+        ]
+    dash = policy.get("dashboard_summary") or {}
+
+    def labels(key: str) -> str:
+        vals = [str(i.get("label") or "") for i in (dash.get(key) or [])[:3]]
+        vals = [v for v in vals if v]
+        return ", ".join(vals) if vals else "none"
+
+    lines.append(f"- Operator attention today: {labels("focus_now")}.")
+    lines.append(f"- Use caution: {labels("use_caution")}.")
+    lines.append(f"- Discovery only: {labels("discovery_only")}.")
+    lines.append(f"- Do not conclude yet: {labels("do_not_conclude_yet")}.")
+    if dash.get("immature_reminder"):
+        lines.append(f"- Immature evidence: {dash.get("immature_reminder")}")
+    lines.append(
+        "- Policy is presentation guidance only; it does not remove candidates, "
+        "alter ranking, change scores, or promote research to signals.")
+    return lines
+
+
 def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     """Phase 5.1 — per-program summary so Tactical, Swing, and Long-Term
     findings are never blended into one conclusion.  Reads only the
@@ -1273,6 +1302,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_sector_regime(inputs, top) + [""]
         + _section_forward(inputs) + [""]
         + _section_cohort_attribution(inputs) + [""]
+        + _section_research_operating_policy(inputs) + [""]
         + _section_research_programs(inputs) + [""]
         + _section_high_conviction(inputs) + [""]
         + _section_emerging_outlier(inputs) + [""]

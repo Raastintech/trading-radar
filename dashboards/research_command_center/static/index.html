@@ -1384,6 +1384,26 @@ function cohortAttributionPanel(ca){
     </div></details>`;
 }
 
+function researchOperatingPolicyPanel(op){
+  if(!op||op.fallback) return "";
+  const d=op.dashboard_summary||{};
+  const rows=(xs)=>(xs||[]).slice(0,3);
+  const label=x=>esc((x||{}).label||"—");
+  const basis=x=>{const b=(x||{}).evidence_basis||{};const n=b.matured_count??"—";const mean=b.mean_return_pct;return `n ${n}${mean!==null&&mean!==undefined?` · mean ${Number(mean).toFixed(1)}%`:""}`};
+  const item=x=>`<div class="policy-item"><b>${label(x)}</b><span class="dim"> · ${esc((x||{}).confidence||"—")} · ${esc((x||{}).maturity_status||"—")} · ${basis(x)}</span></div>`;
+  const block=(title,xs,empty)=>`<div class="policy-block"><div class="k">${esc(title)}</div>${rows(xs).length?rows(xs).map(item).join(""):`<div class="dim">${esc(empty)}</div>`}</div>`;
+  const focus=rows(d.focus_now||[]), caution=rows(d.use_caution||[]), immature=rows(d.do_not_conclude_yet||[]);
+  const summary=`Focus Now: ${focus.map(label).join(", ")||"none"} · Use Caution: ${caution.map(label).join(", ")||"none"}`;
+  return `<details class="prog-det operating-policy" style="margin:0 0 12px"><summary>Research Operating Policy · ${esc(summary)}</summary>
+    <div class="cards" style="margin-top:8px">
+      ${card("Research Operating Policy",`
+        ${block("Focus Now",d.focus_now,"No focus cohort with enough evidence.")}
+        ${block("Use Caution",d.use_caution,"No caution cohort selected.")}
+        ${block("Do Not Conclude Yet",d.do_not_conclude_yet,"No immature-cohort reminder.")}
+        <div class="note">${esc(d.policy_note||"Presentation priority only; not a signal.")}</div>`)}
+    </div></details>`;
+}
+
 /* ── System Trust snapshot (max 5 visible, rest expandable, one
    deterministic interpretation line) ── */
 function trustInterpretation(st,rootSi){
@@ -1594,6 +1614,7 @@ function renderHome(){
       ${contextAlerts(s.market_context)}
       ${snapshots}
       ${cohortAttributionPanel(s.cohort_attribution)}
+      ${researchOperatingPolicyPanel(s.research_operating_policy)}
       ${highConvictionSection(s.high_conviction,{focus:true})}
       ${emergingSection(s.emerging_outlier,{focus:true})}
       <div class="page-note">Focus mode — showing priority research content only. Use the Focus mode button above to return to Full mode. All candidates are research-only.</div>`;
@@ -1607,6 +1628,7 @@ function renderHome(){
     ${contextAlerts(s.market_context)}
     ${snapshots}
     ${cohortAttributionPanel(s.cohort_attribution)}
+    ${researchOperatingPolicyPanel(s.research_operating_policy)}
     <div class="page-note">All candidates are research-only. Forward evidence is unvalidated unless otherwise stated.</div>
 
     <!-- Level 2 — Today's Best Research -->
