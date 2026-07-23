@@ -40,6 +40,7 @@ if str(HERE.parents[1]) not in sys.path:
 
 from dashboards.research_command_center.data_adapter import (  # noqa: E402
     ArtifactStore,
+    build_cohort_attribution,
     build_data_quality,
     build_emerging_outlier,
     build_intel,
@@ -178,6 +179,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(build_ticker_series(ticker, self.store))
             elif path == "/api/forward-cohorts":
                 self._json(build_forward_cohorts(self.store))
+            elif path == "/api/cohort-attribution":
+                self._json(build_cohort_attribution(self.store))
             elif path == "/api/sectors":
                 self._json(build_sector_compass(self.store))
             elif path == "/api/social":

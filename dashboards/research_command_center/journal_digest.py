@@ -114,6 +114,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     options_coverage = _load_json(store.options_coverage_json)
     recall_diagnostics = _load_json(store.scanner_recall_diagnostics_json)
     forward_milestones = _load_json(store.forward_milestones_json)
+    cohort_attribution = _load_json(store.cohort_attribution_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -148,6 +149,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "options_coverage": options_coverage,
         "recall_diagnostics": recall_diagnostics,
         "forward_milestones": forward_milestones,
+        "cohort_attribution": cohort_attribution,
         "missing": missing,
     }
 
@@ -741,6 +743,42 @@ def _milestone_lines(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _section_cohort_attribution(inputs: Dict[str, Any]) -> List[str]:
+    ca = inputs.get("cohort_attribution") or {}
+    lines = ["## Cohort Attribution"]
+    if not ca:
+        return lines + [
+            "- Cohort attribution sidecar missing; run research/cohort_attribution.py.",
+            "- Do not infer cohort-level alpha from the broad forward verdict alone.",
+        ]
+    dash = ca.get("dashboard_summary") or {}
+    drag = dash.get("biggest_drag_cohort") or {}
+    best = dash.get("best_current_cohort") or {}
+    hc = dash.get("high_conviction") or {}
+    eo = dash.get("emerging_outlier") or {}
+    warning = dash.get("sample_maturity_warning")
+    lines.append(
+        f"- Dragging performance: {drag.get('label') or 'n/a'} "
+        f"(10d mean {drag.get('mean_return_pct')}, "
+        f"win {drag.get('win_rate')}).")
+    lines.append(
+        f"- Best current cohort: {best.get('label') or 'n/a'} "
+        f"(10d mean {best.get('mean_return_pct')}, "
+        f"win {best.get('win_rate')}).")
+    lines.append(
+        f"- High-Conviction 10d sample: {hc.get('matured_count')} "
+        f"({hc.get('result') or hc.get('status')}).")
+    lines.append(
+        f"- Emerging Outlier 10d sample: {eo.get('matured_count')} "
+        f"({eo.get('result') or eo.get('status')}).")
+    if warning:
+        lines.append(f"- Sample maturity: {warning}")
+    lines.append(
+        "- Do not conclude HC/EO alpha until their own matured samples clear "
+        "the pre-registered evidence floor.")
+    return lines
+
+
 def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     """Phase 5.1 — per-program summary so Tactical, Swing, and Long-Term
     findings are never blended into one conclusion.  Reads only the
@@ -1234,6 +1272,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_scanner(inputs, top, reset_reclaim) + [""]
         + _section_sector_regime(inputs, top) + [""]
         + _section_forward(inputs) + [""]
+        + _section_cohort_attribution(inputs) + [""]
         + _section_research_programs(inputs) + [""]
         + _section_high_conviction(inputs) + [""]
         + _section_emerging_outlier(inputs) + [""]

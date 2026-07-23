@@ -1363,6 +1363,27 @@ function evidenceInterpretation(rc){
   return "Research remains in evidence-collection mode; no validated forward edge yet.";
 }
 
+function cohortAttributionPanel(ca){
+  if(!ca||ca.fallback) return "";
+  const d=ca.dashboard_summary||{};
+  const fmtPct=v=>(v===null||v===undefined)?"—":`${Number(v).toFixed(1)}%`;
+  const fmtWr=v=>(v===null||v===undefined)?"—":`${(Number(v)*100).toFixed(0)}%`;
+  const brief=(x)=>{x=x||{};return `${cap1(String(x.status||"unknown"))} · n ${x.matured_count??"—"} · win ${fmtWr(x.win_rate)} · mean ${fmtPct(x.mean_return_pct)}`};
+  const drag=d.biggest_drag_cohort||{}, best=d.best_current_cohort||{};
+  const summary=`Broad scanner: ${esc((d.broad_scanner||{}).status||"unknown")} · High Conviction: ${esc((d.high_conviction||{}).status||"unknown")} · Emerging: ${esc((d.emerging_outlier||{}).status||"unknown")}`;
+  return `<details class="prog-det cohort-attrib" style="margin:0 0 12px"><summary>Cohort Attribution · ${summary}</summary>
+    <div class="cards" style="margin-top:8px">
+      ${card("Cohort Attribution",`<div class="kv">
+        ${kvRow("Broad scanner",brief(d.broad_scanner))}
+        ${kvRow("High Conviction",brief(d.high_conviction))}
+        ${kvRow("Emerging Outlier",brief(d.emerging_outlier))}
+        ${kvRow("Biggest drag",drag.label?`${esc(drag.label)} (${fmtPct(drag.mean_return_pct)})`:"—",drag.mean_return_pct<0?"warn":"")}
+        ${kvRow("Best current",best.label?`${esc(best.label)} (${fmtPct(best.mean_return_pct)})`:"—")}
+      </div>${d.sample_maturity_warning?`<div class="note">${esc(d.sample_maturity_warning)}</div>`:""}
+      <div class="note">${esc(d.what_not_to_conclude||"")}</div>`)}
+    </div></details>`;
+}
+
 /* ── System Trust snapshot (max 5 visible, rest expandable, one
    deterministic interpretation line) ── */
 function trustInterpretation(st,rootSi){
@@ -1572,6 +1593,7 @@ function renderHome(){
       ${executiveSummary(s)}
       ${contextAlerts(s.market_context)}
       ${snapshots}
+      ${cohortAttributionPanel(s.cohort_attribution)}
       ${highConvictionSection(s.high_conviction,{focus:true})}
       ${emergingSection(s.emerging_outlier,{focus:true})}
       <div class="page-note">Focus mode — showing priority research content only. Use the Focus mode button above to return to Full mode. All candidates are research-only.</div>`;
@@ -1584,6 +1606,7 @@ function renderHome(){
     ${researchCaveats(s)}
     ${contextAlerts(s.market_context)}
     ${snapshots}
+    ${cohortAttributionPanel(s.cohort_attribution)}
     <div class="page-note">All candidates are research-only. Forward evidence is unvalidated unless otherwise stated.</div>
 
     <!-- Level 2 — Today's Best Research -->
@@ -2134,6 +2157,32 @@ function resolutionCoveragePanel(rc,warnings,reco){
   const rec=reco?`<div class="note">${esc(reco)}</div>`:"";
   return card("Resolution Coverage",`${warn}<table><tr><th>Horizon</th><th>Resolved</th><th>Coverage</th><th>Unresolved</th><th>Status</th><th>Unresolved sample</th></tr>${body}</table>${rec}`);
 }
+function cohortAttributionDetail(ca){
+  if(!ca||ca.fallback) return "";
+  const rows=(ca.cohorts||[]).filter(c=>[
+    "broad_scanner","high_conviction_alpha","emerging_outlier_watch",
+    "program_tactical","program_swing","program_long_term",
+    "beaten_down_or_early_accumulation","rs_momentum_leaders",
+    "catalyst_names","social_attention_names",
+    "profitability_profitable","profitability_unprofitable",
+    "extension_extended","extension_reset_or_watch_for_entry",
+    "security_common","security_non_common",
+    "market_cap_large_mega","market_cap_mid","market_cap_small_micro"
+  ].includes(c.id));
+  const body=rows.map(c=>{const h=(c.horizons||{})["10d"]||{};return `<tr>
+    <td class="tick">${esc(c.label)}</td><td>${esc(c.family)}</td>
+    <td>${h.matured_count??"—"}/${h.expected_mature_count??"—"}</td>
+    <td>${h.resolution_pct!=null?h.resolution_pct+"%":"—"}</td>
+    <td>${wr(h.win_rate)}</td><td>${pct(h.mean_return_pct)}</td>
+    <td>${pct(h.winsorized_mean_return_pct)}</td><td>${pct(h.excess_vs_spy_pct)}</td>
+    <td>${pct(h.negative_return_sum_pct_points)}</td><td>${badge(h.sample_status)}</td>
+    <td>${esc(c.primary_result_text||c.primary_result||"—")}</td></tr>`}).join("");
+  const d=ca.dashboard_summary||{}, drag=d.biggest_drag_cohort||{}, best=d.best_current_cohort||{};
+  return card("Cohort Attribution",`<div class="note">Biggest drag: ${esc(drag.label||"—")} · Best current: ${esc(best.label||"—")} · ${esc(d.sample_maturity_warning||"No immature-cohort warning")}</div>
+    <table><tr><th>Cohort</th><th>Family</th><th>10d resolved</th><th>Resolution</th><th>Win</th><th>Mean</th><th>Winsor mean</th><th>vs SPY</th><th>Neg sum</th><th>Maturity</th><th>Read</th></tr>${body}</table>
+    <div class="note">Cohorts overlap; contribution shares are diagnostics and are not selection rules. Full JSON is available at /api/cohort-attribution.</div>`);
+}
+
 function evidenceViewsPanel(ev){
   if(!ev||!ev.raw_evidence) return "";
   const raw=((ev.raw_evidence||{}).horizons)||{};
@@ -2221,6 +2270,7 @@ function renderForward(){
       <div class="disclaimer">Tracker verdicts are shown unmodified. Computed cohorts carry stats + maturity only — no verdicts. Do not pool pre-fix and post-fix eras.</div>
       ${resolutionCoveragePanel(d.resolution_coverage,d.resolution_warnings,d.unresolved_repair_recommendation)}
       ${evidenceViewsPanel(d.evidence_views)}
+      ${cohortAttributionDetail(d.cohort_attribution)}
       ${cohortTable("By label — tracker-published verdicts",d.by_label,{tracker:true})}
       ${cohortBars("Mean 10d vs SPY by label (matured entries)",d.by_label,"avg_ret_vs_spy")}
       ${cohortTable(`Era split — price-cache fix boundary ${esc(d.price_fix_boundary)}`,era)}

@@ -146,6 +146,10 @@ class ArtifactStore:
         return self.research_dir / "research_forward_latest.json"
 
     @property
+    def cohort_attribution_json(self) -> Path:
+        return self.research_dir / "cohort_attribution_latest.json"
+
+    @property
     def radar_json(self) -> Path:
         return self.research_dir / "daily_alpha_radar_latest.json"
 
@@ -965,6 +969,7 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "market_context": build_market_context(store),
         "research_confidence": build_research_confidence(store),
         "system_trust": build_system_trust(store),
+        "cohort_attribution": build_cohort_attribution(store, compact=True),
         "high_conviction": build_high_conviction(store),
         "emerging_outlier": build_emerging_outlier(store),
         "research_programs": build_research_programs(store),
@@ -1477,6 +1482,31 @@ def _all_history_entries(store: ArtifactStore) -> List[Dict[str, Any]]:
     return out
 
 
+def build_cohort_attribution(
+        store: Optional[ArtifactStore] = None,
+        *, compact: bool = False) -> Dict[str, Any]:
+    """Cohort-attribution sidecar. Cache-only passthrough; never recomputes
+    scanner/routing logic and never calls providers."""
+    store = store or ArtifactStore()
+    payload = _load_json(store.cohort_attribution_json)
+    if payload is None:
+        return {"fallback": MISSING_ARTIFACT,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+    if compact:
+        return {
+            "generated_at": payload.get("generated_at"),
+            "primary_horizon": payload.get("primary_horizon"),
+            "dashboard_summary": payload.get("dashboard_summary") or {},
+            "guardrails": payload.get("guardrails") or {},
+            "fallback": None,
+            "research_only_footer": RESEARCH_ONLY_FOOTER,
+        }
+    out = dict(payload)
+    out.setdefault("fallback", None)
+    out.setdefault("research_only_footer", RESEARCH_ONLY_FOOTER)
+    return out
+
+
 def build_forward_cohorts(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     """Cohort analytics payload for the Forward Evidence page."""
     store = store or ArtifactStore()
@@ -1545,6 +1575,7 @@ def build_forward_cohorts(store: Optional[ArtifactStore] = None) -> Dict[str, An
         "evidence_views": (forward or {}).get("evidence_views") or {},
         "forward_backfill_repair_plan":
             (forward or {}).get("forward_backfill_repair_plan") or {},
+        "cohort_attribution": build_cohort_attribution(store),
         "price_fix_boundary": PRICE_FIX_BOUNDARY,
         "caveats": [
             "by_label rows are the tracker's published verdicts (unmodified).",
