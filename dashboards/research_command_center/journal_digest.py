@@ -658,6 +658,19 @@ def _maturity_eta_lines(inputs: Dict[str, Any],
     return lines
 
 
+def _forward_incomplete_warnings(inputs: Dict[str, Any]) -> List[str]:
+    forward = inputs.get("forward") or {}
+    warnings: List[str] = []
+    for msg in (
+        [forward.get("incomplete_evidence_warning")]
+        + list(forward.get("incomplete_evidence_warnings") or [])
+    ):
+        msg = str(msg or "").strip()
+        if msg and msg not in warnings:
+            warnings.append(msg)
+    return warnings
+
+
 def _section_forward(inputs: Dict[str, Any]) -> List[str]:
     status = inputs["status"]
     truth = inputs["truth"] or {}
@@ -697,6 +710,8 @@ def _section_forward(inputs: Dict[str, Any]) -> List[str]:
         f"({phase4b.get('reason') or 'n/a'})",
         f"- Post-fix evidence: {post_fix}",
     ]
+    for warning in _forward_incomplete_warnings(inputs):
+        lines.append(f"- {warning}")
     lines += _maturity_eta_lines(inputs)
     lines += _milestone_lines(inputs)
     return lines
@@ -1181,6 +1196,7 @@ def _section_final_finding(inputs: Dict[str, Any], status: str,
                            top: List[str]) -> List[str]:
     verdict = inputs["status"].get("tracker_verdict") or "UNKNOWN"
     phase4b = (inputs["status"].get("phase_4b") or {}).get("status")
+    incomplete = _forward_incomplete_warnings(inputs)
     if status == "DATA_QUALITY_CONCERN":
         finding = ("Data quality needs attention before the research output "
                    f"can be relied on: {concerns[0] if concerns else 'see warnings above'}.")
@@ -1195,6 +1211,9 @@ def _section_final_finding(inputs: Dict[str, Any], status: str,
         finding = ("Pipeline is healthy and candidates are stable, but forward "
                    f"evidence is still immature ({verdict}) and Phase 4B "
                    f"remains {phase4b}.")
+    elif incomplete:
+        finding = ("Pipeline is healthy operationally, but forward evidence is "
+                   f"incomplete: {incomplete[0]}")
     else:
         finding = ("Pipeline is healthy, forward evidence supports the current "
                    "research board, and no urgent issues surfaced today.")

@@ -9,10 +9,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from dashboards.research_command_center import journal_digest as jd
 from dashboards.research_command_center.data_adapter import (
     ArtifactStore,
     build_emerging_outlier,
+    build_forward_cohorts,
     build_high_conviction,
+    build_research_confidence,
 )
 from research import options_coverage_report as ocr
 from research import research_watchlist_forward_tracker as fwd
@@ -134,8 +137,13 @@ def test_forward_horizon_below_resolution_threshold_warns(monkeypatch):
         },
     }
 
-    monkeypatch.setattr(fwd, "_load_closes_with_dates", lambda ticker: [])
-    report = fwd._resolution_coverage(history, spy)
+    empty_cache = {
+        "closes": [], "cache_source": "none", "bar_count": 0,
+        "first_date": None, "last_date": None,
+        "shallow_last_date": None, "deep_last_date": None,
+    }
+    report = fwd._resolution_coverage(
+        history, spy, price_cache_loader=lambda ticker: empty_cache)
     h5 = report["5d"]
 
     assert h5["coverage_pct"] == 50.0
@@ -144,6 +152,8 @@ def test_forward_horizon_below_resolution_threshold_warns(monkeypatch):
     assert h5["unresolved_tickers"] == ["MISSW"]
     detail = h5["unresolved_detail"][0]
     assert detail["reason"] == "price_parquet_missing_or_empty"
+    assert detail["reason_category"] == "warrant / unit / non-common security"
+    assert detail["repairability"] == "NON_COMMON_SECURITY"
     assert detail["security_type"] == "POSSIBLE_WARRANT"
     assert detail["market_cap_bucket"] == "MICRO_CAP"
     assert detail["source_artifact"] == "data/research/research_watchlist_history.jsonl"
@@ -229,3 +239,198 @@ def test_integrity_repairs_do_not_touch_scanner_scoring_routing_filters():
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "artifact_dependency_audit" not in text
+
+
+def _price_cache(closes):
+    return {
+        "closes": closes,
+        "cache_source": "test",
+        "bar_count": len(closes),
+        "first_date": closes[0][0] if closes else None,
+        "last_date": closes[-1][0] if closes else None,
+        "shallow_last_date": closes[-1][0] if closes else None,
+        "deep_last_date": None,
+    }
+
+
+def test_unresolved_mature_episodes_are_classified_by_reason_category():
+    spy = [(f"2026-01-{day:02d}", 100.0 + day) for day in range(1, 26)]
+    history = {
+        "WARRW|2026-01-01": {"ticker": "WARRW", "appearance_date": "2026-01-01", "ret_10d": None},
+        "MAP.B|2026-01-01": {"ticker": "MAP.B", "appearance_date": "2026-01-01", "ret_10d": None},
+        "DEADQ|2026-01-01": {"ticker": "DEADQ", "appearance_date": "2026-01-01", "ret_10d": None},
+        "GAP|2026-01-01": {"ticker": "GAP", "appearance_date": "2026-01-01", "ret_10d": None},
+        "STALE|2026-01-01": {"ticker": "STALE", "appearance_date": "2026-01-01", "ret_10d": None},
+        "UNKNOWNX|2026-01-01": {"ticker": "UNKNOWNX", "appearance_date": "2026-01-01", "ret_10d": None},
+    }
+
+    def loader(ticker):
+        if ticker == "STALE":
+            return _price_cache([("2026-01-01", 10.0), ("2026-01-02", 10.5)])
+        if ticker == "UNKNOWNX":
+            return _price_cache([(f"2026-01-{day:02d}", 10.0 + day) for day in range(1, 20)])
+        return _price_cache([])
+
+    report = fwd._resolution_coverage(history, spy, price_cache_loader=loader)
+    cats = report["10d"]["reason_category_counts"]
+    repairs = report["10d"]["repairability_counts"]
+
+    assert cats["warrant / unit / non-common security"] == 1
+    assert cats["ticker mapping issue"] == 1
+    assert cats["delisted / corporate action"] == 1
+    assert cats["provider gap"] == 1
+    assert cats["stale price history"] == 1
+    assert cats["unresolved unknown"] == 1
+    assert repairs["NON_COMMON_SECURITY"] == 1
+    assert repairs["NEEDS_MAPPING"] == 1
+    assert repairs["INVALID_OR_DELISTED"] == 1
+    assert repairs["PROVIDER_GAP"] == 1
+    assert repairs["REPAIRABLE"] == 1
+    assert repairs["UNKNOWN"] == 1
+    detail = report["10d"]["unresolved_detail"][0]
+    assert {"first_seen_date", "expected_maturity_date",
+            "last_available_price_date", "source_artifact",
+            "reason_category", "repairability"} <= set(detail)
+
+
+def test_non_common_security_adjusted_evidence_is_separate():
+    spy = [(f"2026-01-{day:02d}", 100.0 + day) for day in range(1, 20)]
+    entries = [
+        {"ticker": "COMMON", "appearance_date": "2026-01-01", "ret_10d": 2.0},
+        {"ticker": "WARRW", "appearance_date": "2026-01-01", "ret_10d": 40.0},
+    ]
+    views = fwd._evidence_views(entries, spy)
+
+    raw = views["raw_evidence"]["horizons"]["10d"]
+    common = views["non_common_security_adjusted_evidence"]["horizons"]["10d"]
+    assert raw["resolved_count"] == 2
+    assert raw["mean_return_pct"] == 21.0
+    assert common["resolved_count"] == 1
+    assert common["mean_return_pct"] == 2.0
+    assert views["non_common_security_adjusted_evidence"]["excluded_unique_tickers"] == ["WARRW"]
+
+
+def test_repairable_missing_bars_are_planned_through_existing_backfill(monkeypatch):
+    from research import targeted_price_backfill as tpb
+
+    called = {}
+
+    def fake_build_plan(**kwargs):
+        called.update(kwargs)
+        return {
+            "selected_for_backfill": 1,
+            "provider_calls_planned": 1,
+            "provider_calls_used": 0,
+            "successes": 0,
+            "failures": 0,
+            "entries": [{"ticker": "REPA", "action": "backfill"}],
+        }
+
+    monkeypatch.setattr(tpb, "build_plan", fake_build_plan)
+    coverage = {
+        "10d": {"unresolved_detail": [
+            {"ticker": "REPA", "repairability": "REPAIRABLE"},
+            {"ticker": "WARRW", "repairability": "NON_COMMON_SECURITY"},
+        ]}
+    }
+
+    plan = fwd._build_forward_backfill_plan(coverage, execute=False)
+
+    assert called["tickers"] == ["REPA"]
+    assert called["force_refresh"] is True
+    assert plan["mode"] == "DRY_RUN_PLAN"
+    assert plan["source"] == "research.targeted_price_backfill.build_plan"
+
+
+def test_no_prices_are_fabricated_or_forward_filled_in_primary_evidence():
+    spy = [(f"2026-01-{day:02d}", 100.0 + day) for day in range(1, 20)]
+    entries = [
+        {"ticker": "GOOD", "appearance_date": "2026-01-01", "ret_10d": 1.0},
+        {"ticker": "MISS", "appearance_date": "2026-01-01", "ret_10d": None},
+    ]
+    views = fwd._evidence_views(entries, spy)
+    raw = views["raw_evidence"]["horizons"]["10d"]
+    sens = views["unresolved_impact_sensitivity"]["10d"]
+
+    assert raw["resolved_count"] == 1
+    assert raw["unresolved_count"] == 1
+    assert raw["mean_return_pct"] == 1.0
+    assert raw["unresolved_not_filled"] is True
+    assert sens["mean_return_sensitivity"] == "not_estimated_without_prices"
+    assert views["guardrails"]["no_fabricated_prices"] is True
+    assert views["guardrails"]["no_forward_fill_primary_evidence"] is True
+
+
+def test_dashboard_surfaces_incomplete_forward_evidence_warning(tmp_path):
+    research = _research_dir(tmp_path)
+    warning = "Forward evidence incomplete — 20d resolution 67.0%; unresolved cohort may bias results."
+    _write_json(research / "research_forward_latest.json", {
+        "generated_at": "2026-07-23T14:00:00+00:00",
+        "research_only": True,
+        "verdicts_by_label": [],
+        "resolution_coverage": {
+            "20d": {
+                "calendar_mature": 458,
+                "expected_mature_count": 458,
+                "resolved": 307,
+                "resolved_count": 307,
+                "unresolved": 151,
+                "unresolved_count": 151,
+                "coverage_pct": 67.0,
+                "resolution_pct": 67.0,
+                "resolution_status": "WARN",
+                "incomplete_evidence_warning": warning,
+            }
+        },
+        "resolution_warnings": ["20d weak"],
+        "incomplete_evidence_warnings": [warning],
+        "incomplete_evidence_warning": warning,
+    })
+    _write_json(research / "research_program_validation_latest.json", {
+        "present": True,
+        "programs": {},
+    })
+
+    cohorts = build_forward_cohorts(ArtifactStore(root=tmp_path))
+    confidence = build_research_confidence(ArtifactStore(root=tmp_path))
+
+    assert warning in cohorts["incomplete_evidence_warnings"]
+    assert confidence["forward_tracking"]["incomplete_evidence_warning"] == warning
+    html = (ROOT / "dashboards" / "research_command_center" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "incomplete_evidence_warning" in html
+
+def test_journal_surfaces_incomplete_forward_evidence_warning():
+    warning = "Forward evidence incomplete — 20d resolution 67.0%; unresolved cohort may bias results."
+    inputs = {
+        "status": {
+            "total_tracked": 10,
+            "matured_5d": 8,
+            "matured_10d": 6,
+            "benchmark_readiness": "READY",
+            "tracker_verdict": "MIXED",
+            "phase_4b": {"status": "WATCH", "reason": "n/a"},
+        },
+        "truth": {},
+        "forward": {
+            "overall": {
+                "sample_status": "ROBUST",
+                "matured_by_horizon": {"20d": 3, "45d": 0, "60d": 0},
+            },
+            "incomplete_evidence_warnings": [warning],
+            "incomplete_evidence_warning": warning,
+        },
+        "store": None,
+        "summary": {},
+        "scanner": {},
+        "options_coverage": {},
+        "forward_milestones": None,
+    }
+
+    forward_section = "\n".join(jd._section_forward(inputs))
+    final_section = "\n".join(
+        jd._section_final_finding(inputs, "READY", [], [], [])
+    )
+
+    assert warning in forward_section
+    assert "forward evidence is incomplete" in final_section
+    assert "forward evidence supports the current research board" not in final_section

@@ -667,6 +667,10 @@ def build_research_confidence(
             "watchlist_resolution_coverage": tracker_resolution,
             "watchlist_resolution_warnings": tracker_resolution_warnings,
             "watchlist_resolution_warning_count": len(tracker_resolution_warnings),
+            "incomplete_evidence_warnings":
+                status_fwd.get("incomplete_evidence_warnings") or [],
+            "incomplete_evidence_warning":
+                status_fwd.get("incomplete_evidence_warning"),
             "unresolved_repair_recommendation":
                 status_fwd.get("unresolved_repair_recommendation"),
             "freshness": _staleness(fres.get("generated_at")),
@@ -1522,10 +1526,25 @@ def build_forward_cohorts(store: Optional[ArtifactStore] = None) -> Dict[str, An
         "by_category": by_category,
         "by_source": by_source,
         "by_era": by_era,
+        "resolution_before_repair":
+            (forward or {}).get("resolution_before_repair") or {},
         "resolution_coverage": (forward or {}).get("resolution_coverage") or {},
+        "resolution_repair_summary":
+            (forward or {}).get("resolution_repair_summary") or {},
         "resolution_warnings": (forward or {}).get("resolution_warnings") or [],
+        "incomplete_evidence_warnings":
+            (forward or {}).get("incomplete_evidence_warnings") or [],
+        "incomplete_evidence_warning":
+            (forward or {}).get("incomplete_evidence_warning"),
         "unresolved_repair_recommendation":
             (forward or {}).get("unresolved_repair_recommendation"),
+        "unresolved_bias_analysis":
+            (forward or {}).get("unresolved_bias_analysis") or {},
+        "mapping_needed_report":
+            (forward or {}).get("mapping_needed_report") or {},
+        "evidence_views": (forward or {}).get("evidence_views") or {},
+        "forward_backfill_repair_plan":
+            (forward or {}).get("forward_backfill_repair_plan") or {},
         "price_fix_boundary": PRICE_FIX_BOUNDARY,
         "caveats": [
             "by_label rows are the tracker's published verdicts (unmodified).",

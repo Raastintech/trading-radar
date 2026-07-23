@@ -1327,6 +1327,7 @@ function evidenceConfidencePanel(rc){
   const resSub="next "+esc(ft.next_maturity_due||"—")
     +(resolverWarn?` · resolver WARN${ft.unresolved_missing_price!=null?" ("+ft.unresolved_missing_price+" missing prices)":""}`:"")
     +(watchWarn?` · watchlist ${ft.watchlist_resolution_warning_count} weak horizon(s)`:"");
+  const incompleteWarn=ft.incomplete_evidence_warning||((ft.incomplete_evidence_warnings||[])[0]);
   // Forward-evidence anchor label — deterministic: validated only when a
   // program verdict literally says so; otherwise the collection is in
   // progress (a research maturity state, not a failure).
@@ -1349,6 +1350,7 @@ function evidenceConfidencePanel(rc){
       ${cell("Benchmarks",badge(rc.benchmark_readiness))}
     </div>
     <div class="fit-line" style="margin-left:0">${motAt?"["+esc(String(fmtET(motAt)).slice(0,10))+"] ":""}${esc(mot.reason||"")}</div>
+    ${incompleteWarn?`<div class="note">${esc(incompleteWarn)}</div>`:""}
   </div>`;
 }
 /* deterministic evidence one-liner — validated edge is only claimed when a
@@ -2119,16 +2121,39 @@ const pct=(v,d=2)=>(v===null||v===undefined)?"—":`${v>0?"+":""}${Number(v).toF
 const wr=v=>(v===null||v===undefined)?"—":`${(v*100).toFixed(0)}%`;
 function resolutionCoveragePanel(rc,warnings,reco){
   const rows=Object.entries(rc||{}).filter(([,b])=>(b.calendar_mature||0)>0);
-  if(!rows.length&&!warnings?.length) return "";
+  const incomplete=Object.values(rc||{}).map(b=>b.incomplete_evidence_warning).filter(Boolean);
+  const allWarnings=[...incomplete,...(warnings||[])];
+  if(!rows.length&&!allWarnings.length) return "";
   const body=rows.map(([h,b])=>`<tr><td class="tick">${esc(h)}</td>
     <td>${b.resolved??"—"}/${b.calendar_mature??"—"}</td>
     <td>${b.coverage_pct!=null?b.coverage_pct+"%":"—"}</td>
     <td>${b.unresolved??"—"}</td>
     <td>${esc(b.resolution_status||"UNKNOWN")}</td>
     <td>${(b.unresolved_tickers_sample||[]).map(esc).join(", ")}</td></tr>`).join("");
-  const warn=(warnings||[]).length?`<div class="note">${warnings.map(esc).join("<br>")}</div>`:"";
+  const warn=allWarnings.length?`<div class="note">${allWarnings.map(esc).join("<br>")}</div>`:"";
   const rec=reco?`<div class="note">${esc(reco)}</div>`:"";
   return card("Resolution Coverage",`${warn}<table><tr><th>Horizon</th><th>Resolved</th><th>Coverage</th><th>Unresolved</th><th>Status</th><th>Unresolved sample</th></tr>${body}</table>${rec}`);
+}
+function evidenceViewsPanel(ev){
+  if(!ev||!ev.raw_evidence) return "";
+  const raw=((ev.raw_evidence||{}).horizons)||{};
+  const common=((ev.non_common_security_adjusted_evidence||{}).horizons)||{};
+  const sens=ev.unresolved_impact_sensitivity||{};
+  const hs=["5d","10d","15d","20d"];
+  const rows=hs.map(h=>{
+    const r=raw[h]||{}, c=common[h]||{}, s=sens[h]||{};
+    const rng=(s.win_rate_if_all_unresolved_losses!=null&&s.win_rate_if_all_unresolved_wins!=null)
+      ?`${wr(s.win_rate_if_all_unresolved_losses)}-${wr(s.win_rate_if_all_unresolved_wins)}`:"—";
+    return `<tr><td class="tick">${esc(h)}</td>
+      <td>${r.resolved_count??"—"}/${r.expected_mature_count??"—"}</td>
+      <td>${wr(r.win_rate)}</td><td>${pct(r.mean_return_pct)}</td>
+      <td>${c.resolved_count??"—"}/${c.expected_mature_count??"—"}</td>
+      <td>${wr(c.win_rate)}</td><td>${pct(c.mean_return_pct)}</td>
+      <td>${rng}</td></tr>`;
+  }).join("");
+  const excluded=(ev.non_common_security_adjusted_evidence||{}).excluded_episode_count??0;
+  const note="Clean views are diagnostic only; unresolved returns are not fabricated or forward-filled.";
+  return card("Clean vs Raw Evidence",`<table><tr><th>Horizon</th><th>Raw resolved</th><th>Raw win</th><th>Raw mean</th><th>Common resolved</th><th>Common win</th><th>Common mean</th><th>Win-rate sensitivity</th></tr>${rows}</table><div class="note">${esc(note)} Non-common/security-format episodes excluded from common-only view: ${excluded}.</div>`);
 }
 function cohortTable(title,rows,opts={}){
   if(!rows||!rows.length) return card(title,`<div style="color:var(--dim);font-size:11px">no data</div>`);
@@ -2195,6 +2220,7 @@ function renderForward(){
       ${omStrip}
       <div class="disclaimer">Tracker verdicts are shown unmodified. Computed cohorts carry stats + maturity only — no verdicts. Do not pool pre-fix and post-fix eras.</div>
       ${resolutionCoveragePanel(d.resolution_coverage,d.resolution_warnings,d.unresolved_repair_recommendation)}
+      ${evidenceViewsPanel(d.evidence_views)}
       ${cohortTable("By label — tracker-published verdicts",d.by_label,{tracker:true})}
       ${cohortBars("Mean 10d vs SPY by label (matured entries)",d.by_label,"avg_ret_vs_spy")}
       ${cohortTable(`Era split — price-cache fix boundary ${esc(d.price_fix_boundary)}`,era)}
