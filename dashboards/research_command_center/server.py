@@ -40,6 +40,7 @@ if str(HERE.parents[1]) not in sys.path:
 
 from dashboards.research_command_center.data_adapter import (  # noqa: E402
     ArtifactStore,
+    build_alpha_focus,
     build_alpha_root_cause,
     build_cohort_attribution,
     build_data_quality,
@@ -187,6 +188,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(build_research_operating_policy(self.store))
             elif path == "/api/alpha-root-cause":
                 self._json(build_alpha_root_cause(self.store))
+            elif path == "/api/alpha-focus":
+                self._json(build_alpha_focus(self.store))
             elif path == "/api/sectors":
                 self._json(build_sector_compass(self.store))
             elif path == "/api/social":

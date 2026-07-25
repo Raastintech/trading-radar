@@ -1460,6 +1460,24 @@ cmd_research_programs() {
         "$PY" research/research_programs.py "$@"
 }
 
+cmd_alpha_focus() {
+    # Alpha Focus — small, auditable operator-attention layer (NOT a new
+    # engine). Cache-only, cred-free: reads today's rows from
+    # research_watchlist_history.jsonl, reuses cohort_attribution's existing
+    # enrichment, and applies 3 exclusion rules that are direct citations of
+    # the alpha-failure-root-cause audit (extended -> extended_top_ablation_drag,
+    # repeat -> repeat_candidate_decay, rs_momentum_leader ->
+    # rs_momentum_weakest_signal_family). Survivors land in "focus" (ordered
+    # by the EXISTING research_score — no new score computed); everyone else
+    # lands in "rejected_by_focus_rule" with the reason. No new forward-
+    # evidence ledger, no scanner/gate/threshold/HC/EO/program-verdict change.
+    # Writes cache/research/alpha_focus_latest.json +
+    # logs/alpha_focus_latest.txt. Flags: --docs --json.
+    log "[CACHE] alpha focus — operator-attention layer (diagnostic, read-only)"
+    run_or_warn "alpha focus" \
+        "$PY" research/alpha_focus.py "$@"
+}
+
 cmd_alpha_failure_root_cause() {
     # Alpha failure root-cause audit — diagnostic only, cache-only, cred-free.
     # Reads cohort_attribution + research_forward + research_program_validation
@@ -1906,6 +1924,7 @@ case "$SUB" in
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
     alpha-failure-root-cause)  cmd_alpha_failure_root_cause   "${POS[@]}" ;;
+    alpha-focus)               cmd_alpha_focus                "${POS[@]}" ;;
     forward-milestones)        cmd_forward_milestones         "${POS[@]}" ;;
     latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
     scan-exclusion-impact)     cmd_scan_exclusion_impact      "${POS[@]}" ;;

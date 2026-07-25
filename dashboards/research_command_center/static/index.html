@@ -1403,6 +1403,29 @@ function alphaRootCausePanel(rc){
     </div></details>`;
 }
 
+function alphaFocusPanel(af){
+  if(!af||af.fallback) return "";
+  const c=af.counts||{};
+  const top3=(xs)=>(xs||[]).slice(0,3).map(x=>esc(x.ticker)).join(", ")||"none";
+  const reasons=af.deprioritized_by_reason_summary||{};
+  const reasonLine=Object.entries(reasons).map(([k,v])=>`${esc(k)} (${v.count})`).join(" · ")||"none";
+  const summary=`${c.review_now??"—"} review now / ${c.higher_risk_eo_review??"—"} higher-risk EO / `+
+    `${c.wait_for_reset??"—"} wait-for-reset / ${c.deprioritized??"—"} deprioritized of ${c.total_today??"—"} today`;
+  return `<details class="prog-det alpha-focus" style="margin:0 0 12px"><summary>Alpha Focus · ${summary}</summary>
+    <div class="cards" style="margin-top:8px">
+      ${card("Alpha Focus",`<div class="kv">
+        ${kvRow("Market as-of",esc(af.market_as_of_date||"—"))}
+        ${kvRow("Review Now",top3(af.review_now))}
+        ${kvRow("Higher-Risk EO Review",top3(af.higher_risk_eo_review))}
+        ${kvRow("Wait for reset",`${c.wait_for_reset??0} strong profiles, extended`)}
+        ${kvRow("Deprioritized by rule",reasonLine,"warn")}
+        ${kvRow("HC / EO overlap",`${c.high_conviction_overlap??0} / ${c.emerging_outlier_overlap??0}`)}
+        ${kvRow("Promote to signal",esc(String(af.promote_to_signal)),"warn")}
+      </div>
+      <div class="note">${esc(af.purpose_statement||"Same-day manual research prioritization layer — no new score, no new forward-evidence ledger, no scanner/gate/HC/EO/program-verdict change.")} Deprioritized names still appear, unaffected, in their original High-Conviction / Emerging Outlier sections.</div>`)}
+    </div></details>`;
+}
+
 function researchOperatingPolicyPanel(op){
   if(!op||op.fallback) return "";
   const d=op.dashboard_summary||{};
@@ -1635,6 +1658,7 @@ function renderHome(){
       ${cohortAttributionPanel(s.cohort_attribution)}
       ${researchOperatingPolicyPanel(s.research_operating_policy)}
       ${alphaRootCausePanel(s.alpha_root_cause)}
+      ${alphaFocusPanel(s.alpha_focus)}
       ${highConvictionSection(s.high_conviction,{focus:true})}
       ${emergingSection(s.emerging_outlier,{focus:true})}
       <div class="page-note">Focus mode — showing priority research content only. Use the Focus mode button above to return to Full mode. All candidates are research-only.</div>`;
@@ -1650,6 +1674,7 @@ function renderHome(){
     ${cohortAttributionPanel(s.cohort_attribution)}
     ${researchOperatingPolicyPanel(s.research_operating_policy)}
     ${alphaRootCausePanel(s.alpha_root_cause)}
+    ${alphaFocusPanel(s.alpha_focus)}
     <div class="page-note">All candidates are research-only. Forward evidence is unvalidated unless otherwise stated.</div>
 
     <!-- Level 2 — Today's Best Research -->

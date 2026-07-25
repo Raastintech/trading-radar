@@ -158,6 +158,10 @@ class ArtifactStore:
         return self.research_dir / "alpha_failure_root_cause_latest.json"
 
     @property
+    def alpha_focus_json(self) -> Path:
+        return self.research_dir / "alpha_focus_latest.json"
+
+    @property
     def radar_json(self) -> Path:
         return self.research_dir / "daily_alpha_radar_latest.json"
 
@@ -981,6 +985,7 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "research_operating_policy":
             build_research_operating_policy(store, compact=True),
         "alpha_root_cause": build_alpha_root_cause(store, compact=True),
+        "alpha_focus": build_alpha_focus(store, compact=True),
         "high_conviction": build_high_conviction(store),
         "emerging_outlier": build_emerging_outlier(store),
         "research_programs": build_research_programs(store),
@@ -1560,6 +1565,39 @@ def build_alpha_root_cause(
             "alpha_proven": payload.get("alpha_proven"),
             "overall_forward_verdict": payload.get("overall_forward_verdict"),
             "dashboard_summary": payload.get("dashboard_summary") or {},
+            "guardrails": payload.get("guardrails") or {},
+            "fallback": None,
+            "research_only_footer": RESEARCH_ONLY_FOOTER,
+        }
+    out = dict(payload)
+    out.setdefault("fallback", None)
+    out.setdefault("research_only_footer", RESEARCH_ONLY_FOOTER)
+    return out
+
+
+def build_alpha_focus(
+        store: Optional[ArtifactStore] = None,
+        *, compact: bool = False) -> Dict[str, Any]:
+    """Alpha Focus sidecar — cache-only passthrough. Same-day presentation
+    filter over already-scanned/scored candidates; never recomputes scanner/
+    routing logic and never mutates candidates."""
+    store = store or ArtifactStore()
+    payload = _load_json(store.alpha_focus_json)
+    if payload is None or payload.get("fallback"):
+        return {"fallback": MISSING_ARTIFACT,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+    if compact:
+        return {
+            "generated_at": payload.get("generated_at"),
+            "purpose_statement": payload.get("purpose_statement"),
+            "market_as_of_date": payload.get("market_as_of_date"),
+            "research_only": payload.get("research_only"),
+            "promote_to_signal": payload.get("promote_to_signal"),
+            "counts": payload.get("counts") or {},
+            "review_now": (payload.get("review_now") or [])[:3],
+            "higher_risk_eo_review": (payload.get("higher_risk_eo_review") or [])[:3],
+            "deprioritized_by_reason_summary": payload.get("deprioritized_by_reason_summary") or {},
+            "evidence_citations": payload.get("evidence_citations") or {},
             "guardrails": payload.get("guardrails") or {},
             "fallback": None,
             "research_only_footer": RESEARCH_ONLY_FOOTER,

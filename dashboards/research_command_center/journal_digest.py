@@ -117,6 +117,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     cohort_attribution = _load_json(store.cohort_attribution_json)
     research_operating_policy = _load_json(store.research_operating_policy_json)
     alpha_root_cause = _load_json(store.alpha_root_cause_json)
+    alpha_focus = _load_json(store.alpha_focus_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -154,6 +155,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "cohort_attribution": cohort_attribution,
         "research_operating_policy": research_operating_policy,
         "alpha_root_cause": alpha_root_cause,
+        "alpha_focus": alpha_focus,
         "missing": missing,
     }
 
@@ -832,6 +834,38 @@ def _section_alpha_root_cause(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _section_alpha_focus(inputs: Dict[str, Any]) -> List[str]:
+    af = inputs.get("alpha_focus") or {}
+    lines = ["## Alpha Focus"]
+    if not af or af.get("fallback"):
+        return lines + [
+            "- Alpha Focus sidecar missing; run ./scripts/run_research_cycle.sh alpha-focus.",
+            "- Do not infer a focus list until the filter has run at least once.",
+        ]
+    counts = af.get("counts") or {}
+    lines.append(
+        f"- Today ({af.get('market_as_of_date') or 'unknown'}): "
+        f"{counts.get('review_now')} review now / {counts.get('higher_risk_eo_review')} higher-risk EO / "
+        f"{counts.get('wait_for_reset')} wait-for-reset / {counts.get('deprioritized')} deprioritized "
+        f"of {counts.get('total_today')} candidates "
+        f"(HC overlap {counts.get('high_conviction_overlap')}, EO overlap {counts.get('emerging_outlier_overlap')}).")
+    review_now = [r.get("ticker") for r in (af.get("review_now") or [])[:5]]
+    lines.append(f"- Review Now names: {_join(review_now) if review_now else 'none'}.")
+    eo_review = [r.get("ticker") for r in (af.get("higher_risk_eo_review") or [])[:5]]
+    lines.append(f"- Higher-Risk EO Review names: {_join(eo_review) if eo_review else 'none'}.")
+    reasons = af.get("deprioritized_by_reason_summary") or {}
+    for reason, summary in sorted(reasons.items()):
+        lines.append(f"- Deprioritized ({reason}): {summary.get('count')} — {summary.get('description')}")
+    lines.append(
+        "- " + (af.get("purpose_statement")
+        or "Same-day manual research prioritization layer only — no new score, no new "
+           "forward-evidence ledger, no scanner/gate/HC/EO/program-verdict change."))
+    lines.append(
+        "- Deprioritized names still appear, unaffected, in their original High-Conviction / "
+        "Emerging Outlier sections — they are not permanently excluded.")
+    return lines
+
+
 def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     """Phase 5.1 — per-program summary so Tactical, Swing, and Long-Term
     findings are never blended into one conclusion.  Reads only the
@@ -1328,6 +1362,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_cohort_attribution(inputs) + [""]
         + _section_research_operating_policy(inputs) + [""]
         + _section_alpha_root_cause(inputs) + [""]
+        + _section_alpha_focus(inputs) + [""]
         + _section_research_programs(inputs) + [""]
         + _section_high_conviction(inputs) + [""]
         + _section_emerging_outlier(inputs) + [""]
