@@ -1460,6 +1460,24 @@ cmd_research_programs() {
         "$PY" research/research_programs.py "$@"
 }
 
+cmd_alpha_failure_root_cause() {
+    # Alpha failure root-cause audit — diagnostic only, cache-only, cred-free.
+    # Reads cohort_attribution + research_forward + research_program_validation
+    # sidecars, the watchlist history ledger, and cached price parquets to
+    # answer WHY the research engine has not proven alpha: signal-family
+    # attribution, a non-mutating alternate-entry-timing simulation, a
+    # price-derived regime split, population-minus-X factor ablation, a
+    # same-universe random-control baseline, a repeat-candidate audit, and a
+    # pre-registered stop/continue decision framework (2026-08-17 / 09-07 /
+    # 09-30). Writes cache/research/alpha_failure_root_cause_latest.json +
+    # logs/alpha_failure_root_cause_latest.txt. Changes NO scanner logic,
+    # score, ranking, routing, gate, threshold, factor weight, HC/EO rule,
+    # or program-verdict threshold. Flags: --docs --json.
+    log "[CACHE] alpha failure root-cause audit (diagnostic, read-only)"
+    run_or_warn "alpha failure root-cause audit" \
+        "$PY" research/alpha_failure_root_cause_audit.py "$@"
+}
+
 cmd_forward_milestones() {
     # Forward-evidence re-audit hook (LLM audit task 52439f07a3b5).
     # Cache-only, cred-free: reads the forward tracker + high-conviction
@@ -1887,6 +1905,7 @@ case "$SUB" in
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
+    alpha-failure-root-cause)  cmd_alpha_failure_root_cause   "${POS[@]}" ;;
     forward-milestones)        cmd_forward_milestones         "${POS[@]}" ;;
     latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
     scan-exclusion-impact)     cmd_scan_exclusion_impact      "${POS[@]}" ;;

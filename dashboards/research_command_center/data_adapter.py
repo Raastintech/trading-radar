@@ -154,6 +154,10 @@ class ArtifactStore:
         return self.research_dir / "research_operating_policy_latest.json"
 
     @property
+    def alpha_root_cause_json(self) -> Path:
+        return self.research_dir / "alpha_failure_root_cause_latest.json"
+
+    @property
     def radar_json(self) -> Path:
         return self.research_dir / "daily_alpha_radar_latest.json"
 
@@ -976,6 +980,7 @@ def build_status(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "cohort_attribution": build_cohort_attribution(store, compact=True),
         "research_operating_policy":
             build_research_operating_policy(store, compact=True),
+        "alpha_root_cause": build_alpha_root_cause(store, compact=True),
         "high_conviction": build_high_conviction(store),
         "emerging_outlier": build_emerging_outlier(store),
         "research_programs": build_research_programs(store),
@@ -1528,6 +1533,32 @@ def build_research_operating_policy(
             "generated_at": payload.get("generated_at"),
             "primary_horizon": payload.get("primary_horizon"),
             "alpha_proven": payload.get("alpha_proven"),
+            "dashboard_summary": payload.get("dashboard_summary") or {},
+            "guardrails": payload.get("guardrails") or {},
+            "fallback": None,
+            "research_only_footer": RESEARCH_ONLY_FOOTER,
+        }
+    out = dict(payload)
+    out.setdefault("fallback", None)
+    out.setdefault("research_only_footer", RESEARCH_ONLY_FOOTER)
+    return out
+
+
+def build_alpha_root_cause(
+        store: Optional[ArtifactStore] = None,
+        *, compact: bool = False) -> Dict[str, Any]:
+    """Alpha failure root-cause audit sidecar. Cache-only passthrough; never
+    recomputes scanner/routing logic and never mutates candidates."""
+    store = store or ArtifactStore()
+    payload = _load_json(store.alpha_root_cause_json)
+    if payload is None or payload.get("fallback"):
+        return {"fallback": MISSING_ARTIFACT,
+                "research_only_footer": RESEARCH_ONLY_FOOTER}
+    if compact:
+        return {
+            "generated_at": payload.get("generated_at"),
+            "alpha_proven": payload.get("alpha_proven"),
+            "overall_forward_verdict": payload.get("overall_forward_verdict"),
             "dashboard_summary": payload.get("dashboard_summary") or {},
             "guardrails": payload.get("guardrails") or {},
             "fallback": None,

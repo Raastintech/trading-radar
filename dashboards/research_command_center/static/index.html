@@ -1384,6 +1384,25 @@ function cohortAttributionPanel(ca){
     </div></details>`;
 }
 
+function alphaRootCausePanel(rc){
+  if(!rc||rc.fallback) return "";
+  const d=rc.dashboard_summary||{};
+  const rec=String(d.current_recommendation||"unknown").toUpperCase();
+  const recClass=rec==="CONTINUE"?"ok":(rec==="SUNSET"||rec==="FREEZE"?"warn":"info");
+  const summary=`${cap1(rec.toLowerCase())} · next decision ${esc(d.next_decision_date||"—")}`;
+  return `<details class="prog-det alpha-root-cause" style="margin:0 0 12px"><summary>Alpha Root-Cause Audit · ${summary}</summary>
+    <div class="cards" style="margin-top:8px">
+      ${card("Alpha Root-Cause Audit",`<div class="kv">
+        ${kvRow("Top likely failure cause",esc(d.top_likely_failure_cause||"—"))}
+        ${kvRow("Best surviving cohort",esc(d.best_surviving_cohort||"—"))}
+        ${kvRow("Worst harmful cohort",esc(d.worst_harmful_cohort||"—"),"warn")}
+        ${kvRow("Next decision date",esc(d.next_decision_date||"—"))}
+        ${kvRow("Current recommendation",esc(rec),recClass)}
+      </div>
+      <div class="note">Diagnostic only — no scanner, scoring, routing, gate, threshold, factor-weight, High-Conviction, Emerging Outlier, or program-verdict change.</div>`)}
+    </div></details>`;
+}
+
 function researchOperatingPolicyPanel(op){
   if(!op||op.fallback) return "";
   const d=op.dashboard_summary||{};
@@ -1615,6 +1634,7 @@ function renderHome(){
       ${snapshots}
       ${cohortAttributionPanel(s.cohort_attribution)}
       ${researchOperatingPolicyPanel(s.research_operating_policy)}
+      ${alphaRootCausePanel(s.alpha_root_cause)}
       ${highConvictionSection(s.high_conviction,{focus:true})}
       ${emergingSection(s.emerging_outlier,{focus:true})}
       <div class="page-note">Focus mode — showing priority research content only. Use the Focus mode button above to return to Full mode. All candidates are research-only.</div>`;
@@ -1629,6 +1649,7 @@ function renderHome(){
     ${snapshots}
     ${cohortAttributionPanel(s.cohort_attribution)}
     ${researchOperatingPolicyPanel(s.research_operating_policy)}
+    ${alphaRootCausePanel(s.alpha_root_cause)}
     <div class="page-note">All candidates are research-only. Forward evidence is unvalidated unless otherwise stated.</div>
 
     <!-- Level 2 — Today's Best Research -->

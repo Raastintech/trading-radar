@@ -116,6 +116,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
     forward_milestones = _load_json(store.forward_milestones_json)
     cohort_attribution = _load_json(store.cohort_attribution_json)
     research_operating_policy = _load_json(store.research_operating_policy_json)
+    alpha_root_cause = _load_json(store.alpha_root_cause_json)
 
     missing = [name for name, obj in [
         ("nightly_operator_summary_latest.json", summary),
@@ -152,6 +153,7 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "forward_milestones": forward_milestones,
         "cohort_attribution": cohort_attribution,
         "research_operating_policy": research_operating_policy,
+        "alpha_root_cause": alpha_root_cause,
         "missing": missing,
     }
 
@@ -808,6 +810,28 @@ def _section_research_operating_policy(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _section_alpha_root_cause(inputs: Dict[str, Any]) -> List[str]:
+    rc = inputs.get("alpha_root_cause") or {}
+    lines = ["## Alpha Root-Cause"]
+    if not rc or rc.get("fallback"):
+        return lines + [
+            "- Root-cause audit sidecar missing; run "
+            "./scripts/run_research_cycle.sh alpha-failure-root-cause.",
+            "- Do not infer a root cause until the audit has run at least once.",
+        ]
+    dash = rc.get("dashboard_summary") or {}
+    lines.append(f"- Top likely failure cause: {dash.get('top_likely_failure_cause') or 'n/a'}.")
+    lines.append(f"- Best surviving cohort: {dash.get('best_surviving_cohort') or 'n/a'}.")
+    lines.append(f"- Worst harmful cohort: {dash.get('worst_harmful_cohort') or 'n/a'}.")
+    lines.append(
+        f"- Next decision date: {dash.get('next_decision_date') or 'n/a'} "
+        f"(current recommendation: {dash.get('current_recommendation') or 'n/a'}).")
+    lines.append(
+        "- Diagnostic only — no scanner, scoring, routing, gate, threshold, "
+        "factor-weight, High-Conviction, Emerging Outlier, or program-verdict change.")
+    return lines
+
+
 def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     """Phase 5.1 — per-program summary so Tactical, Swing, and Long-Term
     findings are never blended into one conclusion.  Reads only the
@@ -1303,6 +1327,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_forward(inputs) + [""]
         + _section_cohort_attribution(inputs) + [""]
         + _section_research_operating_policy(inputs) + [""]
+        + _section_alpha_root_cause(inputs) + [""]
         + _section_research_programs(inputs) + [""]
         + _section_high_conviction(inputs) + [""]
         + _section_emerging_outlier(inputs) + [""]
