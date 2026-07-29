@@ -1460,22 +1460,21 @@ cmd_research_programs() {
         "$PY" research/research_programs.py "$@"
 }
 
-cmd_alpha_focus() {
-    # Alpha Focus — small, auditable operator-attention layer (NOT a new
-    # engine). Cache-only, cred-free: reads today's rows from
-    # research_watchlist_history.jsonl, reuses cohort_attribution's existing
-    # enrichment, and applies 3 exclusion rules that are direct citations of
-    # the alpha-failure-root-cause audit (extended -> extended_top_ablation_drag,
-    # repeat -> repeat_candidate_decay, rs_momentum_leader ->
-    # rs_momentum_weakest_signal_family). Survivors land in "focus" (ordered
-    # by the EXISTING research_score — no new score computed); everyone else
-    # lands in "rejected_by_focus_rule" with the reason. No new forward-
-    # evidence ledger, no scanner/gate/threshold/HC/EO/program-verdict change.
-    # Writes cache/research/alpha_focus_latest.json +
-    # logs/alpha_focus_latest.txt. Flags: --docs --json.
-    log "[CACHE] alpha focus — operator-attention layer (diagnostic, read-only)"
-    run_or_warn "alpha focus" \
-        "$PY" research/alpha_focus.py "$@"
+cmd_cohort_attribution() {
+    # Cohort attribution — diagnostic only, cache-only, cred-free.  Reads
+    # the watchlist/HC/EO history ledgers plus research_forward, scanner,
+    # latest-scan-programs, HC, EO, scan-exclusion-impact, and the nightly
+    # operator summary to attribute forward performance by cohort (repeat
+    # vs new, cap tier, HC/EO membership, etc).  Downstream of
+    # nightly_operator_summary (reads it as an input) and upstream of the
+    # root-cause audit, operating policy, and alpha focus, which all reuse
+    # its enrichment.  Writes cache/research/cohort_attribution_latest.json
+    # + logs/cohort_attribution_latest.txt.  Changes NO scanner logic,
+    # score, ranking, routing, gate, threshold, or factor weight.
+    # Flags: --docs --json.
+    log "[CACHE] cohort attribution (diagnostic, read-only)"
+    run_or_warn "cohort attribution" \
+        "$PY" research/cohort_attribution.py "$@"
 }
 
 cmd_alpha_failure_root_cause() {
@@ -1494,6 +1493,37 @@ cmd_alpha_failure_root_cause() {
     log "[CACHE] alpha failure root-cause audit (diagnostic, read-only)"
     run_or_warn "alpha failure root-cause audit" \
         "$PY" research/alpha_failure_root_cause_audit.py "$@"
+}
+
+cmd_research_operating_policy() {
+    # Research operating policy — non-mutating operator guidance only,
+    # cache-only, cred-free.  Reads cohort_attribution and buckets today's
+    # candidates into operator-attention / use-caution / discovery-only /
+    # do-not-conclude-yet presentation tiers.  Writes
+    # cache/research/research_operating_policy_latest.json.  Presentation
+    # guidance only — does not remove candidates, alter ranking, change
+    # scores, or promote research to signals.  Flags: --json.
+    log "[CACHE] research operating policy (diagnostic, read-only)"
+    run_or_warn "research operating policy" \
+        "$PY" research/research_operating_policy.py "$@"
+}
+
+cmd_alpha_focus() {
+    # Alpha Focus — small, auditable operator-attention layer (NOT a new
+    # engine). Cache-only, cred-free: reads today's rows from
+    # research_watchlist_history.jsonl, reuses cohort_attribution's existing
+    # enrichment, and applies 3 exclusion rules that are direct citations of
+    # the alpha-failure-root-cause audit (extended -> extended_top_ablation_drag,
+    # repeat -> repeat_candidate_decay, rs_momentum_leader ->
+    # rs_momentum_weakest_signal_family). Survivors land in "focus" (ordered
+    # by the EXISTING research_score — no new score computed); everyone else
+    # lands in "rejected_by_focus_rule" with the reason. No new forward-
+    # evidence ledger, no scanner/gate/threshold/HC/EO/program-verdict change.
+    # Writes cache/research/alpha_focus_latest.json +
+    # logs/alpha_focus_latest.txt. Flags: --docs --json.
+    log "[CACHE] alpha focus — operator-attention layer (diagnostic, read-only)"
+    run_or_warn "alpha focus" \
+        "$PY" research/alpha_focus.py "$@"
 }
 
 cmd_forward_milestones() {
@@ -1772,14 +1802,30 @@ cmd_nightly() {
     # summary/digest/audit so a milestone crossing surfaces as RE-AUDIT DUE
     # on the same nightly the sample matures.
     cmd_forward_milestones
-    # Nightly Operator Summary — runs LAST so it reads every sidecar the
-    # nightly cycle just refreshed.  Cache-only; no provider calls.
-    # No strategy abbreviations or trade language in output.
+    # Nightly Operator Summary — reads every sidecar the nightly cycle has
+    # refreshed so far.  Cache-only; no provider calls.  No strategy
+    # abbreviations or trade language in output.
     cmd_nightly_operator_summary
-    # Daily Research Digest — runs after the operator summary so the journal
-    # note reads the final state of every sidecar this cycle produced.
-    # Append-only to data/research/journal.jsonl; digest_key dedupe makes
-    # nightly re-runs safe.  Cache-only, cred-free, research-only.
+    # Cohort attribution -> alpha failure root-cause -> research operating
+    # policy -> alpha focus: this exact order because each stage reads the
+    # previous stage's sidecar (cohort_attribution needs the operator
+    # summary just written above; root-cause and operating-policy both
+    # need cohort_attribution; alpha-focus needs both cohort_attribution
+    # AND the root-cause audit).  Previously these four ran once manually
+    # (2026-07-25) and were never re-run by any cadence, so the digest
+    # served days-stale Alpha Focus / Cohort Attribution / Operating
+    # Policy / Root-Cause sections while everything else refreshed nightly
+    # — this closes that gap.  All four are cache-only / cred-free
+    # diagnostics: no scanner, score, ranking, gate, or threshold change.
+    cmd_cohort_attribution
+    cmd_alpha_failure_root_cause
+    cmd_research_operating_policy
+    cmd_alpha_focus
+    # Daily Research Digest — runs after the operator summary and the four
+    # policy-layer sidecars above so the journal note reads the final
+    # state of every sidecar this cycle produced.  Append-only to
+    # data/research/journal.jsonl; digest_key dedupe makes nightly
+    # re-runs safe.  Cache-only, cred-free, research-only.
     cmd_journal_digest
     # Journal audit — runs after the digest so it reviews the exact note the
     # operator will read.  LLM optional; deterministic fallback keeps the
@@ -1923,7 +1969,9 @@ case "$SUB" in
     journal-digest)            cmd_journal_digest             "${POS[@]}" ;;
     journal-audit)             cmd_journal_audit              "${POS[@]}" ;;
     research-programs)         cmd_research_programs          "${POS[@]}" ;;
+    cohort-attribution)        cmd_cohort_attribution         "${POS[@]}" ;;
     alpha-failure-root-cause)  cmd_alpha_failure_root_cause   "${POS[@]}" ;;
+    research-operating-policy) cmd_research_operating_policy  "${POS[@]}" ;;
     alpha-focus)               cmd_alpha_focus                "${POS[@]}" ;;
     forward-milestones)        cmd_forward_milestones         "${POS[@]}" ;;
     latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
