@@ -677,3 +677,73 @@ def test_scanner_section_lists_carry_tier_tags(monkeypatch):
     assert "AVTR (UNPROFITABLE_FUNDED)" in high_line
     assert "FBIN" in high_line and "FBIN (" not in high_line
     assert "AVTR (UNPROFITABLE_FUNDED)" in top_line
+
+
+# ── top-candidates vs avoid/red-flag rationale (feedback-queue 77c2e0840b8e) ─
+# LLM audit queue flagged: a ticker must never appear in a top-candidate
+# list and an avoid/alert list without an explicit rationale string.
+
+
+def _top_candidate(ticker, score=90.0, status="REPEAT"):
+    return {"ticker": ticker, "research_score": score, "scan_status": status,
+            "priority": "NORMAL", "lifecycle_stage": "RESEARCH_CANDIDATE",
+            "detection_reason": "Strong RS vs SPY",
+            "bar_as_of_date": "2026-07-27", "same_session": True}
+
+
+def test_top_candidate_hc_rejected_gets_explicit_rationale(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
+    inputs = {
+        "latest_scan": {"present": True, "programs": {
+            "TACTICAL": {"candidates": [_top_candidate("AGL")]},
+            "SWING": {"candidates": []},
+            "LONG_TERM": {"candidates": []},
+        }},
+        "high_conviction": {"rejected": [{
+            "ticker": "AGL", "exclusions": ["negative gross margin"],
+            "dead_horse_risk": "MEDIUM",
+        }]},
+        "radar": {"priority_tickers": {}},
+        "store": object(),
+    }
+    lines = jd._section_top_candidates(inputs)
+    flag_line = next(l for l in lines if l.startswith("  - AGL:"))
+    assert "avoid/red-flag list" in flag_line
+    assert "High-Conviction REJECTED (negative gross margin" in flag_line
+    assert "deterioration risk MEDIUM" in flag_line
+
+
+def test_top_candidate_data_quarantine_gets_explicit_rationale(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
+    inputs = {
+        "latest_scan": {"present": True, "programs": {
+            "TACTICAL": {"candidates": [_top_candidate("QUAR1")]},
+            "SWING": {"candidates": []},
+            "LONG_TERM": {"candidates": []},
+        }},
+        "high_conviction": {"rejected": []},
+        "radar": {"priority_tickers": {"DATA_QUARANTINE": ["QUAR1"]}},
+        "store": object(),
+    }
+    lines = jd._section_top_candidates(inputs)
+    flag_line = next(l for l in lines if l.startswith("  - QUAR1:"))
+    assert "Avoid / Data Issue list (quarantined)" in flag_line
+
+
+def test_top_candidate_clean_ticker_gets_no_rationale_line(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
+    inputs = {
+        "latest_scan": {"present": True, "programs": {
+            "TACTICAL": {"candidates": [_top_candidate("GOODCO")]},
+            "SWING": {"candidates": []},
+            "LONG_TERM": {"candidates": []},
+        }},
+        "high_conviction": {"rejected": []},
+        "radar": {"priority_tickers": {"DATA_QUARANTINE": []}},
+        "store": object(),
+    }
+    lines = jd._section_top_candidates(inputs)
+    assert not any(l.startswith("  - GOODCO:") for l in lines)

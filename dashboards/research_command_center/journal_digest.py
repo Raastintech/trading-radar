@@ -1103,6 +1103,34 @@ def _emerging_audit_flags(watch: List[Dict[str, Any]]) -> List[str]:
     return flags
 
 
+def _avoid_rationale_for(ticker: str,
+                         rejected_by_ticker: Dict[str, Dict[str, Any]],
+                         avoid_set: set, inputs: Dict[str, Any]) -> str:
+    """Explicit rationale when a top-candidate ticker also sits on an
+    avoid/red-flag list elsewhere in the same digest, so the two never
+    silently contradict each other (feedback-queue task 77c2e0840b8e).
+    Read-only: consults existing HC/EO/risk data, changes no score,
+    ranking, or candidate membership."""
+    reasons: List[str] = []
+    rejected = rejected_by_ticker.get(ticker)
+    if rejected is not None:
+        excl = rejected.get("exclusions") or []
+        risk = (rejected.get("dead_horse_risk")
+                or rejected.get("business_deterioration_risk"))
+        detail = ", ".join(excl) if excl else "quality/risk overlay reject"
+        reason = f"High-Conviction REJECTED ({detail}"
+        if risk:
+            reason += f"; deterioration risk {risk}"
+        reasons.append(reason + ")")
+    if ticker in avoid_set:
+        reasons.append("Data Quality: Avoid / Data Issue list (quarantined)")
+    if rejected is None:
+        notes = _risk_notes_for(inputs, ticker)
+        if notes:
+            reasons.append("Risk / Red-Flag Review: " + ", ".join(notes))
+    return "; ".join(reasons)
+
+
 def _section_top_candidates(inputs: Dict[str, Any]) -> List[str]:
     """Concise top-candidates recap (one line per program, existing
     score/priority order, one short reason each).  Purely a reading aid
@@ -1116,6 +1144,13 @@ def _section_top_candidates(inputs: Dict[str, Any]) -> List[str]:
         return lines
     from dashboards.research_command_center.presentation import (
         short_reason, split_candidates)
+    rejected_by_ticker = {
+        str(r.get("ticker") or "").upper(): r
+        for r in (inputs.get("high_conviction") or {}).get("rejected") or []
+    }
+    avoid_set = {str(t).upper() for t in
+                (inputs.get("radar") or {}).get("priority_tickers", {})
+                .get("DATA_QUARANTINE") or []}
     for pid in ("TACTICAL", "SWING", "LONG_TERM"):
         block = (payload.get("programs") or {}).get(pid) or {}
         top, _, issues = split_candidates(block, top_n=3)
@@ -1129,6 +1164,13 @@ def _section_top_candidates(inputs: Dict[str, Any]) -> List[str]:
         if issues:
             lines.append(f"  - {pid} data issues (excluded from top): "
                          + ", ".join(c["ticker"] for c in issues))
+        for c in top:
+            ticker = str(c.get("ticker") or "").upper()
+            rationale = _avoid_rationale_for(ticker, rejected_by_ticker,
+                                             avoid_set, inputs)
+            if rationale:
+                lines.append(f"  - {ticker}: also on an avoid/red-flag "
+                             f"list — {rationale}")
     return lines
 
 
