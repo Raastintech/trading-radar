@@ -185,6 +185,53 @@ def universe_artifact_meta(snapshot_path: Path,
                        f"{expected.isoformat()}" if stale else None)}
 
 
+# ── scan universe manifest (current, replaces the legacy universe snapshot) ──
+
+def scan_universe_meta(manifest_path: Path,
+                       *, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Resolve 'universe age' from scan_universe_manifest_latest.json — the
+    live, cache-only scan-universe build artifact that research_command_center
+    already reads.  Replaces universe_artifact_meta()/universe_snapshot_latest.json,
+    which has had no live writer since the 2026-06-13 trading decommission
+    (its builder required Alpaca discovery, since dropped) and is permanently
+    stuck at its last build date.
+
+    Cache-only, NO discard — a stale manifest still resolves with an explicit
+    age/reason.  Staleness is read directly off the manifest's own self-reported
+    ``scan_readiness`` verdict rather than re-derived from a trading-day
+    calendar, since the manifest already encodes why it is degraded.
+    """
+    p = Path(manifest_path)
+    source = "cache/research/scan_universe_manifest_latest.json"
+    if not p.exists():
+        return {"field": "universe", "status": "missing", "exists": False,
+                "age_seconds": None, "count": None, "source": source,
+                "reason": f"expected artifact not found: {source}"}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"field": "universe", "status": "unknown", "exists": True,
+                "age_seconds": None, "count": None, "source": source,
+                "reason": f"unreadable manifest: {e.__class__.__name__}"}
+    gen = data.get("generated_at")
+    age = _age_seconds(gen, now)
+    if age is None:
+        age = int(_utc_now(now).timestamp() - p.stat().st_mtime)
+        gen = datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()
+    count = data.get("universe_size")
+    if count is None:
+        fu = data.get("final_universe")
+        count = len(fu) if isinstance(fu, list) else None
+    readiness = str(data.get("scan_readiness") or "").upper()
+    stale = readiness not in ("READY", "")
+    reasons = data.get("readiness_reasons") or []
+    return {"field": "universe", "status": "stale" if stale else "current",
+            "exists": True, "age_seconds": age, "generated_at": gen,
+            "count": count, "fallback_used": stale,
+            "scan_readiness": readiness or None, "source": source,
+            "reason": (reasons[0] if reasons else None) if stale else None}
+
+
 # ── generic artifact age ─────────────────────────────────────────────────────
 
 def artifact_meta(path: Path, *, generated_field: str = "generated_at",

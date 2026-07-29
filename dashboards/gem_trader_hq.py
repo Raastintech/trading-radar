@@ -43,14 +43,13 @@ from core.evidence_freshness import (
     artifact_meta as _ef_artifact_meta,
     fmt_age_short as _ef_fmt_age,
     price_cache_bar_status as _ef_price_status,
-    universe_artifact_meta as _ef_universe_meta,
+    scan_universe_meta as _ef_universe_meta,
 )
 from core.fmp_client import get_fmp
 from core.research_assist_bte import build_research_bte
 from core.session import SessionState, get_session_state, next_session_change as _next_session_change
 from core.strategy_registry import (
     active_paper_strategies,
-    active_scanner_keys,
     frozen_strategies,
     is_active_paper_strategy,
     is_frozen_strategy,
@@ -93,21 +92,6 @@ except Exception:
 M_MONITOR = 1; M_RESEARCH = 2; M_RISK = 3; M_SCANNER = 4
 MODE_NAMES = {M_MONITOR: "MARKET", M_RESEARCH: "WATCHLIST", M_RISK: "INTEL", M_SCANNER: "RESEARCH"}
 
-# ── fallback ticker universe for standalone scans (daemon not running) ────────
-# Emergency fallback only — kept for cases when the dynamic universe builder
-# is unreachable. Phase 10 hygiene rule: no delisted/acquired/re-tickered names.
-_SCANNER_FALLBACK: List[str] = [
-    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AMD","CRM","INTC",
-    "JPM","BAC","GS","MS","V","MA","COIN",
-    "XOM","CVX","OXY","HAL","COP",
-    "JNJ","PFE","ABBV","UNH","BMY",
-    "BA","CAT","DE","HON","RTX",
-    "TGT","WMT","COST","HD","MCD",
-    "DIS","NFLX","SPOT","ROKU","TTD",
-    "SHOP","MELI","PLTR","SOFI","UPST",
-    "SPY","QQQ","IWM","GLD","TLT","HYG",
-]
-
 _INSTRUMENT_SYMBOLS = {
     "SPY","QQQ","IWM","VXX","GLD","TLT","HYG","SQQQ","QID","TQQQ","QLD",
     "SOXS","SOXL","SPXU","UPRO","PSQ","SDS","SH","DOG","DXD","TZA","TNA",
@@ -126,10 +110,6 @@ _CATALYST_KW = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 _SPARK = "▁▂▃▄▅▆▇█"
-
-
-def _active_strategy_row(row: Dict[str, Any]) -> bool:
-    return is_active_paper_strategy(normalize_strategy(row.get("strategy")))
 
 
 def _side_key(value: Any) -> str:
@@ -369,292 +349,6 @@ def _readiness_quote_pct(etf_quotes, sym) -> Optional[float]:
         return None
 
 
-def compute_trade_readiness(
-    vix, regime, econ_cal, mkt_status,
-    scan_results=None, universe_snap=None,
-    *,
-    forecast=None, etf_quotes=None, spy_bars=None,
-):
-    """Return (status, style, bullets, chip, reasons).
-
-    status   — RISK-ON / SELECTIVE / STANDBY / RISK-OFF
-    style    — Rich style string
-    bullets  — up to 3 short bullets for the panel
-    chip     — short descriptive intraday chip (e.g. "SPY -0.8% · QQQ -1.1% ·
-               defensive rotation") or None.  Only emitted in REGULAR session.
-    reasons  — dict of score deductions, exposed for tests / debugging.
-    """
-    reasons: Dict[str, Any] = {
-        "vix": 0,
-        "regime": 0,
-        "macro": 0,
-        "forecast_invalidation": 0,
-        "forecast_risk_off": 0,
-        "fragility": 0,
-        "fragility_status": None,
-        "spy_red": 0,
-        "defensive_flip": 0,
-        "vxx_stress": 0,
-        "conflict_raw": 0,
-        "conflict_applied": 0,
-        "conflict_cap_applied": False,
-        "vix_floor_applied": False,
-        "chip_parts": [],
-        "regime_label": None,
-    }
-
-    # ── Closed / pre-market / post-market: no intraday penalties, no chip ──
-    if mkt_status in ("CLOSED", "WEEKEND", "AFTER-HOURS", "PRE-MARKET"):
-        bullets: List[str] = []
-        if vix is not None:
-            lbl, _ = _vix_label(vix)
-            bullets.append(f"VIX {vix:.1f} — {lbl} heading into next session")
-        try:
-            ns, nt = _next_session_change()
-            import time as _time
-            mins = max(0, int((nt.timestamp() - _time.time()) / 60))
-            if mins < 60:
-                next_s = f"{ns.value} in {mins}m (at {nt.strftime('%H:%M')} ET)"
-            elif mins < 1440:
-                next_s = f"{ns.value} at {nt.strftime('%H:%M')} ET ({mins//60}h{mins%60:02d}m)"
-            else:
-                next_s = f"{ns.value} {nt.strftime('%a %H:%M')} ET"
-        except Exception:
-            next_s = "09:30 ET"
-        bullets.append(f"Next: {next_s}")
-        now = _now_et()
-        for e in sorted(econ_cal or [], key=lambda x: x.get("date","")):
-            if str(e.get("impact","")).lower() != "high":
-                continue
-            try:
-                raw = str(e.get("date","")).replace("Z","")
-                edt = datetime.fromisoformat(raw)
-                if edt.tzinfo is None:
-                    edt = edt.replace(tzinfo=timezone.utc)
-                hrs = (edt - now).total_seconds() / 3600
-                if hrs > 0:
-                    bullets.append(
-                        f"Next macro: {_clip(str(e.get('event','')),24)} in {int(hrs)}h"
-                    )
-                    break
-            except Exception:
-                continue
-        # Headline regime name from forecast, if present
-        head_closed = (forecast or {}).get("headline") or {}
-        if head_closed.get("current_regime"):
-            reasons["regime_label"] = head_closed["current_regime"]
-        if universe_snap:
-            candidates = universe_snap.get("strategy_candidates") or []
-            n_ready = sum(1 for c in candidates if c.get("readiness") == "READY_NOW")
-            n_dev   = sum(1 for c in candidates if c.get("readiness") == "DEVELOPING")
-            n_long  = sum(1 for c in candidates if c.get("readiness") == "READY_NOW" and c.get("direction") == "LONG")
-            n_short = sum(1 for c in candidates if c.get("readiness") == "READY_NOW" and c.get("direction") == "SHORT")
-            fallback = (universe_snap.get("summary") or {}).get("fallback_used", False)
-            if fallback:
-                bullets.append("Universe: FALLBACK MODE — structural quality unknown")
-            elif n_ready > 0:
-                bias = f"L:{n_long} S:{n_short}"
-                bullets.append(f"Structural pool: {n_ready} qualified ({bias})  +{n_dev} developing")
-            else:
-                bullets.append(f"Structural pool: 0 qualified  +{n_dev} developing")
-        elif scan_results:
-            n  = len(scan_results.get("opportunities") or [])
-            lt = scan_results.get("last_cycle_ts")
-            if lt:
-                try:
-                    odt = _parse_iso_utc(lt)
-                    age_m = int((_utc_now() - odt).total_seconds() / 60)
-                    bullets.append(f"Last scan: {n} setup{'s' if n!=1 else ''} found ({age_m}m ago)")
-                except Exception:
-                    bullets.append(f"Last scan: {n} setup{'s' if n!=1 else ''} found")
-        return "STANDBY", "dim", bullets[:3], None, reasons
-
-    # ── REGULAR session — full scoring ─────────────────────────────────────
-    score = 100
-    bullets: List[str] = []
-
-    # VIX (independent of conflict cap)
-    if vix is None:
-        score -= 15; reasons["vix"] = -15
-        bullets.append("VIX unavailable")
-    elif vix >= 35:
-        score -= 55; reasons["vix"] = -55
-        bullets.append(f"VIX {vix:.1f} — extreme fear, stand down")
-    elif vix >= 28:
-        score -= 35; reasons["vix"] = -35
-        bullets.append(f"VIX {vix:.1f} — high vol, size down")
-    elif vix >= 22:
-        score -= 20; reasons["vix"] = -20
-        bullets.append(f"VIX {vix:.1f} — elevated, be selective")
-    elif vix >= 18:
-        score -= 5; reasons["vix"] = -5
-        bullets.append(f"VIX {vix:.1f} — moderate, normal caution")
-    else:
-        bullets.append(f"VIX {vix:.1f} — calm, supportive")
-
-    # Regime label — prefer forecast headline name verbatim.
-    head = (forecast or {}).get("headline") or {}
-    forecast_regime_name = head.get("current_regime")
-    if forecast_regime_name:
-        eff_regime = str(forecast_regime_name).upper()
-        bullets.append(f"Regime: {forecast_regime_name}")
-        reasons["regime_label"] = forecast_regime_name
-    elif regime:
-        eff_regime = str(regime.get("regime","")).upper()
-        if "BEAR" in eff_regime:
-            bullets.append("Regime BEAR — longs restricted")
-        elif "BULL" in eff_regime:
-            bullets.append("Regime BULL — trend supportive")
-        else:
-            bullets.append("Regime NEUTRAL — mixed")
-        reasons["regime_label"] = eff_regime
-    else:
-        eff_regime = ""
-
-    if "BEAR" in eff_regime:
-        score -= 20; reasons["regime"] = -20
-    elif "BULL" in eff_regime:
-        pass
-    elif eff_regime:
-        score -= 5; reasons["regime"] = -5
-    elif mkt_status == "OPEN":
-        score -= 5; reasons["regime"] = -5
-
-    # Upcoming HIGH-impact macro (existing behavior)
-    now = _now_et()
-    for e in sorted(econ_cal or [], key=lambda x: x.get("date","")):
-        if str(e.get("impact","")).lower() != "high":
-            continue
-        try:
-            raw = str(e.get("date","")).replace("Z","")
-            edt = datetime.fromisoformat(raw)
-            if edt.tzinfo is None:
-                edt = edt.replace(tzinfo=timezone.utc)
-            mins = (edt - now).total_seconds() / 60
-            if -15 <= mins <= 0:
-                score -= 35; reasons["macro"] = -35
-                bullets.append(f"⚠ {_clip(str(e.get('event','')),28)} — LIVE NOW"); break
-            elif 0 < mins <= 45:
-                score -= 35; reasons["macro"] = -35
-                bullets.append(f"⚠ {_clip(str(e.get('event','')),28)} in {int(mins)}m"); break
-            elif 45 < mins <= 120:
-                score -= 12; reasons["macro"] = -12
-                bullets.append(f"{_clip(str(e.get('event','')),28)} in {int(mins/60)}h{int(mins%60):02d}m"); break
-        except Exception:
-            continue
-
-    # ── Forecast + fragility + intraday pulse (subject to conflict cap) ────
-    conflict_raw = 0
-    chip_parts: List[str] = []
-
-    if bool(head.get("invalidation_breached")):
-        conflict_raw += 20; reasons["forecast_invalidation"] = -20
-
-    probs = (forecast or {}).get("regime_probabilities") or []
-    risk_off_p = 0.0
-    for r in probs:
-        if str(r.get("regime") or "").strip().lower() == "risk-off":
-            try:
-                risk_off_p = float(r.get("probability") or 0.0)
-            except Exception:
-                risk_off_p = 0.0
-            break
-    if risk_off_p >= 0.25:
-        conflict_raw += 10; reasons["forecast_risk_off"] = -10
-
-    fragility_status = None
-    if forecast and not forecast.get("_missing"):
-        try:
-            from core.fragility import evaluate_fragility
-            fr = evaluate_fragility(forecast=forecast, vix=vix)
-            fragility_status = (fr.status or "").upper()
-        except Exception:
-            fragility_status = None
-    reasons["fragility_status"] = fragility_status
-    is_stress = fragility_status == "STRESS"
-    if fragility_status == "STRESS":
-        conflict_raw += 30; reasons["fragility"] = -30
-    elif fragility_status == "FRAGILE":
-        conflict_raw += 15; reasons["fragility"] = -15
-    elif fragility_status == "CONFLICTED":
-        conflict_raw += 10; reasons["fragility"] = -10
-
-    # Intraday pulse — REGULAR only (this branch is REGULAR by definition).
-    spy_chg = _readiness_spy_intraday_pct(spy_bars)
-    qqq_chg = _readiness_quote_pct(etf_quotes, "QQQ")
-    xlp_chg = _readiness_quote_pct(etf_quotes, "XLP")
-    xlu_chg = _readiness_quote_pct(etf_quotes, "XLU")
-    vxx_chg = _readiness_quote_pct(etf_quotes, "VXX")
-
-    if spy_chg is not None and spy_chg <= -1.0:
-        conflict_raw += 20; reasons["spy_red"] = -20
-        chip_parts.append(f"SPY {spy_chg:+.1f}%")
-    elif spy_chg is not None and spy_chg <= -0.5:
-        conflict_raw += 10; reasons["spy_red"] = -10
-        chip_parts.append(f"SPY {spy_chg:+.1f}%")
-    if chip_parts and qqq_chg is not None and qqq_chg < 0:
-        chip_parts.append(f"QQQ {qqq_chg:+.1f}%")
-
-    defensive_green = (
-        (xlp_chg is not None and xlp_chg > 0) or
-        (xlu_chg is not None and xlu_chg > 0)
-    )
-    broad_red = (
-        spy_chg is not None and spy_chg < 0
-        and qqq_chg is not None and qqq_chg < 0
-    )
-    if broad_red and defensive_green:
-        conflict_raw += 15; reasons["defensive_flip"] = -15
-        chip_parts.append("defensive rotation")
-
-    if vxx_chg is not None and vxx_chg >= 5.0:
-        conflict_raw += 10; reasons["vxx_stress"] = -10
-        chip_parts.append(f"VXX {vxx_chg:+.0f}%")
-
-    applied_conflict = conflict_raw if is_stress else min(conflict_raw, _READINESS_CONFLICT_CAP)
-    if (not is_stress) and conflict_raw > _READINESS_CONFLICT_CAP:
-        reasons["conflict_cap_applied"] = True
-    reasons["conflict_raw"] = -conflict_raw
-    reasons["conflict_applied"] = -applied_conflict
-    reasons["chip_parts"] = list(chip_parts)
-    score -= applied_conflict
-
-    fr_msgs = []
-    if reasons["forecast_invalidation"]:
-        fr_msgs.append("forecast invalidation breached")
-    if fragility_status in ("FRAGILE", "CONFLICTED", "STRESS"):
-        fr_msgs.append(f"research fragility {fragility_status.lower()}")
-    if fr_msgs:
-        bullets.append(" · ".join(fr_msgs))
-
-    chip = " · ".join(chip_parts) if chip_parts else None
-
-    if score >= 80:
-        status, style = "RISK-ON",   "bold green"
-    elif score >= 55:
-        status, style = "SELECTIVE", "bold yellow"
-    elif score >= 30:
-        status, style = "STANDBY",   "bold red"
-    else:
-        status, style = "RISK-OFF",  "bold red on black"
-
-    # Chip-presence floor: if the intraday-pulse chip is non-empty the tape is
-    # showing at least one fragility signal (SPY red, defensive rotation, VXX
-    # stress); the banner cannot read RISK-ON while the chip says otherwise.
-    if chip and status == "RISK-ON":
-        status, style = "SELECTIVE", "bold yellow"
-        reasons["chip_floor_applied"] = True
-    else:
-        reasons["chip_floor_applied"] = False
-
-    # Hard VIX floor: VIX >= 25 cannot show RISK-ON or SELECTIVE — the elevated
-    # vol regime alone is enough to demote the banner to STANDBY.
-    if vix is not None and vix >= 25 and status in ("RISK-ON", "SELECTIVE"):
-        status, style = "STANDBY", "bold red"
-        reasons["vix_floor_applied"] = True
-
-    return status, style, bullets[:3], chip, reasons
-
 def _filter_catalyst_news(items: List[Dict]) -> List[Dict]:
     out = []
     for item in items:
@@ -671,7 +365,7 @@ _TTL = dict(positions=10, account=15, vix=60, spy_bars=300, etf_quotes=60,
             treasury=600, econ_cal=300, earnings=600, sector_pe=1800,
             earnings_cache_age=300,
             db_decisions=15, scan_results=20, news_market=120, regime=60,
-            universe_snap=600, universe_meta=600, universe_earnings_meta=3600,
+            universe_snap=600, universe_meta=600,
             price_cache_meta=600,
             paper_summary=60, evidence_status=60,
             alpha_discovery=300, alpha_discovery_overlay=120, social_arb=300,
@@ -824,10 +518,6 @@ class DataLayer:
         self._ts:   Dict[str,float] = {}
         self._running = True
         self._alpaca_ok = False; self._fmp_ok = False
-        # scanner state
-        self._scanner_running  = False
-        self._scanner_status   = "idle — press S to scan"
-        self._scanner_last_run: Optional[float] = None
         self._ensure_scan_table()
         threading.Thread(target=self._loop, daemon=True).start()
 
@@ -887,7 +577,6 @@ class DataLayer:
         if self._stale("news_market"):  self._set("news_market",  self._fetch_news_market())
         if self._stale("regime"):       self._set("regime",       self._fetch_regime())
         if self._stale("universe_snap"): self._set("universe_snap", self._fetch_universe_snap())
-        if self._stale("universe_earnings_meta"): self._set("universe_earnings_meta", self._fetch_universe_earnings_meta())
         if self._stale("price_cache_meta"): self._set("price_cache_meta", self._fetch_price_cache_meta())
         if self._stale("universe_meta"): self._set("universe_meta", self._fetch_universe_meta())
         if self._stale("paper_summary"): self._set("paper_summary", self._fetch_paper_summary())
@@ -1298,35 +987,74 @@ class DataLayer:
         except Exception: return None
 
     def _fetch_universe_snap(self) -> Dict:
-        """Read the latest universe snapshot JSON from disk (written by universe builder)."""
-        try:
-            snap_path = cfg.CACHE_DIR / "universe" / "universe_snapshot_latest.json"
-            if not snap_path.exists():
-                return {}
-            age_s = time.time() - snap_path.stat().st_mtime
-            if age_s > 7200:          # ignore if older than 2 hours
-                return {}
-            data = json.loads(snap_path.read_text(encoding="utf-8"))
-            data["_file_age_seconds"] = int(age_s)
-            return data
-        except Exception:
-            return {}
+        """Current scan-universe composition + six-category research-scanner
+        board — the same cache-only artifacts research_command_center's
+        data_adapter.py already reads (cache/research/scan_universe_manifest_latest.json
+        + cache/research/research_scanner_latest.json).
 
-    def _fetch_universe_earnings_meta(self) -> Dict:
-        """Read avg_dollar_vol_20 metadata from universe_snapshot_latest.json.
-
-        Unlike _fetch_universe_snap this has NO freshness gate — avg dollar
-        volume changes slowly and the earnings wall needs it even when the
-        snapshot is 12h+ old (the 2h gate in _fetch_universe_snap discards
-        stale snapshots for trade-readiness, not for static metadata lookups).
-        Returns the 'metadata' sub-dict keyed by ticker symbol, or {}.
+        Replaces the legacy per-strategy universe_snapshot_latest.json, which
+        has had no live writer since the 2026-06-13 trading decommission (its
+        builder required Alpaca discovery, since dropped) and was permanently
+        stuck at its last (2026-06-12) build — silently degrading every panel
+        that read it.  No 2h discard: staleness is reported explicitly via
+        "stale"/"age_seconds" rather than hidden by returning {}.
         """
         try:
-            snap_path = cfg.CACHE_DIR / "universe" / "universe_snapshot_latest.json"
-            if not snap_path.exists():
+            manifest_path = cfg.CACHE_DIR / "research" / "scan_universe_manifest_latest.json"
+            scanner_path  = cfg.CACHE_DIR / "research" / "research_scanner_latest.json"
+            if not manifest_path.exists():
                 return {}
-            data = json.loads(snap_path.read_text(encoding="utf-8"))
-            return data.get("metadata") or {}
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            generated_at = manifest.get("generated_at") or ""
+            age_s: Optional[float] = None
+            try:
+                age_s = (_utc_now() - _parse_iso_utc(generated_at)).total_seconds()
+            except Exception:
+                age_s = None
+
+            def _num(value: Any) -> float:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            by_symbol: Dict[str, Dict[str, Any]] = {}
+            if scanner_path.exists():
+                try:
+                    scanner = json.loads(scanner_path.read_text(encoding="utf-8"))
+                except Exception:
+                    scanner = {}
+                for rows in (scanner.get("categories") or {}).values():
+                    for row in rows or []:
+                        sym = str(row.get("ticker") or "").upper()
+                        if not sym:
+                            continue
+                        prev = by_symbol.get(sym)
+                        score = _num(row.get("research_score"))
+                        if prev is None or score > prev["research_score"]:
+                            by_symbol[sym] = {
+                                "symbol": sym,
+                                "research_score": score,
+                                "categories": row.get("all_categories") or [row.get("category")],
+                                "rs_20d_vs_spy": row.get("rs_20d_vs_spy"),
+                                "rs_63d_vs_spy": row.get("rs_63d_vs_spy"),
+                                "vol_trend_ratio": row.get("vol_trend_ratio"),
+                                "dd_from_high_pct": row.get("dd_from_high_pct"),
+                                "above_ma50": row.get("above_ma50"),
+                                "above_ma200": row.get("above_ma200"),
+                            }
+
+            final_universe = manifest.get("final_universe") or []
+            return {
+                "generated_at": generated_at,
+                "age_seconds": age_s,
+                "stale": bool(age_s is not None and age_s > 86400),
+                "scan_readiness": manifest.get("scan_readiness"),
+                "universe_size": manifest.get("universe_size"),
+                "excluded_count": manifest.get("excluded_count"),
+                "final_universe": final_universe,
+                "candidates": list(by_symbol.values()),
+            }
         except Exception:
             return {}
 
@@ -1345,17 +1073,17 @@ class DataLayer:
                     "reason": f"probe error: {e.__class__.__name__}"}
 
     def _fetch_universe_meta(self) -> Dict:
-        """Evidence-Freshness probe: resolve 'universe age' from the universe
-        snapshot mtime/generated_at + count WITHOUT the 2h discard used by
-        _fetch_universe_snap (which exists to freshness-gate the structural pool
-        for trade-readiness, not to report age).  Cache-only."""
+        """Evidence-Freshness probe: resolve 'universe age' from the scan
+        universe manifest (cache/research/scan_universe_manifest_latest.json)
+        mtime/generated_at + count.  Cache-only, no discard — reports age even
+        when the artifact is stale."""
         try:
             return _ef_universe_meta(
-                cfg.CACHE_DIR / "universe" / "universe_snapshot_latest.json")
+                cfg.CACHE_DIR / "research" / "scan_universe_manifest_latest.json")
         except Exception as e:
             return {"field": "universe", "status": "unknown", "exists": False,
                     "age_seconds": None, "count": None,
-                    "source": "cache/universe/universe_snapshot_latest.json",
+                    "source": "cache/research/scan_universe_manifest_latest.json",
                     "reason": f"probe error: {e.__class__.__name__}"}
 
     def _fetch_evidence_status(self) -> Dict:
@@ -1977,147 +1705,6 @@ CREATE TABLE IF NOT EXISTS scan_results (
         except Exception:
             pass
 
-    # ── standalone scanner ────────────────────────────────────────────────────
-
-    def scanner_status(self) -> Dict:
-        return {
-            "running":  self._scanner_running,
-            "status":   self._scanner_status,
-            "last_run": self._scanner_last_run,
-        }
-
-    def trigger_scan(self) -> bool:
-        """Start a background scan without order execution. Returns False if already running."""
-        if self._scanner_running:
-            return False
-        threading.Thread(target=self._background_scan, daemon=True).start()
-        return True
-
-    def _background_scan(self):
-        """Run active paper scanners + veto council. Writes to scan_results. No orders."""
-        import uuid as _uuid
-        run_id = str(_uuid.uuid4())[:8]
-        self._scanner_running = True
-        self._scanner_status  = "starting…"
-        try:
-            # Lazy strategy imports — avoid loading heavy modules at dashboard startup
-            from strategies.sniper       import SniperScanner
-            from strategies.voyager      import VoyagerScanner
-            from strategies.short_sleeve import ShortSleeveScanner
-            from council.veto_council    import VetoCouncil
-
-            # Account equity (best-effort — default to $100k)
-            try:
-                acct   = get_alpaca().get_account()
-                equity = float(acct.get("equity", 100_000) or 100_000)
-            except Exception:
-                equity = 100_000
-
-            # Use universe snapshot pools if available, else fallback
-            snap = self.get("universe_snap") or {}
-            strategy_universes = {
-                "sniper":     snap.get("sniper_universe")     or _SCANNER_FALLBACK,
-                "voyager":    snap.get("voyager_universe")    or _SCANNER_FALLBACK,
-                "short":      snap.get("short_universe")      or _SCANNER_FALLBACK,
-            }
-            using_fallback = not bool(snap.get("sniper_universe"))
-
-            scanner_factories = {
-                "sniper":     SniperScanner(account_equity=equity),
-                "voyager":    VoyagerScanner(account_equity=equity),
-                "short":      ShortSleeveScanner(account_equity=equity),
-            }
-            scanners = {k: scanner_factories[k] for k in active_scanner_keys() if k in scanner_factories}
-            council = VetoCouncil()
-
-            # Mock portfolio — no real positions for standalone scan
-            mock_portfolio = {
-                "open_positions":   0,
-                "max_positions":    10,
-                "gross_long_pct":   0.0,
-                "gross_short_pct":  0.0,
-                "daily_pnl_pct":    0.0,
-            }
-
-            # Run scanners
-            all_opps: List[Dict] = []
-            n_strats = len(scanners)
-            for i, (name, scanner) in enumerate(scanners.items(), 1):
-                self._scanner_status = f"scanning {name.upper()} ({i}/{n_strats})…"
-                tickers = strategy_universes.get(name, _SCANNER_FALLBACK)
-                try:
-                    opps = scanner.scan(tickers)
-                    all_opps.extend(opps)
-                except Exception:
-                    pass
-
-            # Deduplicate + rank
-            self._scanner_status = "running veto council…"
-            seen: set = set()
-            ranked: List[Dict] = []
-            for opp in sorted(all_opps, key=lambda x: x.get("score", 0), reverse=True):
-                if opp["ticker"] not in seen:
-                    seen.add(opp["ticker"])
-                    ranked.append(opp)
-
-            # Veto council evaluation (no circuit breaker — standalone mode)
-            now_ts = _utc_now().replace(tzinfo=None).isoformat()
-            rows = []
-            for opp in ranked[:40]:
-                try:
-                    result  = council.evaluate(opp, mock_portfolio)
-                    verdict = result.get("verdict", "VETOED")
-                    soft    = result.get("soft_score")
-                    if verdict == "APPROVED":
-                        status = "SCAN_APPROVED"   # dry-run: no allocator/execution attempted
-                    elif soft is not None and soft >= 50:
-                        status = "GATED"
-                    else:
-                        status = "REJECTED"
-                    rows.append((
-                        str(_uuid.uuid4()), run_id, now_ts,
-                        opp["ticker"].upper(), (opp.get("strategy") or "?").upper(),
-                        (opp.get("direction") or "LONG").upper(),
-                        opp.get("score"), opp.get("entry_price"),
-                        opp.get("stop_loss"), opp.get("target_price"),
-                        opp.get("risk_reward"),
-                        verdict.upper(), result.get("agent","") or "",
-                        result.get("reason","") or "",
-                        soft, status,
-                    ))
-                except Exception:
-                    pass
-
-            # Persist results
-            if rows:
-                con = sqlite3.connect(str(cfg.DB_PATH), timeout=5)
-                con.executemany(
-                    """INSERT INTO scan_results
-                       (id, run_id, ts, ticker, strategy, direction, score,
-                        entry_price, stop_loss, target_price, risk_reward,
-                        veto_verdict, veto_agent, veto_reason, soft_score, status)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    rows,
-                )
-                con.commit()
-                con.close()
-
-            n_approved = sum(1 for r in rows if r[-1] == "SCAN_APPROVED")
-            n_gated    = sum(1 for r in rows if r[-1] == "GATED")
-            fallback_note = " [fallback universe]" if using_fallback else ""
-            self._scanner_status = (
-                f"{n_approved} approved  {n_gated} gated  "
-                f"({len(rows)} evaluated){fallback_note}"
-            )
-            self._scanner_last_run = time.time()
-            # Force scan_results cache refresh on next poll
-            self._ts["scan_results"] = 0
-
-        except Exception as exc:
-            self._scanner_status = f"error: {str(exc)[:70]}"
-        finally:
-            self._scanner_running = False
-
     def stop(self): self._running = False
 
 
@@ -2457,34 +2044,6 @@ class PB:  # PanelBuilder — all static
         t.append(srch)
         t.append("  [dim]1·2·3·4 mode  / search  q quit[/]")
         return Panel(t, box=box.HEAVY, padding=(0,1))
-
-    # ── trade readiness ───────────────────────────────────────────────────────
-    @staticmethod
-    def trade_readiness(data: DataLayer) -> Panel:
-        vix      = data.get("vix")
-        regime   = data.get("regime")
-        econ     = data.get("econ_cal") or []
-        sr       = data.get("scan_results")
-        usnap    = data.get("universe_snap")
-        forecast = data.get("market_forecast")
-        etf      = data.get("etf_quotes")
-        spy_b    = data.get("spy_bars")
-        mkt      = _market_status()
-        status, style, bullets, chip, _reasons = compute_trade_readiness(
-            vix, regime, econ, mkt,
-            scan_results=sr, universe_snap=usnap,
-            forecast=forecast, etf_quotes=etf, spy_bars=spy_b,
-        )
-
-        t = Text()
-        t.append(f"  {status}  ", style=f"bold reverse {style}")
-        for b in bullets:
-            t.append(f"  ·  {b}", style="white")
-        if chip:
-            t.append(f"  [ {chip} ]", style="bold red")
-        return Panel(t, title="[bold]TRADE READINESS[/]",
-                     border_style=style.replace("bold ","").replace(" on black",""),
-                     padding=(0,1))
 
     # ── regime + sparkline ────────────────────────────────────────────────────
     @staticmethod
@@ -3271,7 +2830,6 @@ class PB:  # PanelBuilder — all static
     @staticmethod
     def evidence_freshness(data: DataLayer) -> Panel:
         ev = data.get("evidence_status") or {}
-        snap = data.get("universe_snap") or {}
         sr = data.get("scan_results") or {}
         t = Text()
 
@@ -3301,8 +2859,8 @@ class PB:  # PanelBuilder — all static
             bars_style = "yellow"
         t.append(f"daily bars    {bars_txt}\n", style=bars_style)
 
-        # ── universe age — from the snapshot mtime/generated_at + count, NO 2h
-        #    discard; a valid weekend snapshot resolves with an explicit age.
+        # ── universe age — from the scan_universe_manifest generated_at +
+        #    count, no discard; reports age even when the manifest is stale.
         um = data.get("universe_meta") or {}
         ustatus = um.get("status") or "unknown"
         if ustatus == "missing":
@@ -3900,46 +3458,22 @@ class PB:  # PanelBuilder — all static
         Manual research aid only. These rows are not approved paper signals and
         do not feed paper evidence.
 
+        Sourced from the six-category research-scanner board (cache/research/
+        research_scanner_latest.json, via DataLayer's "universe_snap" key) —
+        research_score + RS/volume-trend/MA-participation fields only.  No
+        direction, liquidity ($vol), or sleeve-readiness fields exist in this
+        data (that per-strategy universe-snapshot pipeline is decommissioned).
+
         Rendering is compact:
-          - bias / why-now / playbook / risk / freshness header (5 lines)
-          - Manual Focus Now (3 buckets, max 2 rows each)
-          - Top Liquid (3 rows, anchors)
-          - Movers (5 rows, LIQ vs SPC tag preserved)
+          - Market Posture header (state / confidence / why-now / risk / freshness)
+          - Top Focus (top 5 by research_score, with category tags)
+          - RS Movers (top by 20d RS-vs-SPY weighted by volume-trend ratio)
 
         Optional cross-reference: rows whose symbol also appears on the Alpha
         Discovery board are tagged with " *A".
         """
         snap = data.get("universe_snap") or {}
-        cands = snap.get("strategy_candidates") or []
-        by_symbol: Dict[str, Dict[str, Any]] = {}
-        for c in cands:
-            sym = str(c.get("symbol") or "").upper()
-            if not sym:
-                continue
-            prev = by_symbol.get(sym)
-            if prev is None or float(c.get("base_score") or 0) > float(prev.get("base_score") or 0):
-                by_symbol[sym] = c
-
-        rows = list(by_symbol.values())
-        liquid = sorted(
-            rows,
-            key=lambda c: (
-                -float(c.get("avg_dollar_volume_20") or 0),
-                -float(c.get("current_dollar_volume") or 0),
-                str(c.get("symbol") or ""),
-            ),
-        )[:5]
-        trending = sorted(
-            rows,
-            key=lambda c: (
-                -(
-                    abs(float(c.get("return_5d_pct") or 0)) * 0.6
-                    + abs(float(c.get("return_20d_pct") or 0)) * 0.4
-                ) * max(float(c.get("volume_ratio_5d") or 0), 0.1),
-                -float(c.get("avg_dollar_volume_20") or 0),
-                str(c.get("symbol") or ""),
-            ),
-        )[:10]
+        candidates = snap.get("candidates") or []
 
         a_set: set = alpha_symbols or set()
 
@@ -3954,50 +3488,42 @@ class PB:  # PanelBuilder — all static
         if bte is None:
             bte = build_research_bte(universe_snapshot=snap, regime=regime, vix=vix)
         bte_style = {
-            "bullish": "green",
-            "defensive": "yellow",
+            "constructive": "green",
+            "cautious": "yellow",
             "mixed": "yellow",
+            "unknown": "dim",
         }.get(bte.bias, "yellow")
-        # Posture "spread" is the long/short pressure imbalance in the current
-        # candidate snapshot — it is *not* the regime forecaster's confidence
-        # (which measures probability margin between top-2 regimes).  The
-        # label is explicit so the operator doesn't conflate the two.
         t.append(
-            f"Market Posture  bias {bte.bias.upper()} · spread {bte.confidence.upper()}\n",
+            f"Market Posture  {bte.state.upper()} · confidence {bte.confidence.upper()}\n",
             style=bte_style,
         )
-        # Surface divergence when posture spread reads strong but the
-        # forecaster's regime confidence is low — same direction can be
-        # high-spread / low-conviction.  Cache-only read.
+        # Surface divergence when our own breadth read looks constructive but
+        # the forecaster's regime confidence is low / breached / risk-off
+        # dominant — cache-only read, same cross-check as before the
+        # sleeve-direction model was retired (Phase: research-scanner migration).
         try:
             mf = data.get("market_forecast") or {}
             head = mf.get("headline") or {}
             fc_conf = str(head.get("confidence") or "").lower()
             posture_conf = str(bte.confidence or "").lower()
             breached = bool(head.get("invalidation_breached"))
-            posture_bias = str(bte.bias or "").lower()
+            posture_state = str(bte.bias or "").lower()
             _rank = {"low": 0, "low-medium": 1, "medium": 2, "high": 3}
 
-            # Phase 1F Task 2: hard REGIME CONFLICT badge when posture
-            # reads bullish but the forecast is breached or LOW-conf,
-            # or visibly tilts risk-off. Stronger than the previous
-            # subtler "spread is candidate-pressure only" hint — this
-            # one explicitly tells the operator the regime is not
-            # confirmed, so candidate language must not imply approval.
             probs = mf.get("regime_probabilities") or []
             risk_off_p = 0.0
             for r in probs:
                 if str(r.get("regime") or "").strip().lower() == "risk-off":
                     risk_off_p = float(r.get("probability") or 0)
                     break
-            posture_bullish_unconfirmed = (
-                posture_bias == "bullish"
+            posture_constructive_unconfirmed = (
+                posture_state == "constructive"
                 and not mf.get("_missing")
                 and (breached or fc_conf == "low" or risk_off_p >= 0.40)
             )
-            if posture_bullish_unconfirmed:
+            if posture_constructive_unconfirmed:
                 t.append(
-                    "  ⚠ REGIME CONFLICT — bullish tape pressure, but "
+                    "  ⚠ REGIME CONFLICT — constructive breadth read, but "
                     "regime not confirmed\n",
                     style="bold white on red",
                 )
@@ -4005,7 +3531,7 @@ class PB:  # PanelBuilder — all static
                     and fc_conf in _rank and posture_conf in _rank
                     and _rank[posture_conf] - _rank[fc_conf] >= 2):
                 t.append(
-                    f"  ⚠ regime conf {fc_conf.upper()} · posture spread is candidate-pressure only\n",
+                    f"  ⚠ regime conf {fc_conf.upper()} · posture confidence outruns it\n",
                     style="bold yellow",
                 )
         except Exception:
@@ -4013,123 +3539,52 @@ class PB:  # PanelBuilder — all static
         if bte.factors:
             t.append("Why now   ", style="bold dim")
             t.append(" | ".join(bte.factors[:4]) + "\n", style="dim")
-        if bte.playbook:
-            t.append("Playbook  ", style="bold dim")
-            t.append(" | ".join(bte.playbook[:3]) + "\n", style="white")
+        if bte.cautions:
+            t.append("Caution   ", style="bold dim")
+            t.append(" | ".join(bte.cautions[:3]) + "\n", style="yellow")
         risk_style = "yellow" if (bte.risk_flag and bte.risk_flag != "none") else "dim"
         t.append("Risk      ", style="bold dim")
+        age_s = snap.get("age_seconds")
+        age_m = int(age_s // 60) if isinstance(age_s, (int, float)) else None
         t.append(
             f"{bte.risk_flag or 'none'}   "
-            f"snap {int(snap.get('_file_age_seconds') or 0)//60}m old\n",
+            f"snap {age_m if age_m is not None else '?'}m old\n",
             style=risk_style,
         )
-        t.append("advisory only · research context\n", style="dim")
+        t.append("advisory only · research context · no trade recommendation\n", style="dim")
         if a_set:
             t.append("*A = also on Alpha Discovery board\n\n", style="dim")
         else:
             t.append("\n", style="dim")
 
         focus = bte.focus_names[:5]
-        # Phase 1F: tag renamed from "aligned now" → "research-aligned".
-        # Accept both so cached BTE snapshots from prior builds still
-        # bucket correctly.
-        _aligned_tags = {"research-aligned", "aligned now"}
-        ready_now = [
-            r for r in focus
-            if str(r.get("actionable_now") or "").upper() == "YES"
-            and str(r.get("compliance_tag") or "") in _aligned_tags
-        ]
-        pullback_watch = [
-            r for r in focus
-            if str(r.get("status") or "").lower() in {
-                "pullback watch", "watch pullback", "watch"
-            }
-            or str(r.get("compliance_tag") or "") in {
-                "pullback watch", "early setup", "wait for confirmation",
-                "not actionable yet",
-            }
-        ]
-        extended_leaders = [
-            r for r in focus
-            if str(r.get("status") or "").lower() in {"extended", "late / extended"}
-            or str(r.get("compliance_tag") or "") == "extended"
-        ]
-        any_focus = bool(ready_now or pullback_watch or extended_leaders)
+        movers = sorted(
+            candidates,
+            key=lambda c: (
+                -(
+                    abs(float(c.get("rs_20d_vs_spy") or 0))
+                    * max(float(c.get("vol_trend_ratio") or 0), 0.1)
+                ),
+                str(c.get("symbol") or ""),
+            ),
+        )[:5]
 
-        # Movers — combined trending list, LIQ vs SPC tag preserved.
-        movers: List[Dict[str, Any]] = []
-        for r in trending:
-            adv = float(r.get("avg_dollar_volume_20") or 0)
-            r["_mover_type"] = "LIQ" if adv >= 100_000_000 else "SPC"
-            movers.append(r)
-        movers = movers[:5]
-
-        # Compact mode: when Market Posture has no focus, no liquid anchors, and no movers,
+        # Compact mode: when Market Posture has no focus names and no movers,
         # collapse to a single advisory line so Alpha gets the vertical space.
-        if not any_focus and not liquid and not movers:
-            t.append("Market Posture summary only · no candidate names from current snapshot\n", style="dim")
+        if not focus and not movers:
+            t.append("Market Posture summary only · no candidate names from current scan\n", style="dim")
             return Panel(t, title="[bold]RESEARCH ASSIST[/]",
                          border_style="blue", padding=(0, 1))
 
-        # Phase 1F Tasks 3+5: status is now run through
-        # neutralize_research_label so:
-        #   - "BUY candidate" / legacy strings are translated, and
-        #   - any candidate label is demoted to "Research Only · entry
-        #     not actionable" when the lens entry layer is Too Extended /
-        #     Broken / Avoid (the operator must not see green "candidate"
-        #     wording against a non-actionable setup).
-        from core.fragility import neutralize_research_label  # local import
-        def _entry_label(row: Dict[str, Any]) -> str:
-            # Prefer an explicit entry_layer value if the BTE row carries
-            # one; fall back to the lens cache for the same ticker.
-            ev = (row.get("entry_layer") or row.get("entry_view") or
-                  row.get("entry") or "")
-            if ev:
-                return str(ev)
-            sym = str(row.get("symbol") or "").upper()
-            if not sym:
-                return ""
-            try:
-                ld = (data.get(f"stock_lens:{sym}") or {})
-                return str(((ld.get("layers") or {}).get("entry") or {}).get("view") or "")
-            except Exception:
-                return ""
-
-        def _render_focus_bucket(title: str, rows: List[Dict[str, Any]]) -> None:
-            if not rows:
-                return  # collapse empty buckets entirely
-            t.append(f"{title}\n", style="bold dim")
-            for row in rows[:2]:
-                sym = str(row.get('symbol') or '—')
-                raw_status = str(row.get("status") or "WATCH")
-                entry_view = _entry_label(row)
-                rendered_status = neutralize_research_label(
-                    raw_status, entry_label=entry_view,
-                )
-                tag = str(row.get("compliance_tag") or "watch only")
+        if focus:
+            t.append("Top Focus", style="bold dim")
+            t.append(" (research_score)\n", style="dim")
+            for i, r in enumerate(focus, 1):
+                sym = str(r.get("symbol") or "—")
+                score = float(r.get("research_score") or 0)
+                cats = ", ".join((r.get("categories") or [])[:2]) or "—"
                 t.append(
-                    f"  {sym:<5}{_xref_mark(sym)} "
-                    f"{str(row.get('sleeve_resemblance') or '—')[:14]:<14} "
-                    f"{rendered_status[:26]:<26} "
-                    f"{tag[:16]}\n",
-                    style="white",
-                )
-
-        if any_focus:
-            t.append("Research Focus\n", style="bold dim")
-            _render_focus_bucket("Research-aligned (not approval)", ready_now)
-            _render_focus_bucket("Watch Pullback", pullback_watch)
-            _render_focus_bucket("Late / Extended", extended_leaders)
-
-        # Top Liquid — context anchors only, render only what exists.
-        if liquid:
-            t.append("\nTop Liquid", style="bold dim")
-            t.append(" (20d avg $vol)\n", style="dim")
-            for i, l in enumerate(liquid[:3], 1):
-                l_sym = str(l.get("symbol") or "—")[:5]
-                l_val = float(l.get("avg_dollar_volume_20") or 0) / 1_000_000
-                t.append(
-                    f" {i}. {l_sym:<5}{_xref_mark(l_sym)} ${l_val:>6.0f}M\n",
+                    f" {i}. {sym:<5}{_xref_mark(sym)} {score:>5.1f}  {cats}\n",
                     style="white",
                 )
 
@@ -4137,18 +3592,17 @@ class PB:  # PanelBuilder — all static
             return Panel(t, title="[bold]RESEARCH ASSIST[/]",
                          border_style="blue", padding=(0, 1))
 
-        t.append("\nMovers", style="bold dim")
-        t.append(" (LIQ ≥$100M ADV · SPC research-only)\n", style="dim")
+        t.append("\nRS Movers", style="bold dim")
+        t.append(" (20d/63d RS vs SPY · volume-trend ratio)\n", style="dim")
         for i, g in enumerate(movers, 1):
             g_sym = str(g.get("symbol") or "—")[:5]
-            g_r5 = float(g.get("return_5d_pct") or 0)
-            g_r20 = float(g.get("return_20d_pct") or 0)
-            g_rv = float(g.get("volume_ratio_5d") or 0)
-            tag_color = "white" if g.get("_mover_type") == "LIQ" else "cyan"
+            g_rs20 = float(g.get("rs_20d_vs_spy") or 0)
+            g_rs63 = float(g.get("rs_63d_vs_spy") or 0)
+            g_vt = float(g.get("vol_trend_ratio") or 0)
             t.append(
                 f" {i}. {g_sym:<5}{_xref_mark(g_sym)} "
-                f"{g_r5:+4.1f}/{g_r20:+4.1f}  {g_rv:>3.1f}x  {g.get('_mover_type')}\n",
-                style=tag_color,
+                f"{g_rs20:+5.1f}/{g_rs63:+5.1f}  {g_vt:>4.1f}x\n",
+                style="white",
             )
 
         return Panel(t, title="[bold]RESEARCH ASSIST[/]",
@@ -5134,547 +4588,39 @@ class PB:  # PanelBuilder — all static
         title = f"[bold]AI ANALYSIS[/]" + (f" — [bold white]{ticker}[/]" if ticker else "")
         return Panel(t, title=title, border_style="magenta", padding=(0,1))
 
-    # ── ranked opportunities (from scan_results table — scanner+veto pipeline) ──
-    @staticmethod
-    def top_opportunities(data: DataLayer) -> Panel:
-        sr    = data.get("scan_results") or {}
-        opps  = [opp for opp in (sr.get("opportunities") or []) if _active_strategy_row(opp)]
-        lt    = sr.get("last_cycle_ts")
-        scan  = data.scanner_status()
-
-        # ── scan status / footer text ─────────────────────────────────────────
-        footer = ""
-        if lt:
-            try:
-                odt   = _parse_iso_utc(lt)
-                age_m = int((_utc_now() - odt).total_seconds() // 60)
-                footer = f"  [dim]last scan {age_m}m ago[/]"
-            except Exception:
-                pass
-        if scan["running"]:
-            scan_line = f"  [bold yellow]⟳ {scan['status']}[/]"
-        elif scan["status"] and scan["status"] != "idle — press S to scan":
-            scan_line = f"  [dim]{_clip(scan['status'], 60)}[/]"
-        else:
-            scan_line = "  [dim]S = run manual scan[/]"
-        legend = f"  [dim]LIVE-CONFIRMED · SCAN-APPROVED · PM-REVIEW/CARRY-FWD · EXEC-FAILED[/]{scan_line}"
-
-        # ── empty state — compact strip (3 rows total: borders + 1 line) ─
-        # Fixed-size slot in build_scanner reclaims the surplus rows for the
-        # developing/gated panel which still has rendering content.
-        if not opps:
-            t = Text()
-            if scan["running"]:
-                t.append("SCANNER SIGNALS: ", style="bold yellow")
-                t.append(f"⟳ {scan['status']}", style="yellow")
-            elif lt:
-                t.append("SCANNER SIGNALS: ", style="bold dim")
-                t.append("none in last 24h ", style="dim")
-                t.append("· press s to rescan", style="yellow")
-            else:
-                t.append("SCANNER SIGNALS: ", style="bold dim")
-                t.append("no scan results yet ", style="dim")
-                t.append("· press s to run a manual scan", style="yellow")
-            return Panel(t, box=box.SIMPLE, padding=(0, 1))
-
-        # ── results table ─────────────────────────────────────────────────────
-        tbl = Table(box=box.SIMPLE, show_header=True, header_style="bold dim",
-                    expand=True, padding=(0,1))
-        tbl.add_column("TICKER",   style="bold white", width=7)
-        tbl.add_column("STRAT",    style="dim",        width=8)
-        tbl.add_column("DIR",      width=5)
-        tbl.add_column("SCORE",    justify="right",    width=6)
-        tbl.add_column("ENTRY",    justify="right",    width=8)
-        tbl.add_column("STOP",     justify="right",    width=8)
-        tbl.add_column("TGT",      justify="right",    width=8)
-        tbl.add_column("R:R",      justify="right",    width=5)
-        tbl.add_column("STATE",    width=12)
-        tbl.add_column("AGE",      justify="right",    width=5)
-
-        def _layer_display(status: str, ts: str):
-            s = status.upper()
-            try:
-                odt   = _parse_iso_utc(ts)
-                age_m = int((_utc_now() - odt).total_seconds() // 60)
-            except Exception:
-                age_m = 0
-            post_market = get_session_state() != SessionState.REGULAR
-            if s == "READY_NOW":         return Text("LIVE-CONFIRMED",  style="bold green")
-            if s == "SCAN_APPROVED":
-                if age_m > 240:
-                    return Text("CARRY-FWD", style="yellow")
-                if post_market:
-                    return Text("PM-REVIEW", style="yellow")
-                return Text("SCAN-APPROVED",   style="yellow")
-            if s == "EXECUTION_FAILED":  return Text("EXEC-FAILED",     style="bold red")
-            if s == "APPROVED":          return Text("SCAN-APPROVED",   style="dim yellow")  # legacy
-            if s == "WATCH":             return Text("CARRY-FWD",       style="dim yellow")  # legacy
-            return Text(s[:14], style="dim")
-
-        now_utc = _utc_now()
-        for opp in opps[:8]:
-            status = str(opp.get("status") or "—").upper()
-            dirn   = str(opp.get("direction") or "—").upper()
-            dc     = "green" if dirn in ("LONG","BUY") else "red"
-            rr     = opp.get("risk_reward")
-            rr_s   = f"{float(rr):.1f}R" if rr else "—"
-            try:
-                odt   = _parse_iso_utc(opp.get("ts", ""))
-                age_s = f"{int((now_utc-odt).total_seconds()//60)}m"
-            except Exception:
-                age_s = "—"
-            _p = lambda f: f"${float(opp.get(f,0)):.2f}" if opp.get(f) else "—"
-            tbl.add_row(
-                str(opp.get("ticker","—")),
-                str(opp.get("strategy","—"))[:8],
-                Text(dirn[:4], style=dc),
-                f"{float(opp.get('score',0)):.0f}",
-                _p("entry_price"), _p("stop_loss"), _p("target_price"),
-                rr_s,
-                _layer_display(status, str(opp.get("ts",""))),
-                age_s,
-            )
-
-        return Panel(tbl,
-                     title=f"[bold]SCANNER SIGNALS[/]{footer}",
-                     subtitle=legend,
-                     border_style="yellow", padding=(0,0))
-
-    # ── vetoed scans (council GATED) + structural developing (universe) ──────────
-    @staticmethod
-    def developing_soon(data: DataLayer) -> Panel:
-        """
-        Two data sources displayed together:
-
-        COUNCIL GATED — scanner-confirmed signals that passed structural checks
-          but were blocked by the veto council (soft score < 50 or regime/event gate).
-          Source: scan_results table, status=GATED.
-
-        STRUCTURALLY DEVELOPING — universe candidates scoring just below threshold.
-          Passed daily-bar structural filters; not yet scanner-confirmed.
-          Source: universe snapshot, readiness=DEVELOPING.
-        """
-        sr   = data.get("scan_results") or {}
-        snap = data.get("universe_snap") or {}
-        vetoed   = [row for row in (sr.get("vetoed") or sr.get("developing") or []) if _active_strategy_row(row)]
-        dev_cands = [
-            c for c in (snap.get("strategy_candidates") or [])
-            if c.get("readiness") == "DEVELOPING" and _active_strategy_row(c)
-        ]
-        # universe_earnings_meta has no 2h gate — use it so stale-bar warnings
-        # surface even when universe_snap was discarded as stale.
-        metadata = data.get("universe_earnings_meta") or snap.get("metadata") or {}
-        stale_symbols = sorted(
-            [sym for sym, row in metadata.items() if isinstance(row, dict) and row.get("bars_stale")]
-        )[:6] if isinstance(metadata, dict) else []
-        scan_rows = (sr.get("opportunities") or []) + vetoed
-        block_counts = {
-            "council": sum(1 for r in scan_rows if str(r.get("status") or "").upper() == "GATED"),
-            "allocator": sum(1 for r in scan_rows if str(r.get("status") or "").upper() == "ALLOCATION_BLOCKED"),
-            "execution": sum(1 for r in scan_rows if str(r.get("status") or "").upper() == "EXECUTION_FAILED"),
-            "duplicate": sum(
-                1 for r in scan_rows
-                if "duplicate" in str(r.get("veto_reason") or "").lower()
-                or "open exposure" in str(r.get("veto_reason") or "").lower()
-            ),
-            "frozen": sum(
-                1 for r in scan_rows
-                if "frozen" in str(r.get("veto_reason") or "").lower()
-            ),
-            "missing": sum(
-                1 for r in scan_rows
-                if any(
-                    kw in str(r.get("veto_reason") or "").lower()
-                    for kw in ("missing", "quote", "data")
-                )
-            ),
-            "stale": len(stale_symbols),
-        }
-        # Deduplicate dev candidates by symbol
-        seen_dev: set = set()
-        unique_dev: List[Dict] = []
-        for c in sorted(dev_cands, key=lambda x: -float(x.get("final_score", 0))):
-            sym = c.get("symbol", "")
-            if sym not in seen_dev:
-                seen_dev.add(sym)
-                unique_dev.append(c)
-        unique_dev = unique_dev[:4]
-
-        t = Text()
-
-        # Section 1: blocked summary + council-gated scanner signals
-        t.append("  FILTER SUMMARY  ", style="bold dim")
-        t.append(
-            f"score_gate={block_counts['council']}  alloc={block_counts['allocator']}  "
-            f"data_err={block_counts['execution']}  dup={block_counts['duplicate']}  "
-            f"inactive={block_counts['frozen']}  data={block_counts['missing']}  "
-            f"stale={block_counts['stale']}\n",
-            style="dim",
-        )
-        if stale_symbols:
-            t.append(f"  stale bars: {', '.join(stale_symbols)}\n", style="yellow")
-        else:
-            t.append("  stale bars: none\n", style="dim")
-
-        if vetoed:
-            t.append("\n  FILTERED / LOW-SCORE  ", style="bold dim")
-            t.append("scanner-confirmed · filtered after scan stage\n", style="dim")
-            for d in vetoed[:4]:
-                dirn   = str(d.get("direction") or "").upper()[:4]
-                dc     = "green" if dirn in ("LONG","BUY") else "red"
-                status = str(d.get("status") or "GATED").upper()
-                # Distinguish the filter stage clearly
-                if status == "ALLOCATION_BLOCKED":
-                    stage  = Text("ALLOC-FILT", style="bold red")
-                    reason = _clip(str(d.get("veto_reason") or "allocator filtered"), 34)
-                else:
-                    stage  = Text(str(d.get("veto_agent") or "score_gate")[:10], style="yellow")
-                    reason = _clip(str(d.get("veto_reason") or "—"), 34)
-                score  = float(d.get("score") or 0)
-                t.append(f"  {str(d.get('ticker','—')):<7}", style="bold white")
-                t.append(f"{str(d.get('strategy','—'))[:8]:<8}  ", style="dim")
-                t.append(f"{dirn:<5}", style=dc)
-                t.append(f" {score:.0f}/100  ", style="white")
-                t.append(stage); t.append("  ", style="")
-                t.append(f"{reason}\n", style="dim")
-        else:
-            t.append("\n  No filtered scanner rows in last 24h\n", style="dim")
-
-        # Section 2: Universe structural developing candidates
-        # Header now mirrors the column layout below: ticker | sleeve | dir |
-        # score | gap-to-trigger.  Gap is computed from the per-strategy
-        # structural threshold pulled from the snapshot summary; this is the
-        # same threshold the scanner uses, so the value is directly meaningful.
-        t.append("\n  STRUCTURALLY DEVELOPING  ", style="bold dim")
-        t.append("daily-bar only · not scanner-confirmed\n", style="dim")
-        thresholds = (snap.get("summary") or {}).get("score_thresholds") or {}
-        if unique_dev:
-            t.append(
-                f"  {'TK':<7}{'SLEEVE':<10}{'DIR':<5}{'SCORE':>6}  {'GAP':>7}  REASON\n",
-                style="bold dim",
-            )
-            for c in unique_dev:
-                dirn  = str(c.get("direction") or "?")
-                dc    = "green" if dirn == "LONG" else "red"
-                score = float(c.get("final_score", 0))
-                # Threshold is keyed by scanner_key; strategy registry exposes
-                # the mapping.  Default to the strategy code when no mapping.
-                strat_lbl = str(c.get("strategy") or "—")
-                strat_key = strat_lbl
-                try:
-                    strat_key = (
-                        normalize_strategy(strat_lbl)
-                        or strat_lbl
-                    )
-                except Exception:
-                    pass
-                # Try a few likely keys; if none found, gap is unknown.
-                threshold = (
-                    thresholds.get(strat_key)
-                    or thresholds.get(strat_lbl)
-                    or thresholds.get(strat_lbl.lower())
-                )
-                if isinstance(threshold, (int, float)):
-                    gap = float(threshold) - score
-                    gap_str = f"{gap:+.3f}"
-                    gap_style = "yellow" if gap > 0 else "green"
-                else:
-                    gap_str = "—"
-                    gap_style = "dim"
-                rsn = _clip(c.get("key_reason", "—"), 32)
-                t.append(f"  {str(c.get('symbol','—'))[:6]:<7}", style="bold white")
-                t.append(f"{strat_lbl[:8]:<10}", style="dim")
-                t.append(f"{dirn[:4]:<5}", style=dc)
-                t.append(f"{score:>6.3f}", style="white")
-                t.append(f"  {gap_str:>7}", style=gap_style)
-                t.append(f"  {rsn}\n", style="dim")
-        else:
-            no_snap = not snap
-            t.append("  " + (
-                "Universe snapshot not available" if no_snap else
-                "No near-threshold candidates — market below average quality"
-            ) + "\n", style="dim")
-
-        return Panel(t, title="[bold]RESEARCH FILTER FRICTION[/]",
-                     subtitle="[dim]filter breakdown + stale-bar visibility + near-threshold structural names[/]",
-                     border_style="dim", padding=(0,1))
-
-    # ── universe readiness summary (per-strategy counts from snapshot) ───────────
-    @staticmethod
-    def universe_readiness_summary(data: DataLayer) -> Panel:
-        """
-        Per-strategy candidate counts from the universe snapshot.
-        These are STRUCTURAL (daily-bar) readiness labels — not scanner-confirmed.
-
-        QUALIFIED  = score ≥ structural threshold + fresh data
-        STALE      = score ≥ structural threshold + stale-data caveat
-        DEVELOPING = score near structural threshold
-        """
-        snap    = data.get("universe_snap") or {}
-        summary = snap.get("summary") or {}
-        cands   = snap.get("strategy_candidates") or []
-
-        # Count per strategy per readiness
-        from collections import defaultdict
-        counts: Dict = defaultdict(lambda: defaultdict(int))
-        for c in cands:
-            strat = str(c.get("strategy") or "?").upper()
-            if not is_active_paper_strategy(strat):
-                continue
-            rdns  = str(c.get("readiness") or "?")
-            counts[strat][rdns] += 1
-
-        t         = Text()
-        thresholds = summary.get("score_thresholds") or {}
-        strats     = [(row.key, row.scanner_key) for row in registry_rows(active_paper_strategies())]
-
-        t.append(f"  {'STRAT':<11} {'QUAL':>4} {'STALE':>5} {'DEV':>4}  STRUCT THR\n",
-                 style="bold dim")
-        any_ready = False
-        for label, key in strats:
-            sc     = counts.get(label, {})
-            ready  = sc.get("READY_NOW", 0)
-            watch  = sc.get("WATCH", 0)
-            devl   = sc.get("DEVELOPING", 0)
-            thresh = thresholds.get(key, "—")
-            thresh_s = f"{thresh:.2f}" if isinstance(thresh, float) else str(thresh)
-            if ready > 0: any_ready = True
-            rc = "bold green" if ready > 0 else "dim"
-            wc = "yellow" if watch > 0 else "dim"
-            dc = "yellow" if devl > 0 else "dim"
-            t.append(f"  {label:<11}", style="white")
-            t.append(f"{ready:>4}", style=rc)
-            t.append(f"{watch:>5}", style=wc)
-            t.append(f"{devl:>4}", style=dc)
-            t.append(f"  {thresh_s}\n", style="dim")
-
-        # Universe metadata footer — use universe_meta probe (no 2h gate) for
-        # age display; snap may be {} if the file is older than 2h.
-        uni_meta = data.get("universe_meta") or {}
-        snap_age_s = uni_meta.get("age_seconds")
-        snap_exists = uni_meta.get("exists", False)
-        if not snap_exists:
-            t.append("\n  [dim]Universe snapshot file missing[/]")
-        else:
-            built = summary.get("built_at", "") or uni_meta.get("generated_at", "")
-            fallback = summary.get("fallback_used", snap.get("fallback_used", False))
-            ver = summary.get("pipeline_version", "")
-            age_str = ""
-            if built:
-                try:
-                    dt    = _parse_iso_utc(built)
-                    age_m = int((_utc_now() - dt).total_seconds() / 60)
-                    age_str = f"{age_m}m"
-                except Exception:
-                    pass
-            if snap_age_s is not None:
-                fa_str = f"{int(snap_age_s)//60}m"
-            else:
-                fa_str = "?"
-            stale_flag = snap_age_s is not None and snap_age_s > 7200
-            t.append(f"\n  built {age_str} ago · file {fa_str} old",
-                     style="bold yellow" if stale_flag else "dim")
-            if stale_flag:
-                t.append("  [snapshot stale — run nightly cycle]", style="bold yellow")
-            if ver: t.append(f" · v{ver}", style="dim")
-            if fallback: t.append("\n  ⚠ FALLBACK UNIVERSE", style="bold red")
-            warns = summary.get("warnings") or []
-            if warns:
-                t.append(f"\n  ⚠ {_clip(warns[0], 44)}", style="yellow")
-            # Threshold calibration telemetry
-            strat_sz = summary.get("strategy_sizes") or {}
-            if strat_sz:
-                total_q = sum(strat_sz.values())
-                if total_q == 0 and not fallback:
-                    t.append("\n  0 structural qualifiers across active sleeves",
-                             style="bold yellow")
-            # Use ungated metadata so stale-bars warnings surface even when snap is stale.
-            meta_for_stale = data.get("universe_earnings_meta") or snap.get("metadata") or {}
-            stale_symbols = sorted(
-                [sym for sym, row in meta_for_stale.items() if isinstance(row, dict) and row.get("bars_stale")]
-            )[:6] if isinstance(meta_for_stale, dict) else []
-            if stale_symbols:
-                t.append(f"\n  stale bars: {', '.join(stale_symbols)}", style="yellow")
-
-        return Panel(t, title="[bold]UNIVERSE READINESS[/] [dim]structural · daily-bar[/]",
-                     border_style="cyan", padding=(0,1))
-
-    # ── universe structural candidates (from snapshot, not scanner-confirmed) ──
-    @staticmethod
-    def universe_candidates(data: DataLayer) -> Panel:
-        """
-        Top structural candidates from the universe snapshot.
-
-        These are CANDIDATE-layer only:
-          • passed daily-bar structural filters
-          • score ≥ per-strategy threshold
-          • NOT yet evaluated by intraday scanners
-          • NOT council-vetoed or risk-checked
-
-        Do NOT treat these as trade signals — they are research candidates.
-        """
-        snap  = data.get("universe_snap") or {}
-        cands = snap.get("strategy_candidates") or []
-
-        # READY_NOW + WATCH, deduplicated by symbol (highest score wins)
-        ready = [
-            c for c in cands
-            if c.get("readiness") in ("READY_NOW","WATCH") and _active_strategy_row(c)
-        ]
-        ready.sort(key=lambda c: (-float(c.get("final_score",0)), c.get("symbol","")))
-        seen: set = set()
-        unique: List[Dict] = []
-        for c in ready:
-            sym = c.get("symbol","")
-            if sym not in seen:
-                seen.add(sym)
-                unique.append(c)
-
-        tbl = Table(box=box.SIMPLE, show_header=True, header_style="bold dim",
-                    expand=True, padding=(0,1))
-        tbl.add_column("TICKER",   style="bold white", width=7)
-        tbl.add_column("TYPE",     style="dim",        width=4)
-        tbl.add_column("STRAT",    style="dim",        width=8)
-        tbl.add_column("DIR",      width=5)
-        tbl.add_column("SCORE",    justify="right",    width=6)
-        tbl.add_column("FRESH",    justify="right",    width=11)
-        tbl.add_column("REASON",   style="dim")
-
-        if not unique:
-            if not snap:
-                msg = "Universe snapshot not loaded — is trader daemon running?"
-            else:
-                msg = "No structural candidates above threshold"
-            tbl.add_row(f"[dim]{msg}[/]", *[""]*6)
-        else:
-            # Group rows by direction/type so the user can scan LONG vs
-            # SHORT vs ETF/inverse-ETF without parsing per-row tags.
-            #   LONG  = equity LONG candidates
-            #   SHORT = equity SHORT candidates
-            #   ETF   = instrument-symbol candidates (SPY/QQQ/SOXL/SQQQ/...)
-            buckets: Dict[str, List[Dict]] = {"LONG": [], "SHORT": [], "ETF": []}
-            for c in unique:
-                sym = str(c.get("symbol") or "")
-                dirn = str(c.get("direction") or "—").upper()
-                if _is_instrument_symbol(sym):
-                    buckets["ETF"].append(c)
-                elif dirn == "LONG":
-                    buckets["LONG"].append(c)
-                elif dirn == "SHORT":
-                    buckets["SHORT"].append(c)
-                else:
-                    buckets["LONG"].append(c)  # treat unknown as long for display
-
-            # Per-section caps so no single bucket monopolises the table.
-            section_cap = max(2, 8 // max(1, sum(1 for v in buckets.values() if v)))
-
-            def _add_row(c: Dict[str, Any]) -> None:
-                rdns  = str(c.get("readiness","—"))
-                rc    = "bold green" if rdns == "READY_NOW" else "yellow"
-                dirn  = str(c.get("direction","—"))
-                dc    = "green" if dirn == "LONG" else "red"
-                score = float(c.get("final_score", 0))
-                fresh = str(c.get("freshness_ts") or "—")
-                rsn   = _clip(str(c.get("key_reason","—")), 28)
-                curated = " ★" if c.get("is_curated") else ""
-                tbl.add_row(
-                    str(c.get("symbol","—")) + curated,
-                    _instrument_type_label(c.get("symbol")),
-                    str(c.get("strategy","—"))[:8],
-                    Text(dirn[:5], style=dc),
-                    Text(f"{score:.3f}", style=rc),
-                    fresh,
-                    rsn,
-                )
-
-            for label in ("LONG", "SHORT", "ETF"):
-                rows = buckets[label]
-                if not rows:
-                    continue
-                # Section header row — placed in REASON (widest column) so
-                # the dash separators don't wrap inside the narrow TICKER
-                # cell.  Short label + small dash run survives most terminal
-                # widths; wider terminals just leave trailing space.
-                header_color = (
-                    "bold green"  if label == "LONG"
-                    else "bold red" if label == "SHORT"
-                    else "bold cyan"
-                )
-                tbl.add_row(
-                    "", "", "", "", "", "",
-                    Text(f"── {label}", style=header_color),
-                )
-                for c in rows[:section_cap]:
-                    _add_row(c)
-
-        built = (snap.get("summary") or {}).get("built_at","")
-        age_note = ""
-        if built:
-            try:
-                dt    = _parse_iso_utc(built)
-                age_m = int((_utc_now() - dt).total_seconds() / 60)
-                age_note = f" [dim]· {age_m}m old[/]"
-            except Exception:
-                pass
-
-        return Panel(
-            tbl,
-            title=f"[bold]STRUCTURAL CANDIDATES[/] [dim]structural pool · not scanner-confirmed[/]{age_note}",
-            subtitle="[dim]TYPE=EQ/ETF  ·  ★ = curated watchlist  ·  FRESH = last completed daily bar date[/]",
-            border_style="dim",
-            padding=(0,0),
-        )
-
     # ── compact top-3 strip (for Monitor mode) ────────────────────────────────
     @staticmethod
     def top3_strip(data: DataLayer) -> Panel:
-        sr    = data.get("scan_results") or {}
-        snap  = data.get("universe_snap") or {}
-        opps  = [opp for opp in (sr.get("opportunities") or []) if _active_strategy_row(opp)]
-        t     = Text()
+        """
+        Top-3 research-scanner candidates by research_score.
 
-        if opps:
-            # Show scanner-confirmed signals (authoritative — scanner + veto pipeline)
-            t.append("SIGNALS  ", style="bold dim")
-            for opp in opps[:3]:
-                dirn   = str(opp.get("direction") or "").upper()[:4]
-                dc     = "green" if dirn in ("LONG","BUY") else "red"
-                status = str(opp.get("status") or "").upper()
-                if status == "READY_NOW":
-                    sc, lbl = "bold green", "EXEC"
-                elif status == "EXECUTION_FAILED":
-                    sc, lbl = "bold red",   "FAIL"
-                else:
-                    sc, lbl = "yellow",     "APR"
-                side_lbl = "long" if dirn in ("LONG","BUY") else "short"
-                t.append(f"  {opp.get('ticker','—')}", style="bold white")
-                t.append(f" {side_lbl}", style=dc)
-                t.append(f" {float(opp.get('score',0)):.0f}", style="white")
-                t.append(f" [{lbl}]  ", style=sc)
+        Used to prefer the scan_results/veto-council pipeline (SCANNER
+        SIGNALS) with a structural-candidate fallback; both sides of that
+        pipeline are decommissioned — scan_results has had no live writer
+        since the manual scan-trigger keybinding was retired alongside the
+        rest of the per-strategy scanner subsystem, so it is now a frozen
+        historical table.  This strip reads the six-category research-
+        scanner board directly instead.
+        """
+        snap = data.get("universe_snap") or {}
+        candidates = sorted(
+            snap.get("candidates") or [],
+            key=lambda c: -float(c.get("research_score") or 0),
+        )
+        t = Text()
+        if candidates:
+            t.append("TOP SCORED  ", style="bold dim")
+            for c in candidates[:3]:
+                sym = str(c.get("symbol") or "—")
+                score = float(c.get("research_score") or 0)
+                cat = (c.get("categories") or ["—"])[0]
+                t.append(f"  {sym}", style="bold white")
+                t.append(f" {score:.0f}", style="white")
+                t.append(f" [{cat}]  ", style="dim")
         else:
-            # No scanner results — show universe structural candidates as fallback info
-            cands = [c for c in (snap.get("strategy_candidates") or [])
-                     if c.get("readiness") == "READY_NOW" and _active_strategy_row(c)]
-            cands.sort(key=lambda c: -float(c.get("final_score",0)))
-            seen: set = set()
-            uniq = []
-            for c in cands:
-                s = c.get("symbol","")
-                if s not in seen: seen.add(s); uniq.append(c)
-            if uniq:
-                t.append("CANDIDATES  ", style="bold dim")
-                t.append("[dim](structural · not scanner-confirmed)[/]  ")
-                for c in uniq[:3]:
-                    dirn = str(c.get("direction","?"))
-                    dc   = "green" if dirn == "LONG" else "red"
-                    side_lbl = "long" if dirn == "LONG" else "short"
-                    t.append(f"  {c.get('symbol','—')}", style="bold white")
-                    t.append(f" {side_lbl}", style=dc)
-                    t.append(f" {float(c.get('final_score',0)):.3f}  ", style="dim")
-            else:
-                t.append("SETUPS  ", style="bold dim")
-                t.append("no scanner signals · no structural candidates above threshold",
-                         style="dim")
+            t.append("SETUPS  ", style="bold dim")
+            t.append("no research-scanner candidates in current scan universe",
+                     style="dim")
 
         return Panel(t, title=None, box=box.SIMPLE, padding=(0,1))
 
@@ -5753,16 +4699,17 @@ class PB:  # PanelBuilder — all static
     def earnings(data: DataLayer) -> Panel:
         earn = data.get("earnings") or []
         pos  = data.get("positions") or []
+        # Universe snap now sources the six-category research-scanner board
+        # (cache/research/research_scanner_latest.json) rather than the dead
+        # per-strategy universe_snapshot_latest.json — no liquidity/dollar-vol
+        # field survives that migration, so importance uses research_score.
         snap = data.get("universe_snap") or {}
         held = {p["ticker"] for p in pos}
-        # universe_earnings_meta is fetched without the 2h freshness gate so
-        # avg_dollar_vol_20 lookups work even when universe_snap is stale.
-        md   = data.get("universe_earnings_meta") or snap.get("metadata") or {}
-        active_syms = {
-            str(r.get("symbol") or "").upper()
-            for r in (snap.get("strategy_candidates") or [])
-            if str(r.get("readiness") or "").upper() in {"READY_NOW", "WATCH", "DEVELOPING"}
+        score_by_sym = {
+            str(c.get("symbol") or "").upper(): float(c.get("research_score") or 0.0)
+            for c in (snap.get("candidates") or [])
         }
+        active_syms = set(score_by_sym)
         by_date: Dict[str,list] = {}
         today = date.today().isoformat()
 
@@ -5778,41 +4725,39 @@ class PB:  # PanelBuilder — all static
             sym = str(e.get("symbol","")).upper()
             if not _is_us_listed(sym):
                 continue
-            row = md.get(sym) or {}
-            avg_dvol = float(row.get("avg_dollar_vol_20") or 0.0)
+            score = score_by_sym.get(sym, 0.0)
             important = 0
             if sym in held:
                 important += 100
             if sym in active_syms:
                 important += 40
-            if avg_dvol >= 500_000_000:
-                important += 20
-            elif avg_dvol >= 100_000_000:
-                important += 12
-            elif avg_dvol >= 25_000_000:
-                important += 6
+                if score >= 90:
+                    important += 20
+                elif score >= 75:
+                    important += 12
+                elif score >= 50:
+                    important += 6
             event = dict(e)
             event["_importance"] = important
-            event["_avg_dvol"] = avg_dvol
+            event["_score"] = score
             d = str(e.get("date",""))[:10]
             by_date.setdefault(d,[]).append(event)
 
-        def _reason_tag(sym: str, avg_dvol: float) -> Tuple[str, str]:
+        def _reason_tag(sym: str, score: float) -> Tuple[str, str]:
             """Single highest-priority reason tag for an earnings row.
 
             Mirrors the importance bonuses so the user can see *why* a name
-            made the wall (held > active candidate > liquidity tier).
+            made the wall (held > active scanner candidate, tiered by
+            research_score).
             """
             if sym in held:
                 return "HELD", "bold red"
             if sym in active_syms:
-                return "CAND", "bold yellow"
-            if avg_dvol >= 500_000_000:
-                return "MEGA", "bold cyan"
-            if avg_dvol >= 100_000_000:
-                return "LIQ",  "cyan"
-            if avg_dvol >= 25_000_000:
-                return "MID",  "dim cyan"
+                if score >= 90:
+                    return "TOP",   "bold cyan"
+                if score >= 75:
+                    return "CAND",  "cyan"
+                return "WATCH", "dim cyan"
             return "", ""
 
         t = Text()
@@ -5830,14 +4775,14 @@ class PB:  # PanelBuilder — all static
                 style="bold yellow",
             )
         # Legend so the inline tags are self-explanatory at a glance.
-        t.append("HELD=position · CAND=active candidate · MEGA/LIQ/MID=$vol tier\n",
+        t.append("HELD=position · TOP/CAND/WATCH=research-scanner score tier\n",
                  style="dim")
         for d in sorted(by_date)[:5]:
             evts = sorted(
                 by_date[d],
                 key=lambda e: (
                     -int(e.get("_importance") or 0),
-                    -float(e.get("_avg_dvol") or 0.0),
+                    -float(e.get("_score") or 0.0),
                     str(e.get("symbol") or ""),
                 ),
             )
@@ -5847,8 +4792,8 @@ class PB:  # PanelBuilder — all static
             for e in evts[:4]:
                 sym  = str(e.get("symbol",""))
                 eps  = e.get("epsEstimated")
-                avg_dvol = float(e.get("_avg_dvol") or 0.0)
-                tag, tag_style = _reason_tag(sym, avg_dvol)
+                score = float(e.get("_score") or 0.0)
+                tag, tag_style = _reason_tag(sym, score)
                 hi = int(e.get("_importance") or 0) >= 40
                 sym_style = "bold red" if sym in held else ("bold white" if hi else "white")
                 t.append(f"{sym}", style=sym_style)
@@ -7669,13 +6614,13 @@ def build_research(state, data, claude):
                 scanner_symbols.add(sym)
 
     # Predicate: will the research_assist panel collapse to its compact mode?
-    # Mirrors the inline check in PB.research_assist (no_focus + no_liquid +
-    # no_movers).  When true, the assist slot only needs ~9 lines (header +
-    # bias/why/playbook/risk + footer note); the surplus is reclaimed for the
-    # alpha board which actually has rows to render.
+    # Mirrors the inline check in PB.research_assist (no focus + no movers).
+    # When true, the assist slot only needs ~9 lines (header + why/risk +
+    # footer note); the surplus is reclaimed for the alpha board which
+    # actually has rows to render.
     posture_compact = (
         not bool(bte_out.focus_names or [])
-        and not bool(snap.get("strategy_candidates") or [])
+        and not bool(snap.get("candidates") or [])
     )
 
     # Compact research-only Market Forecast strip — sized for the current
@@ -7954,8 +6899,6 @@ def handle_key(ch: str, state: State, data: DataLayer,
                 state.alpha_show_more = 0
         state.mode = new_mode
         state.dirty = True
-    elif ch in ("s","S") and state.mode == M_SCANNER:
-        data.trigger_scan(); state.dirty=True
     # ── Mode 2 (Research) controls ─────────────────────────────────────────
     elif state.mode == M_RESEARCH:
         if ch == "f":

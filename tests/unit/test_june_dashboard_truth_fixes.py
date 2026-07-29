@@ -320,16 +320,6 @@ def test_research_assist_panel_title_no_paper_evidence():
     assert "not paper evidence" not in out.lower()
 
 
-def test_developing_soon_research_framing():
-    data = _StubDataLayer()
-    out = _render(PB.developing_soon(data))
-    assert "FILTER SUMMARY" in out
-    assert "BLOCK SUMMARY" not in out
-    assert "exec_fail" not in out.lower()
-    assert "ALLOC-BLK" not in out
-    assert "GATED / BLOCKED" not in out
-
-
 def test_mode3_intel_shows_research_data_freshness():
     out = _render_mode(3)
     assert "RESEARCH DATA FRESHNESS" in out

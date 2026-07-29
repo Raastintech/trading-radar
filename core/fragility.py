@@ -231,12 +231,15 @@ def evaluate_fragility(
         )
 
     # ── Posture vs forecast disagreement ────────────────────────────────────
-    if ps.get("available") and ps.get("bias") == "bullish":
+    # "constructive" replaces the retired bullish/defensive sleeve-direction
+    # posture (see core.research_assist_bte) — the research-scanner breadth
+    # read has no long/short bias, only a neutral state.
+    if ps.get("available") and ps.get("bias") == "constructive":
         if fs.get("breached") or forecast_low_conf:
-            reasons.append("posture bullish but regime not confirmed")
+            reasons.append("posture constructive but regime not confirmed")
         elif fs.get("risk_off_probability", 0.0) >= RISK_OFF_DOMINANT:
             reasons.append(
-                "posture bullish but forecast tilts risk-off"
+                "posture constructive but forecast tilts risk-off"
             )
 
     # ── Lens / options / entry signals (per-ticker) ─────────────────────────
@@ -245,8 +248,8 @@ def evaluate_fragility(
             reasons.append("options layer flagged bearish hedge")
         if ls.get("entry") in {"too extended", "extended", "broken", "avoid"}:
             reasons.append(f"entry layer {ls['entry']}")
-        if ls.get("label", "").startswith("bearish") and ps.get("bias") == "bullish":
-            reasons.append("stock lens bearish but posture bullish")
+        if ls.get("label", "").startswith("bearish") and ps.get("bias") == "constructive":
+            reasons.append("stock lens bearish but posture constructive")
 
     # ── Alpha vs forecast ───────────────────────────────────────────────────
     if al.get("available"):

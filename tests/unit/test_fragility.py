@@ -60,13 +60,13 @@ def _lens(
     }
 
 
-class _PostureBullishLow:
-    bias = "bullish"
+class _PostureConstructiveLow:
+    bias = "constructive"
     confidence = "low"
 
 
-class _PostureBullishMed:
-    bias = "bullish"
+class _PostureConstructiveMed:
+    bias = "constructive"
     confidence = "medium"
 
 
@@ -77,7 +77,7 @@ class TestFragilityStates:
     def test_normal_when_all_aligned(self):
         r = fr.evaluate_fragility(
             forecast=_forecast(confidence="medium", breached=False),
-            posture=_PostureBullishMed(),
+            posture=_PostureConstructiveMed(),
             lens=_lens(entry="ok", options="neutral"),
         )
         assert r.status == "NORMAL"
@@ -99,14 +99,14 @@ class TestFragilityStates:
         assert any("LOW" in s for s in r.reasons)
 
     def test_fragile_when_two_or_more_signals(self):
-        """Audit scenario: breached + LOW + posture-bullish-but-not-confirmed."""
+        """Audit scenario: breached + LOW + posture-constructive-but-not-confirmed."""
         r = fr.evaluate_fragility(
             forecast=_forecast(
                 confidence="low",
                 breached=True,
                 breach_reasons=["leading sectors 0 < 2"],
             ),
-            posture=_PostureBullishLow(),
+            posture=_PostureConstructiveLow(),
             lens=_lens(entry="too extended", options="bearish hedge"),
         )
         assert r.status == "FRAGILE", r.reasons
@@ -114,7 +114,7 @@ class TestFragilityStates:
         # posture/regime disagreement at minimum.
         joined = " | ".join(r.reasons).lower()
         assert "breached" in joined
-        assert "posture bullish but regime not confirmed" in joined
+        assert "posture constructive but regime not confirmed" in joined
 
     def test_stress_when_vix_panic(self):
         r = fr.evaluate_fragility(
@@ -200,7 +200,7 @@ def test_audit_screenshot_2026_05_15_evaluates_to_fragile_or_stress():
     )
     r = fr.evaluate_fragility(
         forecast=forecast,
-        posture=_PostureBullishLow(),
+        posture=_PostureConstructiveLow(),
         lens=lens,
         vix=17.9,
     )

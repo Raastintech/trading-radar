@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from core.evidence_freshness import (artifact_meta, fmt_age_short,
                                      price_cache_bar_status,
-                                     universe_artifact_meta)
+                                     scan_universe_meta)
 
 REPO = Path(__file__).resolve().parents[1]
 CACHE = REPO / "cache"
@@ -104,8 +104,10 @@ def build() -> Dict[str, Any]:
     pc["age"] = None
     fields.append(pc)
 
-    # 2. universe
-    um = universe_artifact_meta(CACHE / "universe" / "universe_snapshot_latest.json")
+    # 2. universe (scan_universe_manifest — the legacy per-strategy
+    # universe_snapshot_latest.json has had no live writer since the
+    # 2026-06-13 trading decommission and is no longer read by the dashboard)
+    um = scan_universe_meta(RESEARCH / "scan_universe_manifest_latest.json")
     um["dashboard_field"] = "universe"
     um["age"] = fmt_age_short(um.get("age_seconds"))
     fields.append(um)
