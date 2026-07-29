@@ -1125,7 +1125,7 @@ def _avoid_rationale_for(ticker: str,
     if ticker in avoid_set:
         reasons.append("Data Quality: Avoid / Data Issue list (quarantined)")
     if rejected is None:
-        notes = _risk_notes_for(inputs, ticker)
+        notes = _red_flags_for(ticker, inputs.get("store"))
         if notes:
             reasons.append("Risk / Red-Flag Review: " + ", ".join(notes))
     return "; ".join(reasons)

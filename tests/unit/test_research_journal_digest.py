@@ -693,7 +693,7 @@ def _top_candidate(ticker, score=90.0, status="REPEAT"):
 
 def test_top_candidate_hc_rejected_gets_explicit_rationale(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
-    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
+    monkeypatch.setattr(jd, "_red_flags_for", lambda ticker, store: [])
     inputs = {
         "latest_scan": {"present": True, "programs": {
             "TACTICAL": {"candidates": [_top_candidate("AGL")]},
@@ -716,7 +716,7 @@ def test_top_candidate_hc_rejected_gets_explicit_rationale(monkeypatch):
 
 def test_top_candidate_data_quarantine_gets_explicit_rationale(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
-    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
+    monkeypatch.setattr(jd, "_red_flags_for", lambda ticker, store: [])
     inputs = {
         "latest_scan": {"present": True, "programs": {
             "TACTICAL": {"candidates": [_top_candidate("QUAR1")]},
@@ -734,7 +734,7 @@ def test_top_candidate_data_quarantine_gets_explicit_rationale(monkeypatch):
 
 def test_top_candidate_clean_ticker_gets_no_rationale_line(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
-    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
+    monkeypatch.setattr(jd, "_red_flags_for", lambda ticker, store: [])
     inputs = {
         "latest_scan": {"present": True, "programs": {
             "TACTICAL": {"candidates": [_top_candidate("GOODCO")]},
