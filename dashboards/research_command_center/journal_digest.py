@@ -436,9 +436,11 @@ def _section_scanner(inputs: Dict[str, Any], top: List[str],
                   else alpha.get("data_quarantine_count"))
     store = inputs.get("store")
     lines = [
-        "## 2. Scanner / Why Names Appeared",
+        "## Scanner / Why Names Appeared (discovery only)",
         f"- Total candidates: {_fmt(radar.get('total_candidates') or scanner.get('watchlist_size'))}",
-        f"- High-priority: {_join(_tier_tagged(high, store))}",
+        f"- Broad-scanner candidates (discovery only — see Alpha Focus / "
+        f"Operator Focus above for prioritized names): "
+        f"{_join(_tier_tagged(high, store))}",
         f"- Reset/reclaim watch: {_join(reset_reclaim)}",
         f"- Extended/crowded: {_fmt(counts.get('EXTENDED_CROWDED') or alpha.get('extended_crowded_count'))}"
         f" | data quarantine / young listing: {_fmt(quarantine)}",
@@ -1358,6 +1360,22 @@ def _final_structural_notes(inputs: Dict[str, Any], top: List[str]) -> str:
     return "Known structural context: " + "; ".join(notes) + "."
 
 
+def _final_finding_headline_names(inputs: Dict[str, Any],
+                                  high: List[str]) -> Tuple[str, List[str]]:
+    """Names the Final Finding should cite when it needs manual review.
+    Prefers Alpha Focus's Review Now list (the doctrine-prioritized,
+    root-cause-filtered set) over the raw broad-scanner high-priority
+    list, so the digest's headline conclusion doesn't outrank Alpha Focus
+    / Operator Focus with unfiltered scanner names.  Falls back to the
+    broad-scanner list only when Alpha Focus hasn't run yet."""
+    af = inputs.get("alpha_focus") or {}
+    if af and not af.get("fallback"):
+        review_now = [r.get("ticker") for r in af.get("review_now") or []]
+        if review_now:
+            return "Alpha Focus review-now names", review_now
+    return "high-priority names", high
+
+
 def _section_final_finding(inputs: Dict[str, Any], status: str,
                            high: List[str], concerns: List[str],
                            top: List[str]) -> List[str]:
@@ -1368,9 +1386,10 @@ def _section_final_finding(inputs: Dict[str, Any], status: str,
         finding = ("Data quality needs attention before the research output "
                    f"can be relied on: {concerns[0] if concerns else 'see warnings above'}.")
     elif status == "NEEDS_REVIEW":
+        label, names = _final_finding_headline_names(inputs, high)
         finding = ("Pipeline is operational; "
-                   + (f"high-priority names ({_join(high, cap=4)}) need manual "
-                      "fundamental review" if high
+                   + (f"{label} ({_join(names, cap=4)}) need manual "
+                      "fundamental review" if names
                       else "open warnings need operator review")
                    + f", while forward evidence remains {verdict} and Phase 4B "
                    f"stays {phase4b}.")
@@ -1398,7 +1417,6 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         ["# Daily Research Digest", ""]
         + _section_todays_best_research(inputs) + [""]
         + _section_data_quality(inputs, concerns) + [""]
-        + _section_scanner(inputs, top, reset_reclaim) + [""]
         + _section_sector_regime(inputs, top) + [""]
         + _section_forward(inputs) + [""]
         + _section_cohort_attribution(inputs) + [""]
@@ -1408,6 +1426,11 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_research_programs(inputs) + [""]
         + _section_high_conviction(inputs) + [""]
         + _section_emerging_outlier(inputs) + [""]
+        # Broad scanner + its raw candidate/scan listings are discovery-only
+        # (priority hierarchy tier F) — grouped here, after Alpha Focus/HC/EO,
+        # so unfiltered scanner names never outrank the prioritized sections
+        # above them.
+        + _section_scanner(inputs, top, reset_reclaim) + [""]
         + _section_top_candidates(inputs) + [""]
         + _section_latest_scan_programs(inputs) + [""]
         + _section_fundamentals(inputs, top) + [""]

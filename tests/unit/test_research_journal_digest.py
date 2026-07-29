@@ -39,7 +39,7 @@ FORBIDDEN = re.compile(
 SECTION_HEADINGS = [
     "# Daily Research Digest",
     "## 1. Data Quality",
-    "## 2. Scanner / Why Names Appeared",
+    "## Scanner / Why Names Appeared (discovery only)",
     "## 3. Sector / Regime",
     "## 4. Forward Evidence",
     "## 5. Fundamental Overlay",
@@ -497,7 +497,7 @@ def _write_options_coverage(root: Path, state: str) -> None:
 def test_options_overlay_disabled_is_first_class_structural_line(fixture_root):
     _write_options_coverage(fixture_root, "DISABLED")
     note = _note(fixture_root)
-    dq = note.split("## 2.")[0]
+    dq = note.split("## 3.")[0]
     assert "- Options overlay: DISABLED" in dq
     assert "structural gate" in dq
     assert "NOT a candidate-level defect" in dq
@@ -509,7 +509,7 @@ def test_options_overlay_disabled_is_first_class_structural_line(fixture_root):
 def test_options_overlay_enabled_has_no_structural_clause(fixture_root):
     _write_options_coverage(fixture_root, "ENABLED")
     note = _note(fixture_root)
-    dq = note.split("## 2.")[0]
+    dq = note.split("## 3.")[0]
     assert "- Options overlay: ENABLED" in dq
     assert "structural gate" not in dq
     final = note.split("## 7. Final Finding")[1]
@@ -630,7 +630,7 @@ def test_scanner_section_declares_recall_diagnostics(fixture_root):
                ],
            })
     note = _note(fixture_root)
-    scanner = note.split("## 2.")[1].split("## 3.")[0]
+    scanner = note.split("## Scanner / Why Names Appeared")[1].split("## 4c.")[0]
     assert "scanner-recall diagnostics report" in scanner
     assert "no_atr_contraction (511 rejected/128 winners missed)" in scanner
     assert "Gates unchanged pending forward evidence" in scanner
@@ -672,7 +672,8 @@ def test_scanner_section_lists_carry_tier_tags(monkeypatch):
         "recall_diagnostics": None,
     }
     lines = jd._section_scanner(inputs, ["AVTR", "FBIN"], [])
-    high_line = next(l for l in lines if l.startswith("- High-priority:"))
+    high_line = next(l for l in lines
+                     if l.startswith("- Broad-scanner candidates"))
     top_line = next(l for l in lines if l.startswith("- Top research names:"))
     assert "AVTR (UNPROFITABLE_FUNDED)" in high_line
     assert "FBIN" in high_line and "FBIN (" not in high_line

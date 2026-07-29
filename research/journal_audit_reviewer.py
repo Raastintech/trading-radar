@@ -157,7 +157,8 @@ _QUARANTINED_RE = re.compile(r"quarantined:\s*(\d+)", re.IGNORECASE)
 # ── analyst-context regexes (deterministic pre-parse for the LLM) ────────────
 _TICKER = r"[A-Z][A-Z0-9.\-]{0,7}"
 _HIGH_PRIORITY_RE = re.compile(
-    r"^-\s*High-priority:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+    r"^-\s*Broad-scanner candidates[^:]*:\s*(.+)$",
+    re.IGNORECASE | re.MULTILINE)
 _REVIEW_FIRST_RE = re.compile(
     r"^-\s*Review first:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 _FUNDAMENTAL_ROW_RE = re.compile(

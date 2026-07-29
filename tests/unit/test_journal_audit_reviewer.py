@@ -58,7 +58,7 @@ def make_digest(*, phase4b: str = "BLOCKED",
 
 ## 2. Scanner / Why Names Appeared
 - Total candidates: 42
-- High-priority: AAPL, NVDA
+- Broad-scanner candidates (discovery only): AAPL, NVDA
 {recall_line}
 
 ## 3. Sector / Regime
@@ -651,7 +651,7 @@ def make_analyst_digest(*, verdict: str = "NO_FORWARD_EDGE",
 
 ## 2. Scanner / Why Names Appeared
 - Total candidates: 99
-- High-priority: FBIN, SDGR, AGYS, BLMN, RH, LEVI
+- Broad-scanner candidates (discovery only): FBIN, SDGR, AGYS, BLMN, RH, LEVI
 - RH: Social attention signal (source: social_arb)
 
 ## 3. Sector / Regime
