@@ -69,7 +69,9 @@ def test_build_report_covers_every_quarantined_ticker(tmp_path):
     prices.mkdir(parents=True)
     # build_report classifies against the real clock, so the synthetic
     # bars must end "today" or AAA drifts into STALE_FEED
-    idx = pd.bdate_range(end=pd.Timestamp.utcnow().date(), periods=400)
+    today = pd.Timestamp.now(tz="UTC").normalize()
+    last_business_day = pd.offsets.BDay().rollback(today)
+    idx = pd.bdate_range(end=last_business_day, periods=400)
     pd.DataFrame({"close": range(400)}, index=idx).to_parquet(
         prices / "AAA.parquet")
     pd.DataFrame({"close": range(100)}, index=idx[-100:]).to_parquet(

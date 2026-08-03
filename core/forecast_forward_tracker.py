@@ -53,6 +53,7 @@ STOCK_LENS_LOG_PATH  = STATE_DIR / "stock_lens_forward_log.jsonl"
 PRICE_DIRS_DEFAULT: Tuple[Path, ...] = (
     CACHE_DIR_DEFAULT / "research" / "regime_validation_prices",
     CACHE_DIR_DEFAULT / "prices",
+    CACHE_DIR_DEFAULT / "prices_deep",
 )
 
 FORECAST_HORIZONS_DAYS    = (1, 5, 10, 20)

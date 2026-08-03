@@ -48,6 +48,11 @@ IMMATURE_VERDICTS = {"NEED_MORE_DATA", "INCONCLUSIVE"}
 # evidence is described as maturing rather than too early.
 POST_FIX_EARLY_DAYS = 14
 
+# Display-only sanity threshold. Operating or gross margin above revenue
+# usually means the cached statements need normalization before the
+# fundamental overlay is reliable.
+FUNDAMENTAL_MARGIN_ANOMALY_PCT = 100.0
+
 
 # ── small formatting helpers ─────────────────────────────────────────────────
 
@@ -189,6 +194,15 @@ def _reset_reclaim(inputs: Dict[str, Any]) -> List[str]:
     return _dedupe(tickers)
 
 
+def _best_research_tickers(inputs: Dict[str, Any]) -> List[str]:
+    """Current nightly board order, without applying any new ranking."""
+    best = ((inputs.get("summary") or {}).get("best_research_names") or {})
+    ordered: List[str] = []
+    for group in ("primary", "secondary", "watchlist"):
+        ordered += [r.get("ticker") for r in best.get(group) or []]
+    return _dedupe(ordered)
+
+
 # ── status + tags ────────────────────────────────────────────────────────────
 
 
@@ -245,7 +259,11 @@ def _data_quality_concern(inputs: Dict[str, Any]) -> Tuple[bool, List[str]]:
 def _select_status(inputs: Dict[str, Any],
                    high_priority: List[str]) -> Tuple[str, List[str]]:
     concern, concerns = _data_quality_concern(inputs)
-    warnings = (inputs["summary"] or {}).get("warnings") or []
+    warnings = [
+        warning for warning in
+        ((inputs["summary"] or {}).get("warnings") or [])
+        if not _is_legacy_recall_warning(warning)
+    ]
     verdict = inputs["status"].get("tracker_verdict") or "UNKNOWN"
     phase4b_blocked = (inputs["status"].get("phase_4b") or {}).get(
         "status") != "UNBLOCKED"
@@ -371,12 +389,21 @@ def _section_data_quality(inputs: Dict[str, Any],
     # quality line keeps the state visible even when the warning list is
     # full, and keeps the journal audit from re-flagging it as a defect.
     lines.append(_options_overlay_line(inputs))
-    warnings = (inputs["summary"] or {}).get("warnings") or []
+    warnings = [
+        warning for warning in
+        ((inputs["summary"] or {}).get("warnings") or [])
+        if not _is_legacy_recall_warning(warning)
+    ]
     for w in (concerns + warnings)[:5]:
         lines.append(f"- Warning: {w}")
     if not concerns and not warnings:
         lines.append("- No major warnings.")
     return lines
+
+
+def _is_legacy_recall_warning(warning: Any) -> bool:
+    text = str(warning or "").lower()
+    return "recall" in text and ("legacy" in text or "decommissioned" in text)
 
 
 def _options_overlay_line(inputs: Dict[str, Any]) -> str:
@@ -445,6 +472,9 @@ def _section_scanner(inputs: Dict[str, Any], top: List[str],
         f"- Extended/crowded: {_fmt(counts.get('EXTENDED_CROWDED') or alpha.get('extended_crowded_count'))}"
         f" | data quarantine / young listing: {_fmt(quarantine)}",
         f"- Top research names: {_join(_tier_tagged(top, store))}",
+        f"- Live-board evidence: {_fmt(scanner.get('watchlist_size'))} current "
+        f"candidates as of {scanner.get('market_as_of_date') or 'unknown'}; "
+        "current why-appeared evidence is shown below.",
     ]
     by_ticker = {str(w.get("ticker") or "").upper(): w
                  for w in scanner.get("watchlist") or []}
@@ -457,20 +487,6 @@ def _section_scanner(inputs: Dict[str, Any], top: List[str],
             reasons += 1
     if not reasons:
         lines.append("- Why-appeared detail unavailable (scanner artifact missing).")
-    # Deliverable declaration: the recall diagnostic the audit keeps asking
-    # for already runs — naming it (with its top over-blockers) here stops
-    # the journal audit from re-proposing the same build every night.
-    rd = inputs.get("recall_diagnostics")
-    if rd and rd.get("reject_counts_by_filter"):
-        top_filters = ", ".join(
-            f"{r.get('filter')} ({r.get('rejected_n')} rejected/"
-            f"{r.get('winners_missed')} winners missed)"
-            for r in rd["reject_counts_by_filter"][:3])
-        lines.append(
-            "- Recall diagnostics: see scanner-recall diagnostics report "
-            f"(as-of {rd.get('asof_date')}) — strict vs simple-RS vs loose "
-            f"cohorts tracked at 5d/10d/20d; top over-blocking filters: "
-            f"{top_filters}. Gates unchanged pending forward evidence.")
     return lines
 
 
@@ -661,10 +677,23 @@ def _maturity_eta_lines(inputs: Dict[str, Any],
     if hc_dates:
         fv = _load_json(store.high_conviction_forward_json) or {}
         eta10 = _add_trading_days(min(hc_dates), 10)
-        lines.append(
-            f"- Shortlist maturity ETA: first 10d episodes ≈{eta10.isoformat()} "
-            f"({fv.get('n_history_rows') or len(hc_dates)} episodes tracked "
-            "— verdict needs ≥10 matured)")
+        full = ((fv.get("cohorts") or {}).get("full_shortlist") or {})
+        matured_10d = (((full.get("10d") or {}).get("raw") or {}).get("n")
+                       or 0)
+        if matured_10d == 0 and eta10 == today:
+            lines.append(
+                "- First HC 10d maturity expected today; not yet resolved "
+                "in current forward artifact.")
+        elif matured_10d == 0 and eta10 < today:
+            lines.append(
+                f"- First HC 10d maturity was expected {eta10.isoformat()}; "
+                "not yet resolved in current forward artifact.")
+        elif matured_10d == 0:
+            lines.append(
+                f"- Shortlist maturity ETA: first 10d episodes "
+                f"≈{eta10.isoformat()} "
+                f"({fv.get('n_history_rows') or len(hc_dates)} episodes "
+                "tracked — verdict needs ≥10 matured)")
     return lines
 
 
@@ -921,55 +950,95 @@ def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
-def _section_todays_best_research(inputs: Dict[str, Any]) -> List[str]:
-    """Concise operator recap at the top of the digest: the strongest
-    high-conviction names, the top emerging opportunities, and the strong
-    profiles waiting for a reset — one short reason each.  The full detailed
-    sections remain later in the digest."""
-    lines = ["## Today's Best Research"]
+def _metric_anomalies_for(ticker: str,
+                          store: Optional[ArtifactStore]) -> List[str]:
+    """Fundamental values that require manual normalization before use."""
+    if store is None:
+        return []
+    f = build_fundamentals(ticker, store)
+    if f.get("fallback"):
+        return []
+    anomalies: List[str] = []
+    om = f.get("operating_margin_pct")
+    if om is not None and om > FUNDAMENTAL_MARGIN_ANOMALY_PCT:
+        anomalies.append(f"operating margin {om:.0f}% exceeds revenue")
+    gm = f.get("gross_margin_pct")
+    if gm is not None and gm > FUNDAMENTAL_MARGIN_ANOMALY_PCT:
+        anomalies.append(f"gross margin {gm:.0f}% exceeds revenue")
+    return anomalies
+
+
+def _risk_level_for(inputs: Dict[str, Any], ticker: str) -> str:
+    """Existing Business Deterioration Risk from HC/EO artifacts."""
+    ticker = str(ticker or "").upper()
     hc = inputs.get("high_conviction") or {}
     eo = inputs.get("emerging_outlier") or {}
+    rows = (
+        list(hc.get("shortlist") or [])
+        + list(hc.get("quality_but_extended") or [])
+        + list(hc.get("rejected") or [])
+        + list(eo.get("watch") or [])
+    )
+    for row in rows:
+        if str(row.get("ticker") or "").upper() != ticker:
+            continue
+        risk = (row.get("business_deterioration_risk")
+                or row.get("dead_horse_risk"))
+        if risk:
+            return str(risk).upper()
+    return "UNKNOWN"
 
-    def _reason_hc(c):
-        w = c.get("why_selected") or []
-        # prefer a specific margin/growth/cash reason over the bare
-        # "profitable" so the recap is not five identical lines
-        specific = next((r for r in w if any(
-            k in r.lower() for k in ("margin", "growth", "revenue", "cash",
-                                     "dilution"))), None)
-        return specific or (w[0] if w else (c.get("classification") or ""))
 
-    def _reason_eo(w):
-        dims = [d.get("dimension", "").replace("_", " ").lower()
-                for d in (w.get("emergence_dimensions") or [])]
-        return dims[0] if dims else (w.get("why_not_high_conviction") or "")
+def _risk_notes_for(inputs: Dict[str, Any], ticker: str) -> List[str]:
+    notes = _red_flags_for(ticker, inputs.get("store"))
+    if _risk_level_for(inputs, ticker) == "HIGH":
+        notes.append("Business Deterioration Risk High")
+    if _metric_anomalies_for(ticker, inputs.get("store")):
+        notes.append("Fundamental Metric Anomaly")
+    return list(dict.fromkeys(notes))
 
-    hc_list = (hc.get("shortlist") or [])[:5]
-    if hc.get("present") and hc_list:
-        lines.append("- High Conviction: "
-                     + ", ".join(c["ticker"] for c in hc_list))
-        for c in hc_list:
-            lines.append(f"  - {c['ticker']}: {_reason_hc(c)}")
-    else:
-        lines.append("- High Conviction: none qualified today.")
 
-    eo_list = (eo.get("watch") or [])[:5]
-    if eo.get("present") and eo_list:
-        lines.append("- Top Emerging: "
-                     + ", ".join(w["ticker"] for w in eo_list))
-        for w in eo_list:
-            lines.append(f"  - {w['ticker']}: {_reason_eo(w)}")
-    else:
-        lines.append("- Top Emerging: none met the emergence bar today.")
+def _priority_red_flag_for(inputs: Dict[str, Any], ticker: str) -> bool:
+    """Material red flags for the compact top block, not every caution."""
+    notes = _risk_notes_for(inputs, ticker)
+    risk = _risk_level_for(inputs, ticker)
+    material_terms = ("stressed", "negative GM", "dilution", "Metric Anomaly")
+    return risk in ("MEDIUM", "HIGH") or any(
+        term in note for term in material_terms for note in notes)
 
-    ext = (hc.get("quality_but_extended") or [])[:5]
-    if ext:
-        lines.append("- Wait for Reset: "
-                     + ", ".join(c["ticker"] for c in ext))
-        for c in ext:
-            risk = (c.get("main_risks") or [c.get("extension_state")
-                    or "extended"])[0]
-            lines.append(f"  - {c['ticker']}: {risk}")
+
+def _section_todays_operator_focus(inputs: Dict[str, Any]) -> List[str]:
+    """Small, source-ordered action block for today's human review."""
+    hc = inputs.get("high_conviction") or {}
+    eo = inputs.get("emerging_outlier") or {}
+    review_first = [c.get("ticker") for c in
+                    (hc.get("shortlist") or [])[:5]]
+    higher_risk = [w.get("ticker") for w in
+                   (eo.get("watch") or [])[:5]]
+    wait_reset = [c.get("ticker") for c in
+                  (hc.get("quality_but_extended") or [])[:5]]
+    red_flags = [
+        ticker for ticker in _best_research_tickers(inputs)
+        if _priority_red_flag_for(inputs, ticker)
+    ][:4]
+    lines = [
+        "## Today's Operator Focus",
+        f"- Review first: {_join(review_first, cap=5)}",
+        f"- Higher-risk emerging review: {_join(higher_risk, cap=5)}",
+        f"- Wait for reset: {_join(wait_reset, cap=5)}",
+        f"- Red-flag review only: {_join(red_flags, cap=4)}",
+    ]
+    for ticker in wait_reset:
+        anomalies = _metric_anomalies_for(ticker, inputs.get("store"))
+        if anomalies:
+            lines.append(
+                f"- Metric anomaly — {ticker}: Fundamental Metric Anomaly / "
+                "Manual Normalization Required: "
+                + "; ".join(anomalies) + ".")
+    verdict = (inputs.get("status") or {}).get("tracker_verdict") or "UNKNOWN"
+    lines.append(
+        "- Do not conclude alpha: HC/EO immature; broad forward verdict "
+        f"{verdict}.")
     return lines
 
 
@@ -1127,7 +1196,7 @@ def _avoid_rationale_for(ticker: str,
     if ticker in avoid_set:
         reasons.append("Data Quality: Avoid / Data Issue list (quarantined)")
     if rejected is None:
-        notes = _red_flags_for(ticker, inputs.get("store"))
+        notes = _risk_notes_for(inputs, ticker)
         if notes:
             reasons.append("Risk / Red-Flag Review: " + ", ".join(notes))
     return "; ".join(reasons)
@@ -1251,6 +1320,10 @@ def _fundamental_line(ticker: str, store: ArtifactStore) -> str:
     if dil is not None:
         parts.append(f"dilution 3q {dil:+.1f}%")
     line = f"- {ticker}: " + " | ".join(parts)
+    anomalies = _metric_anomalies_for(ticker, store)
+    if anomalies:
+        line += (" — Fundamental Metric Anomaly / Manual Normalization "
+                 "Required: " + "; ".join(anomalies))
     if flags:
         line += " — RED FLAG: " + "; ".join(flags)
     return line
@@ -1274,7 +1347,10 @@ def _red_flags_for(ticker: str, store: ArtifactStore) -> List[str]:
     if f.get("fallback"):
         return []
     flags: List[str] = []
-    if str(f.get("quality_label") or "") == "UNPROFITABLE_FUNDED":
+    quality = str(f.get("quality_label") or "")
+    if quality == "UNPROFITABLE_STRESSED":
+        flags.append("unprofitable stressed")
+    elif quality.startswith("UNPROFITABLE"):
         flags.append("unprofitable")
     om = f.get("operating_margin_pct")
     if om is not None and om < 0:
@@ -1288,53 +1364,135 @@ def _red_flags_for(ticker: str, store: ArtifactStore) -> List[str]:
     return flags
 
 
+def _review_queue_groups(inputs: Dict[str, Any], top: List[str],
+                         high: List[str],
+                         reset_reclaim: List[str]) -> Dict[str, List[str]]:
+    """Presentation-only review buckets built from existing artifact fields."""
+    hc = inputs.get("high_conviction") or {}
+    eo = inputs.get("emerging_outlier") or {}
+    radar = inputs.get("radar") or {}
+    alpha = ((inputs.get("summary") or {}).get("alpha_snapshot") or {})
+    shortlist = _dedupe([r.get("ticker") for r in hc.get("shortlist") or []])
+    emerging = _dedupe([r.get("ticker") for r in eo.get("watch") or []])
+    rejected = _dedupe([r.get("ticker") for r in hc.get("rejected") or []])
+    wait_reset = _dedupe(
+        [r.get("ticker") for r in hc.get("quality_but_extended") or []]
+        + list(alpha.get("extended_crowded_tickers") or [])
+        + list((radar.get("priority_tickers") or {}).get(
+            "EXTENDED_CROWDED") or []))
+    avoid = _dedupe(list((radar.get("priority_tickers") or {}).get(
+        "DATA_QUARANTINE") or []))
+    board = _dedupe(
+        _best_research_tickers(inputs) + list(high) + list(top)
+        + list(reset_reclaim))
+    risk_pool = _dedupe(
+        _best_research_tickers(inputs) + rejected + emerging + board)
+    risk = [
+        ticker for ticker in risk_pool
+        if _risk_notes_for(inputs, ticker)
+        and ticker not in shortlist
+        and ticker not in wait_reset
+        and ticker not in avoid
+    ]
+
+    reserved = set(risk + wait_reset + avoid)
+    opportunity_pool = _dedupe(shortlist + list(reset_reclaim) + board)
+
+    def opportunity_key(ticker: str) -> Tuple[int, int, int, int, int]:
+        if ticker in shortlist:
+            return (0, shortlist.index(ticker), 0, 0, 0)
+        f = build_fundamentals(ticker, inputs.get("store"))
+        profitable = str(f.get("quality_label") or "").startswith("PROFITABLE")
+        reset = ticker in reset_reclaim
+        known_cap = (f.get("market_cap") or 0) >= 300_000_000
+        low_risk = _risk_level_for(inputs, ticker) in ("LOW", "UNKNOWN")
+        return (1, 0 if profitable else 1, 0 if reset else 1,
+                0 if known_cap else 1, 0 if low_risk else 1)
+
+    opportunity = []
+    for ticker in sorted(opportunity_pool, key=opportunity_key):
+        f = build_fundamentals(ticker, inputs.get("store"))
+        profitable = str(f.get("quality_label") or "").startswith("PROFITABLE")
+        if (ticker not in reserved
+                and not _risk_notes_for(inputs, ticker)
+                and (ticker in shortlist or ticker in reset_reclaim
+                     or profitable)):
+            opportunity.append(ticker)
+    watch_only = [
+        ticker for ticker in board
+        if ticker not in reserved and ticker not in opportunity
+    ]
+    return {
+        "opportunity": opportunity,
+        "risk": risk,
+        "watch_only": watch_only,
+        "avoid": avoid,
+        "wait_reset": wait_reset,
+    }
+
+
 def _section_review_queue(inputs: Dict[str, Any], top: List[str],
                           high: List[str],
                           reset_reclaim: List[str]) -> List[str]:
-    alpha = (inputs["summary"] or {}).get("alpha_snapshot") or {}
-    radar = inputs["radar"] or {}
-    quarantine = list(radar.get("priority_tickers", {}).get("DATA_QUARANTINE")
-                      or [])
-    extended = list(alpha.get("extended_crowded_tickers")
-                    or radar.get("priority_tickers", {}).get(
-                        "EXTENDED_CROWDED") or [])
-    review_first = _dedupe(high + top[:5])
-    watch_only = [t for t in _dedupe(reset_reclaim + top[5:])
-                  if t not in review_first]
+    groups = _review_queue_groups(inputs, top, high, reset_reclaim)
     lines = [
         "## 6. Journal Review Queue",
-        f"- Review first: {_join(review_first, cap=6)}",
+        f"- Opportunity Review: {_join(groups['opportunity'], cap=10)}",
+        f"- Risk / Red-Flag Review: {_join(groups['risk'], cap=10)}",
     ]
-    # Fundamental red flags surfaced directly in review order (display
-    # only): the names a human reviews first should carry their
-    # dilution / negative-margin / unprofitable warnings inline instead
-    # of requiring a cross-reference to the overlay section.
-    store = inputs.get("store")
-    if store is not None:
-        notes = []
-        for t in review_first[:6]:
-            flags = _red_flags_for(t, store)
-            if flags:
-                notes.append(f"{t} ({', '.join(flags)})")
+    risk_notes = []
+    for ticker in groups["risk"][:10]:
+        notes = _risk_notes_for(inputs, ticker)
         if notes:
-            lines.append("  - Red flags in review order: "
-                         + "; ".join(notes))
-    # A ticker can independently earn a top-candidate slot (from the
-    # program/alpha board) and a DATA_QUARANTINE flag (from the radar's
-    # own field-coverage check) — the two lists are built from different
-    # sources and don't cross-exclude. Surface the overlap here instead of
-    # leaving the reader to notice the same ticker in both sections with no
-    # explanation (2026-07-22 journal audit: MSFT case).
-    quarantine_overlap = [t for t in review_first if t in quarantine]
-    if quarantine_overlap:
-        lines.append("  - Also flagged DATA_QUARANTINE (see 'Avoid for now' "
-                     "below — a data-coverage gap, not a signal reversal): "
-                     + _join(quarantine_overlap, cap=6))
+            risk_notes.append(f"{ticker} ({', '.join(notes)})")
+    if risk_notes:
+        lines.append("  - Risk details: " + "; ".join(risk_notes))
     lines += [
-        f"- Watch only: {_join(watch_only, cap=6)}",
-        f"- Avoid for now / data issue: {_join(quarantine, cap=6)}",
-        f"- Follow up later (extended/crowded — wait for reset): "
-        f"{_join(extended, cap=6)}",
+        f"- Watch Only: {_join(groups['watch_only'], cap=10)}",
+        f"- Avoid / Data Issue: {_join(groups['avoid'], cap=10)}",
+        f"- Wait for Reset: {_join(groups['wait_reset'], cap=10)}",
+    ]
+    for ticker in groups["wait_reset"][:10]:
+        anomalies = _metric_anomalies_for(ticker, inputs.get("store"))
+        if anomalies:
+            lines.append(
+                f"  - {ticker}: Fundamental Metric Anomaly / Manual "
+                "Normalization Required: " + "; ".join(anomalies))
+    return lines
+
+
+def _section_diagnostics_appendix(inputs: Dict[str, Any]) -> List[str]:
+    """Legacy diagnostics stay available without dominating daily priority."""
+    rd = inputs.get("recall_diagnostics")
+    warnings = [
+        warning for warning in
+        ((inputs.get("summary") or {}).get("warnings") or [])
+        if _is_legacy_recall_warning(warning)
+    ]
+    filters = (rd or {}).get("reject_counts_by_filter") or []
+    if not filters and not warnings:
+        return []
+    top_filters = ", ".join(
+        f"{r.get('filter')} ({r.get('rejected_n')} rejected/"
+        f"{r.get('winners_missed')} winners missed)"
+        for r in filters[:3])
+    lines = [
+        "<details>",
+        "<summary>Technical diagnostics appendix</summary>",
+        "",
+        "### Legacy / Decommissioned Recall Diagnostics",
+    ]
+    for warning in warnings:
+        lines.append(f"- {warning}")
+    if top_filters:
+        lines.append(
+            f"- Historical recall diagnostic as of {(rd or {}).get('asof_date')}: "
+            f"{top_filters}.")
+    lines += [
+        "- Technical context only. Daily priority is based on the live board "
+        "and current scanner evidence; gates remain unchanged.",
+        "",
+        "</details>",
     ]
     return lines
 
@@ -1415,7 +1573,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
                reset_reclaim: List[str]) -> str:
     sections = (
         ["# Daily Research Digest", ""]
-        + _section_todays_best_research(inputs) + [""]
+        + _section_todays_operator_focus(inputs) + [""]
         + _section_data_quality(inputs, concerns) + [""]
         + _section_sector_regime(inputs, top) + [""]
         + _section_forward(inputs) + [""]
@@ -1436,6 +1594,7 @@ def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
         + _section_fundamentals(inputs, top) + [""]
         + _section_review_queue(inputs, top, high, reset_reclaim) + [""]
         + _section_final_finding(inputs, status, high, concerns, top) + [""]
+        + _section_diagnostics_appendix(inputs) + [""]
         + [RESEARCH_ONLY_FOOTER]
     )
     return "\n".join(sections)

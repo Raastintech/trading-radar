@@ -38,6 +38,7 @@ FORBIDDEN = re.compile(
 
 SECTION_HEADINGS = [
     "# Daily Research Digest",
+    "## Today's Operator Focus",
     "## 1. Data Quality",
     "## Scanner / Why Names Appeared (discovery only)",
     "## 3. Sector / Regime",
@@ -430,7 +431,8 @@ def test_alignment_verdicts_with_leadership():
 # ── fundamental red flags in review order (P2 70884dde3217) ──────────────────
 
 from dashboards.research_command_center.journal_digest import (  # noqa: E402
-    _red_flags_for, _section_review_queue,
+    _metric_anomalies_for, _red_flags_for, _review_queue_groups,
+    _section_review_queue, _section_todays_operator_focus,
 )
 
 
@@ -458,23 +460,120 @@ def test_red_flags_for_unprofitable_and_dilution(monkeypatch):
     assert _red_flags_for("MISS", None) == []   # no data: no fabrication
 
 
-def test_review_queue_carries_red_flag_line(monkeypatch):
+def test_review_queue_separates_opportunity_from_red_flags(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
-    monkeypatch.setattr(jd, "build_fundamentals", lambda t, store: {
-        "quality_label": "UNPROFITABLE_FUNDED",
-        "operating_margin_pct": -50.0} if t == "SDGR"
-        else {"quality_label": "PROFITABLE_CASHGEN",
-              "operating_margin_pct": 10.0})
-    inputs = {"summary": {}, "radar": {}, "store": object()}
-    lines = _section_review_queue(inputs, ["FBIN", "SDGR"],
-                                  ["FBIN", "SDGR"], [])
+    fundamentals = {
+        "HC1": {"quality_label": "PROFITABLE_CASHGEN",
+                "operating_margin_pct": 20.0, "market_cap": 2_000_000_000},
+        "QUALITY": {"quality_label": "PROFITABLE_CASHGEN",
+                    "operating_margin_pct": 10.0,
+                    "market_cap": 1_000_000_000},
+        "STRESS": {"quality_label": "UNPROFITABLE_STRESSED",
+                   "operating_margin_pct": -50.0,
+                   "gross_margin_pct": -8.0},
+        "DILUTE": {"quality_label": "PROFITABLE",
+                   "operating_margin_pct": 5.0,
+                   "gross_margin_pct": 30.0,
+                   "dilution_3q_pct": 25.0},
+        "DETERIORATING": {"quality_label": "PROFITABLE_CASHGEN",
+                          "operating_margin_pct": 8.0},
+    }
+    monkeypatch.setattr(
+        jd, "build_fundamentals",
+        lambda ticker, store: fundamentals.get(ticker, {"fallback": True}))
+    inputs = {
+        "summary": {"best_research_names": {
+            "primary": [{"ticker": "STRESS"}, {"ticker": "QUALITY"}],
+            "secondary": [{"ticker": "DILUTE"}],
+        }},
+        "radar": {},
+        "high_conviction": {
+            "shortlist": [{"ticker": "HC1", "dead_horse_risk": "LOW"}],
+            "rejected": [{"ticker": "DETERIORATING",
+                          "dead_horse_risk": "HIGH"}],
+        },
+        "emerging_outlier": {},
+        "store": object(),
+    }
+    groups = _review_queue_groups(
+        inputs, ["STRESS", "QUALITY", "DILUTE"],
+        ["STRESS", "QUALITY"], [])
+    assert groups["opportunity"][0] == "HC1"
+    assert "QUALITY" in groups["opportunity"]
+    assert "STRESS" not in groups["opportunity"]
+    assert "STRESS" in groups["risk"]
+    assert "DILUTE" in groups["risk"]
+    assert "DETERIORATING" in groups["risk"]
+
+    lines = _section_review_queue(
+        inputs, ["STRESS", "QUALITY", "DILUTE"],
+        ["STRESS", "QUALITY"], [])
     text = "\n".join(lines)
-    assert "- Review first: FBIN, SDGR" in text
-    assert "Red flags in review order: SDGR (unprofitable, OM -50.0%)" \
-        in text
-    # ticker list line stays clean (audit regex parses it unchanged)
-    review_line = [l for l in lines if l.startswith("- Review first")][0]
-    assert "(" not in review_line
+    assert "- Opportunity Review: HC1, QUALITY" in text
+    assert "- Risk / Red-Flag Review: STRESS, DILUTE, DETERIORATING" in text
+    assert "negative GM" in text
+    assert "dilution +25.0%/3q" in text
+    assert "Business Deterioration Risk High" in text
+    for label in ("Watch Only", "Avoid / Data Issue", "Wait for Reset"):
+        assert f"- {label}:" in text
+
+
+def test_metric_anomaly_requires_manual_normalization(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    monkeypatch.setattr(jd, "build_fundamentals", lambda ticker, store: {
+        "quality_label": "PROFITABLE_CASHGEN",
+        "gross_margin_pct": 100.0,
+        "operating_margin_pct": 1444.85,
+    })
+    assert _metric_anomalies_for("ATEX", object()) == [
+        "operating margin 1445% exceeds revenue"]
+
+
+def test_todays_operator_focus_uses_artifact_order(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    risk = {
+        "AVTR": {"quality_label": "UNPROFITABLE_FUNDED"},
+        "CLF": {"quality_label": "UNPROFITABLE_STRESSED",
+                "gross_margin_pct": -1.0},
+        "IP": {"quality_label": "UNPROFITABLE_FUNDED"},
+        "BAX": {"quality_label": "UNPROFITABLE_FUNDED"},
+        "QTTB": {"quality_label": "PROFITABLE", "dilution_3q_pct": 15.6},
+        "ATEX": {"quality_label": "PROFITABLE_CASHGEN",
+                 "operating_margin_pct": 1444.85},
+    }
+    monkeypatch.setattr(
+        jd, "build_fundamentals",
+        lambda ticker, store: risk.get(ticker, {"fallback": True}))
+    inputs = {
+        "store": object(),
+        "status": {"tracker_verdict": "NO_FORWARD_EDGE"},
+        "summary": {"best_research_names": {
+            "primary": [{"ticker": t} for t in
+                        ("AVTR", "CLF", "IP", "BAX")],
+            "secondary": [{"ticker": "QTTB"}],
+        }},
+        "high_conviction": {
+            "shortlist": [{"ticker": t, "dead_horse_risk": "LOW"}
+                          for t in ("HRB", "NVO", "JEF", "CBZ", "FDS")],
+            "quality_but_extended": [{"ticker": t} for t in
+                                     ("ATEX", "DELL", "MET", "FIVN", "DINO")],
+            "rejected": [
+                {"ticker": "AVTR", "dead_horse_risk": "MEDIUM"},
+                {"ticker": "CLF", "dead_horse_risk": "MEDIUM"},
+                {"ticker": "IP", "dead_horse_risk": "MEDIUM"},
+                {"ticker": "BAX", "dead_horse_risk": "LOW"},
+            ],
+        },
+        "emerging_outlier": {"watch": [{"ticker": t} for t in
+                             ("ACVA", "MRVI", "CDNA", "OMDA", "ETON")]},
+    }
+    text = "\n".join(_section_todays_operator_focus(inputs))
+    assert "Review first: HRB, NVO, JEF, CBZ, FDS" in text
+    assert "Higher-risk emerging review: ACVA, MRVI, CDNA, OMDA, ETON" in text
+    assert "Wait for reset: ATEX, DELL, MET, FIVN, DINO" in text
+    assert "Red-flag review only: AVTR, CLF, IP, QTTB" in text
+    assert "Fundamental Metric Anomaly / Manual Normalization Required" in text
+    assert "Do not conclude alpha: HC/EO immature; broad forward verdict NO_FORWARD_EDGE" in text
 
 
 # ── options-overlay structural line + final-finding annotation ───────────────
@@ -608,6 +707,27 @@ def test_shortlist_maturity_eta_line(fixture_root):
     assert "verdict needs ≥10 matured" in note
 
 
+def test_shortlist_eta_today_with_zero_matured_is_unresolved(fixture_root):
+    from datetime import date
+    from dashboards.research_command_center.journal_digest import (
+        _maturity_eta_lines)
+    _write_history(fixture_root, "2026-07-12",
+                   fname="high_conviction_history.jsonl")
+    _write(fixture_root / "cache" / "research"
+           / "high_conviction_forward_latest.json", {
+               "present": True,
+               "n_history_rows": 3,
+               "cohorts": {"full_shortlist": {
+                   "10d": {"raw": {"n": 0}},
+               }},
+           })
+    inputs = collect_inputs(ArtifactStore(root=fixture_root))
+    lines = _maturity_eta_lines(inputs, today=date(2026, 7, 24))
+    assert ("- First HC 10d maturity expected today; not yet resolved in "
+            "current forward artifact.") in lines
+    assert not any("matured HC evidence" in line for line in lines)
+
+
 def test_no_history_files_add_no_eta_lines(fixture_root):
     note = _note(fixture_root)
     assert "Maturity ETA" not in note
@@ -617,7 +737,7 @@ def test_no_history_files_add_no_eta_lines(fixture_root):
 # ── scanner-recall diagnostics declaration ───────────────────────────────────
 
 
-def test_scanner_section_declares_recall_diagnostics(fixture_root):
+def test_legacy_recall_diagnostics_are_collapsed_out_of_main_body(fixture_root):
     _write(fixture_root / "cache" / "research"
            / "scanner_recall_diagnostics_latest.json", {
                "generated_at": _now_iso(),
@@ -630,15 +750,48 @@ def test_scanner_section_declares_recall_diagnostics(fixture_root):
                ],
            })
     note = _note(fixture_root)
-    scanner = note.split("## Scanner / Why Names Appeared")[1].split("## 4c.")[0]
-    assert "scanner-recall diagnostics report" in scanner
-    assert "no_atr_contraction (511 rejected/128 winners missed)" in scanner
-    assert "Gates unchanged pending forward evidence" in scanner
+    scanner = note.split("## Scanner / Why Names Appeared")[1].split(
+        "## 4c.")[0]
+    main_body = note.split("<details>", 1)[0]
+    assert "no_atr_contraction" not in scanner
+    assert "no_atr_contraction" not in main_body
+    assert "Live-board evidence" in scanner
+    assert "<summary>Technical diagnostics appendix</summary>" in note
+    assert "### Legacy / Decommissioned Recall Diagnostics" in note
+    assert "no_atr_contraction (511 rejected/128 winners missed)" in note
+    assert "gates remain unchanged" in note
 
 
 def test_no_recall_sidecar_adds_no_declaration(fixture_root):
     note = _note(fixture_root)
-    assert "scanner-recall diagnostics report" not in note
+    assert "Legacy / Decommissioned Recall Diagnostics" not in note
+
+
+def test_legacy_recall_warning_moves_to_appendix(fixture_root):
+    summary_path = (fixture_root / "cache" / "research"
+                    / "nightly_operator_summary_latest.json")
+    summary = json.loads(summary_path.read_text())
+    warning = ("Legacy council-funnel recall 0.0% (pipeline decommissioned; "
+               "not the live board)")
+    summary["warnings"] = [warning]
+    _write(summary_path, summary)
+    note = _note(fixture_root)
+    main_body, appendix = note.split("<details>", 1)
+    assert warning not in main_body
+    assert warning in appendix
+
+
+def test_digest_priority_helpers_are_not_imported_by_research_logic():
+    for rel in (
+        "research/research_scanner.py",
+        "research/research_scoring.py",
+        "research/latest_scan_programs.py",
+        "research/high_conviction_alpha.py",
+        "research/emerging_outlier_watch.py",
+        "research/research_watchlist_forward_tracker.py",
+    ):
+        assert "journal_digest" not in (REPO_ROOT / rel).read_text(
+            encoding="utf-8")
 
 
 def test_tier_tagged_separates_unprofitable_names(monkeypatch):
@@ -694,7 +847,7 @@ def _top_candidate(ticker, score=90.0, status="REPEAT"):
 
 def test_top_candidate_hc_rejected_gets_explicit_rationale(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
-    monkeypatch.setattr(jd, "_red_flags_for", lambda ticker, store: [])
+    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
     inputs = {
         "latest_scan": {"present": True, "programs": {
             "TACTICAL": {"candidates": [_top_candidate("AGL")]},
@@ -717,7 +870,7 @@ def test_top_candidate_hc_rejected_gets_explicit_rationale(monkeypatch):
 
 def test_top_candidate_data_quarantine_gets_explicit_rationale(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
-    monkeypatch.setattr(jd, "_red_flags_for", lambda ticker, store: [])
+    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
     inputs = {
         "latest_scan": {"present": True, "programs": {
             "TACTICAL": {"candidates": [_top_candidate("QUAR1")]},
@@ -735,7 +888,7 @@ def test_top_candidate_data_quarantine_gets_explicit_rationale(monkeypatch):
 
 def test_top_candidate_clean_ticker_gets_no_rationale_line(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
-    monkeypatch.setattr(jd, "_red_flags_for", lambda ticker, store: [])
+    monkeypatch.setattr(jd, "_risk_notes_for", lambda inputs, ticker: [])
     inputs = {
         "latest_scan": {"present": True, "programs": {
             "TACTICAL": {"candidates": [_top_candidate("GOODCO")]},

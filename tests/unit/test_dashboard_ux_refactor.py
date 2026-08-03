@@ -217,20 +217,23 @@ def test_terminal_concise_and_verbose():
 
 def test_journal_has_concise_and_detailed(tmp_path):
     from dashboards.research_command_center.journal_digest import (
-        _section_todays_best_research, _section_high_conviction)
+        _section_todays_operator_focus, _section_high_conviction)
     from dashboards.research_command_center.data_adapter import ArtifactStore
     from dashboards.research_command_center.data_adapter import _load_json
     store = ArtifactStore(root=REPO_ROOT)
     inputs = {
         "high_conviction": _load_json(store.high_conviction_json),
         "emerging_outlier": _load_json(store.emerging_outlier_json),
+        "summary": _load_json(store.summary_json),
+        "status": {"tracker_verdict": "NO_FORWARD_EDGE"},
         "store": store,
     }
-    concise = "\n".join(_section_todays_best_research(inputs))
-    assert concise.startswith("## Today's Best Research")
-    assert "High Conviction:" in concise
-    assert "Top Emerging:" in concise
-    assert "Wait for Reset:" in concise
+    concise = "\n".join(_section_todays_operator_focus(inputs))
+    assert concise.startswith("## Today's Operator Focus")
+    assert "Review first:" in concise
+    assert "Higher-risk emerging review:" in concise
+    assert "Wait for reset:" in concise
+    assert "Red-flag review only:" in concise
     detailed = "\n".join(_section_high_conviction(inputs))
     assert detailed.startswith("## 4b1. High-Conviction Alpha Shortlist")
 

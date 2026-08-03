@@ -135,6 +135,12 @@ SHORTLIST_TARGET_MAX = 7
 MIN_DOLLAR_VOLUME = 3_000_000.0     # $3M/day floor for "adequate liquidity"
 EXTREME_DILUTION_3Q_PCT = 25.0      # hard-exclusion dilution over ~3 quarters
 HIGH_DILUTION_3Q_PCT = 12.0         # penalized dilution
+# A drop this large in weighted diluted shares over 3 quarters is far more
+# likely a provider reporting gap (e.g. an Up-C name's latest-quarter
+# diluted count shipped without its convertible-unit adjustment) than a
+# real buyback, so it's treated as a data-suspect outlier rather than
+# scored as "low dilution" (2026-07-30: RYAN dilution_3q_pct -52.7%).
+SUSPECT_BUYBACK_3Q_PCT = -25.0
 DEEP_DRAWDOWN_12M_PCT = -60.0       # structural-collapse candidate
 
 # ── ratio-sanity bounds (display honesty; see score_quality) ────────────────
@@ -247,7 +253,11 @@ def score_quality(fund: Dict[str, Any]) -> Tuple[Optional[float], List[str],
                 pts -= 8
                 risks.append("high net debt vs revenue")
     if dil is not None:
-        if dil <= 2:
+        if dil < SUSPECT_BUYBACK_3Q_PCT:
+            risks.append(f"dilution_3q_pct {dil:+.0f}%/3q outside plausible "
+                         "range — likely a diluted-share-count data gap, "
+                         "not a real buyback")
+        elif dil <= 2:
             pts += 5
             reasons.append("low dilution")
         elif dil >= HIGH_DILUTION_3Q_PCT:
@@ -331,7 +341,10 @@ def score_fundamental_momentum(fund: Dict[str, Any]
         elif om < 0:
             pts -= 8
     if dil is not None:
-        if dil <= 0:
+        if dil < SUSPECT_BUYBACK_3Q_PCT:
+            risks.append(f"dilution_3q_pct {dil:+.0f}%/3q outside plausible "
+                         "range — data suspect")
+        elif dil <= 0:
             pts += 8
             reasons.append("share count flat/declining")
         elif dil >= HIGH_DILUTION_3Q_PCT:
@@ -800,6 +813,8 @@ def evaluate_candidate(routed: Dict[str, Any], item: Dict[str, Any],
         "why_selected": _dedupe(reasons)[:6],
         "main_risks": _dedupe(risks)[:5],
         "same_session": item.get("same_session"),
+        "bar_as_of_date": item.get("bar_as_of_date"),
+        "benchmark_as_of_date": item.get("benchmark_as_of_date"),
         "sector": item.get("sector"),
         "industry": item.get("industry"),
         "sector_etf": item.get("company_sector_etf"),

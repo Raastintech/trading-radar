@@ -201,7 +201,69 @@ def _collect_candidates(
             if t:
                 entries.append((t, 70, "forward_tracker"))
 
+    # ── Source 6: Stock-Lens forward-tracker gaps ─────────────────────────────
+    # Tickers whose lens snapshot is old enough to have reached its final
+    # horizon but never got a final price bar — almost always because the
+    # ticker rotated out of the live scan universe and stopped getting price
+    # refreshes, so the resolver is permanently stuck on it. None of sources
+    # 1-5 read the tracker log itself, so without this these never get
+    # reselected. Rank below quarantine (80) since it's a resolver-health
+    # fix, not a live research priority.
+    for t in _stock_lens_missing_price_tickers():
+        entries.append((t, 80, "forward_tracker:missing_price"))
+
     return entries
+
+
+def _stock_lens_missing_price_tickers() -> List[str]:
+    """Tickers with an open stock-lens forward snapshot old enough for its
+    final horizon but still missing the final price bar — the same test
+    research/forward_resolution_health.py uses.  Logic duplicated (not
+    imported) to keep this module decoupled, per repo convention (see
+    dashboards/research_command_center/data_adapter.py's sample-maturity
+    ladder for the same pattern)."""
+    try:
+        import core.forecast_forward_tracker as fft
+    except Exception:
+        return []
+
+    from datetime import date as _date
+
+    def _need_calendar(horizon: int) -> int:
+        return int(horizon * fft._TRADING_TO_CALENDAR) + 1
+
+    def _parse_anchor(row: Dict[str, Any]) -> Optional[_date]:
+        raw = row.get("anchor_date")
+        if not raw:
+            return None
+        try:
+            return _date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            return None
+
+    try:
+        rows = fft.load_stock_lens_log()
+    except Exception:
+        return []
+
+    today = _date.today()
+    final_h = max(fft.STOCK_LENS_HORIZONS_DAYS)
+    out: Set[str] = set()
+    for row in rows:
+        anchor = _parse_anchor(row)
+        if anchor is None:
+            continue
+        if str(row.get("status") or "open").lower() == "matured":
+            continue
+        if (today - anchor).days < _need_calendar(final_h):
+            continue
+        outcomes = row.get("outcomes") or {}
+        if outcomes.get(f"return_{final_h}d_pct") is not None:
+            continue
+        t = str(row.get("ticker") or "").upper()
+        if t:
+            out.add(t)
+    return sorted(out)
 
 
 def collect_and_dedupe(

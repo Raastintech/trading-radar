@@ -3,10 +3,10 @@
 Auto-refreshed by `research/social_attention_forward_validation.py`.
 Research-only / cache-only. See `SOCIAL_ATTENTION_RADAR_V0.md` and `SOCIAL_ARB_REALITY_CHECK.md`.
 
-- Generated: `2026-07-22T21:30:22.756572+00:00`
-- History days: `29`
-- Matured social-led (primary): `7`
-- **Verdict: `NEED_MORE_DATA`** — history_days=29 (<10) or matured_social_led_primary=7 (<20); metrics shown are preliminary and must not drive routing.
+- Generated: `2026-07-31T21:30:21.733698+00:00`
+- History days: `36`
+- Matured social-led (primary): `10`
+- **Verdict: `NEED_MORE_DATA`** — history_days=36 (<10) or matured_social_led_primary=10 (<20); metrics shown are preliminary and must not drive routing.
 
 ## What the gate measures
 - social-led vs news-led, early-discovery vs viral-crowding, high vs low

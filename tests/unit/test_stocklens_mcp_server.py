@@ -290,7 +290,12 @@ def test_open_readonly_db_rejects_writes(repo_root):
 def test_audit_late_chase_candidates_uses_real_board(repo_root):
     out = dispatch("audit_late_chase_candidates", {"top_n": 3})
     assert out["status"] == "ok"
-    assert out["total_board_items"] > 0
+    if out["total_board_items"] == 0:
+        board = json.loads((repo_root / "cache" / "research"
+                            / "alpha_discovery_board_latest.json").read_text())
+        assert str(board.get("error") or "").startswith(
+            "UNAVAILABLE_STALE_SOURCE")
+        assert out["candidates"] == []
     # Each candidate must carry alpha_flags (the trigger that put it on the list).
     for c in out["candidates"]:
         assert c["alpha_flags"], c
