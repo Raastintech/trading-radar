@@ -53,6 +53,12 @@ POST_FIX_EARLY_DAYS = 14
 # fundamental overlay is reliable.
 FUNDAMENTAL_MARGIN_ANOMALY_PCT = 100.0
 
+# A dilution swing this large is far more likely a provider reporting gap
+# than a real buyback — mirrors high_conviction_alpha.SUSPECT_BUYBACK_3Q_PCT
+# so the review queue flags the same tickers HC already treats as
+# data-suspect (2026-07-30: RYAN dilution_3q_pct -52.7%/3q).
+DILUTION_DATA_SUSPECT_PCT = -25.0
+
 
 # ── small formatting helpers ─────────────────────────────────────────────────
 
@@ -1011,14 +1017,25 @@ def _section_todays_operator_focus(inputs: Dict[str, Any]) -> List[str]:
     """Small, source-ordered action block for today's human review."""
     hc = inputs.get("high_conviction") or {}
     eo = inputs.get("emerging_outlier") or {}
-    review_first = [c.get("ticker") for c in
-                    (hc.get("shortlist") or [])[:5]]
-    higher_risk = [w.get("ticker") for w in
-                   (eo.get("watch") or [])[:5]]
+    # A data-suspect fundamental (e.g. RYAN-style implausible dilution)
+    # must not sit in the clean Review First line — it belongs only in
+    # Red-flag review below, never in both.
+    review_first = [
+        c.get("ticker") for c in (hc.get("shortlist") or [])[:5]
+        if not _dilution_data_suspect(c.get("ticker"), inputs.get("store"))
+    ]
+    eo_watch = [w.get("ticker") for w in (eo.get("watch") or [])]
+    # A ticker with material red-flag risk notes must not also sit in the
+    # clean Higher-risk emerging review line — it belongs only in
+    # Red-flag review below, never in both (BBNX 2026-08-19 duplicate).
+    higher_risk = [
+        ticker for ticker in eo_watch
+        if not _priority_red_flag_for(inputs, ticker)
+    ][:5]
     wait_reset = [c.get("ticker") for c in
                   (hc.get("quality_but_extended") or [])[:5]]
     red_flags = [
-        ticker for ticker in _best_research_tickers(inputs)
+        ticker for ticker in _dedupe(_best_research_tickers(inputs) + eo_watch)
         if _priority_red_flag_for(inputs, ticker)
     ][:4]
     lines = [
@@ -1359,9 +1376,26 @@ def _red_flags_for(ticker: str, store: ArtifactStore) -> List[str]:
     if gm is not None and gm < 0:
         flags.append("negative GM")
     dil = f.get("dilution_3q_pct")
-    if dil is not None and dil > 10:
+    if dil is not None and dil < DILUTION_DATA_SUSPECT_PCT:
+        flags.append(f"dilution_3q_pct {dil:+.0f}%/3q data-suspect "
+                     "(outside plausible range, not a real buyback)")
+    elif dil is not None and dil > 10:
         flags.append(f"dilution {dil:+.1f}%/3q")
     return flags
+
+
+def _dilution_data_suspect(ticker: str,
+                           store: Optional[ArtifactStore]) -> bool:
+    """True when dilution_3q_pct is implausible enough to be a data gap,
+    not a real buyback — used to force review-queue risk routing even for
+    an otherwise-qualified High-Conviction shortlist member."""
+    if store is None:
+        return False
+    f = build_fundamentals(ticker, store)
+    if f.get("fallback"):
+        return False
+    dil = f.get("dilution_3q_pct")
+    return dil is not None and dil < DILUTION_DATA_SUSPECT_PCT
 
 
 def _review_queue_groups(inputs: Dict[str, Any], top: List[str],
@@ -1386,11 +1420,13 @@ def _review_queue_groups(inputs: Dict[str, Any], top: List[str],
         _best_research_tickers(inputs) + list(high) + list(top)
         + list(reset_reclaim))
     risk_pool = _dedupe(
-        _best_research_tickers(inputs) + rejected + emerging + board)
+        _best_research_tickers(inputs) + rejected + emerging + board
+        + shortlist)
     risk = [
         ticker for ticker in risk_pool
         if _risk_notes_for(inputs, ticker)
-        and ticker not in shortlist
+        and (ticker not in shortlist
+             or _dilution_data_suspect(ticker, inputs.get("store")))
         and ticker not in wait_reset
         and ticker not in avoid
     ]

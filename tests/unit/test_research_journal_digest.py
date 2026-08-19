@@ -460,6 +460,73 @@ def test_red_flags_for_unprofitable_and_dilution(monkeypatch):
     assert _red_flags_for("MISS", None) == []   # no data: no fabrication
 
 
+def test_red_flags_for_data_suspect_dilution_vs_normal_buyback(monkeypatch):
+    """RYAN-style implausible negative dilution (-52.7%/3q) is flagged as
+    data-suspect; an ordinary buyback-sized negative dilution is not."""
+    import dashboards.research_command_center.journal_digest as jd
+    fundamentals = {
+        "RYAN": {"quality_label": "PROFITABLE_CASHGEN",
+                 "operating_margin_pct": 19.1, "gross_margin_pct": 66.7,
+                 "dilution_3q_pct": -52.7},
+        "BUYBACK": {"quality_label": "PROFITABLE_CASHGEN",
+                    "operating_margin_pct": 10.0, "gross_margin_pct": 40.0,
+                    "dilution_3q_pct": -10.0},
+        "BORDERLINE": {"quality_label": "PROFITABLE_CASHGEN",
+                       "operating_margin_pct": 10.0, "gross_margin_pct": 40.0,
+                       "dilution_3q_pct": -25.0},
+    }
+    monkeypatch.setattr(jd, "build_fundamentals",
+                        lambda t, store: fundamentals.get(t, {"fallback": True}))
+    suspect_flags = jd._red_flags_for("RYAN", None)
+    assert any("data-suspect" in f for f in suspect_flags)
+    assert any("-53%" in f for f in suspect_flags)   # -52.7 rounds to -53%
+    assert jd._red_flags_for("BUYBACK", None) == []   # normal buyback: clean
+    # exactly at the threshold is not "< threshold" — stays unflagged
+    assert jd._red_flags_for("BORDERLINE", None) == []
+
+
+def test_review_queue_routes_data_suspect_shortlist_member_to_risk(monkeypatch):
+    """A High-Conviction shortlist member with an implausible dilution
+    figure must not stay in a clean Opportunity Review — it moves to
+    Risk / Red-Flag Review even though shortlist membership normally
+    exempts a ticker from that bucket."""
+    import dashboards.research_command_center.journal_digest as jd
+    fundamentals = {
+        "RYAN": {"quality_label": "PROFITABLE_CASHGEN",
+                 "operating_margin_pct": 19.1, "gross_margin_pct": 66.7,
+                 "dilution_3q_pct": -52.7},
+        "CLEAN": {"quality_label": "PROFITABLE_CASHGEN",
+                  "operating_margin_pct": 20.0, "gross_margin_pct": 50.0,
+                  "dilution_3q_pct": -10.0, "market_cap": 2_000_000_000},
+    }
+    monkeypatch.setattr(
+        jd, "build_fundamentals",
+        lambda ticker, store: fundamentals.get(ticker, {"fallback": True}))
+    inputs = {
+        "summary": {"best_research_names": {}},
+        "radar": {},
+        "high_conviction": {
+            "shortlist": [
+                {"ticker": "RYAN", "dead_horse_risk": "LOW"},
+                {"ticker": "CLEAN", "dead_horse_risk": "LOW"},
+            ],
+        },
+        "emerging_outlier": {},
+        "store": object(),
+    }
+    groups = jd._review_queue_groups(inputs, [], [], [])
+    assert "RYAN" in groups["risk"]
+    assert "RYAN" not in groups["opportunity"]
+    assert "CLEAN" in groups["opportunity"]
+    assert "CLEAN" not in groups["risk"]
+
+    lines = jd._section_review_queue(inputs, [], [], [])
+    text = "\n".join(lines)
+    assert "- Risk / Red-Flag Review: RYAN" in text
+    assert "- Opportunity Review: CLEAN" in text
+    assert "data-suspect" in text
+
+
 def test_review_queue_separates_opportunity_from_red_flags(monkeypatch):
     import dashboards.research_command_center.journal_digest as jd
     fundamentals = {
@@ -574,6 +641,96 @@ def test_todays_operator_focus_uses_artifact_order(monkeypatch):
     assert "Red-flag review only: AVTR, CLF, IP, QTTB" in text
     assert "Fundamental Metric Anomaly / Manual Normalization Required" in text
     assert "Do not conclude alpha: HC/EO immature; broad forward verdict NO_FORWARD_EDGE" in text
+
+
+def test_operator_focus_excludes_data_suspect_from_review_first(monkeypatch):
+    """A High-Conviction shortlist member with an implausible dilution
+    figure (RYAN-style) must not sit in the clean Review First line — it
+    belongs only in Red-flag review, and never in both."""
+    import dashboards.research_command_center.journal_digest as jd
+    fundamentals = {
+        "RYAN": {"quality_label": "PROFITABLE_CASHGEN",
+                 "operating_margin_pct": 19.1, "gross_margin_pct": 66.7,
+                 "dilution_3q_pct": -52.7},
+        "HRB": {"quality_label": "PROFITABLE_CASHGEN",
+                "operating_margin_pct": 26.0, "gross_margin_pct": 54.0,
+                "dilution_3q_pct": -4.3},
+    }
+    monkeypatch.setattr(
+        jd, "build_fundamentals",
+        lambda ticker, store: fundamentals.get(ticker, {"fallback": True}))
+    inputs = {
+        "store": object(),
+        "status": {"tracker_verdict": "NO_FORWARD_EDGE"},
+        "summary": {"best_research_names": {
+            "primary": [{"ticker": "RYAN"}, {"ticker": "HRB"}],
+        }},
+        "high_conviction": {
+            "shortlist": [
+                {"ticker": "HRB", "dead_horse_risk": "LOW"},
+                {"ticker": "RYAN", "dead_horse_risk": "LOW"},
+            ],
+        },
+        "emerging_outlier": {},
+    }
+    lines = _section_todays_operator_focus(inputs)
+    text = "\n".join(lines)
+    review_first_line = next(l for l in lines if l.startswith("- Review first:"))
+    red_flag_line = next(l for l in lines
+                         if l.startswith("- Red-flag review only:"))
+
+    assert "RYAN" not in review_first_line
+    assert "HRB" in review_first_line          # clean shortlist member unaffected
+    assert "RYAN" in red_flag_line
+
+    review_first_set = {t.strip() for t in
+                        review_first_line.split(":", 1)[1].split(",")}
+    red_flag_set = {t.strip() for t in
+                    red_flag_line.split(":", 1)[1].split(",")}
+    assert not (review_first_set & red_flag_set), (
+        "no ticker may appear in both Review First and Red-flag review only")
+
+
+def test_operator_focus_excludes_red_flagged_from_higher_risk(monkeypatch):
+    """A ticker with material red-flag risk notes (BBNX-style,
+    2026-08-19 duplicate) must not sit in the clean Higher-risk emerging
+    review line — it belongs only in Red-flag review, and never in
+    both."""
+    import dashboards.research_command_center.journal_digest as jd
+    fundamentals = {
+        "BBNX": {"quality_label": "UNPROFITABLE_STRESSED",
+                 "gross_margin_pct": -5.0},
+        "ACVA": {"quality_label": "PROFITABLE", "gross_margin_pct": 30.0},
+    }
+    monkeypatch.setattr(
+        jd, "build_fundamentals",
+        lambda ticker, store: fundamentals.get(ticker, {"fallback": True}))
+    inputs = {
+        "store": object(),
+        "status": {"tracker_verdict": "NO_FORWARD_EDGE"},
+        "summary": {"best_research_names": {}},
+        "high_conviction": {},
+        "emerging_outlier": {"watch": [{"ticker": t} for t in
+                             ("BBNX", "ACVA")]},
+    }
+    lines = _section_todays_operator_focus(inputs)
+    text = "\n".join(lines)
+    higher_risk_line = next(
+        l for l in lines if l.startswith("- Higher-risk emerging review:"))
+    red_flag_line = next(
+        l for l in lines if l.startswith("- Red-flag review only:"))
+
+    assert "BBNX" not in higher_risk_line
+    assert "ACVA" in higher_risk_line          # unflagged watch member unaffected
+    assert "BBNX" in red_flag_line
+
+    higher_risk_set = {t.strip() for t in
+                       higher_risk_line.split(":", 1)[1].split(",")}
+    red_flag_set = {t.strip() for t in
+                    red_flag_line.split(":", 1)[1].split(",")}
+    assert not (higher_risk_set & red_flag_set), (
+        "no ticker may appear in both Higher-risk emerging review and "
+        "Red-flag review only")
 
 
 # ── options-overlay structural line + final-finding annotation ───────────────
