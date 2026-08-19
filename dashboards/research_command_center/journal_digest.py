@@ -601,22 +601,69 @@ _ETA_HORIZONS_TD = (20, 45, 60)
 _ETA_APPROACHING_TD = 5
 
 
-def _add_trading_days(d: date, n: int) -> date:
-    """Approximate trading-day addition: weekdays only, no holiday
-    calendar — every ETA it produces is labelled as approximate."""
-    cur, added = d, 0
-    while added < n:
+def _load_spy_trading_dates(store: ArtifactStore) -> List[str]:
+    """Real trading-day calendar (SPY close dates), sorted ascending.
+
+    Anchoring the ETA readout to SPY's own cached bars keeps it agreeing
+    with the resolver's calendar-mature check (which uses the same
+    anchor) instead of a naive weekday count that ignores market
+    holidays. Empty on any read failure — callers fall back to
+    weekday-only approximation."""
+    import pandas as pd  # lazy — ETA path only
+
+    path = store.prices_dir / "SPY.parquet"
+    if not path.exists():
+        return []
+    try:
+        df = pd.read_parquet(path)
+        date_col = next((c for c in ("date", "Date", "timestamp",
+                                     "Timestamp") if c in df.columns), None)
+        dates = (df[date_col].astype(str).str[:10] if date_col
+                 else df.index.astype(str).str[:10])
+        return sorted(dates.tolist())
+    except Exception:
+        return []
+
+
+def _add_trading_days(d: date, n: int, spy_dates: Optional[List[str]] = None) -> date:
+    """Add n trading days to d.  Uses the real SPY trading calendar for
+    the portion already covered by cached price history (exact — matches
+    the resolver's own calendar-mature check); falls back to weekday-only
+    stepping (approximate, no holiday calendar) once it runs past the
+    cached range, since future market holidays aren't knowable in
+    advance."""
+    spy_dates = spy_dates or []
+    d_s = d.isoformat()
+    idx = next((i for i, sd in enumerate(spy_dates) if sd >= d_s), None)
+    if idx is not None:
+        if idx + n < len(spy_dates):
+            return datetime.strptime(spy_dates[idx + n], "%Y-%m-%d").date()
+        remaining = n - (len(spy_dates) - 1 - idx)
+        cur = datetime.strptime(spy_dates[-1], "%Y-%m-%d").date()
+    else:
+        remaining, cur = n, d
+    added = 0
+    while added < remaining:
         cur += timedelta(days=1)
         if cur.weekday() < 5:
             added += 1
     return cur
 
 
-def _trading_days_between(a: date, b: date) -> int:
-    """Approximate elapsed trading days (weekdays) in (a, b]."""
+def _trading_days_between(a: date, b: date, spy_dates: Optional[List[str]] = None) -> int:
+    """Elapsed trading days in (a, b].  Exact against the real SPY
+    calendar for the cached range; weekday-only approximation for any
+    portion of (a, b] beyond the last cached bar."""
     if b <= a:
         return 0
-    days, cur = 0, a
+    spy_dates = spy_dates or []
+    a_s, b_s = a.isoformat(), b.isoformat()
+    counted = [sd for sd in spy_dates if a_s < sd <= b_s]
+    if spy_dates and b_s <= spy_dates[-1]:
+        return len(counted)
+    days = len(counted)
+    cur = (datetime.strptime(spy_dates[-1], "%Y-%m-%d").date()
+           if spy_dates and spy_dates[-1] > a_s else a)
     while cur < b:
         cur += timedelta(days=1)
         if cur.weekday() < 5:
@@ -654,6 +701,7 @@ def _maturity_eta_lines(inputs: Dict[str, Any],
         return []
     today = today or datetime.now(timezone.utc).date()
     lines: List[str] = []
+    spy_dates = _load_spy_trading_dates(store)
 
     appearances = _read_appearance_dates(store.history_jsonl)
     if appearances:
@@ -664,11 +712,11 @@ def _maturity_eta_lines(inputs: Dict[str, Any],
         for h in _ETA_HORIZONS_TD:
             if (mbh.get(f"{h}d") or 0) > 0:
                 continue  # already maturing — no ETA needed
-            eta = _add_trading_days(earliest, h)
+            eta = _add_trading_days(earliest, h, spy_dates)
             approaching = sum(
                 1 for a in appearances
                 if h - _ETA_APPROACHING_TD
-                <= _trading_days_between(a, today) < h)
+                <= _trading_days_between(a, today, spy_dates) < h)
             eta_s = (f"≈{eta.isoformat()}" if eta > today
                      else f"due (earliest cohort passed {h}td "
                           f"{eta.isoformat()} — resolution pending)")
@@ -676,13 +724,15 @@ def _maturity_eta_lines(inputs: Dict[str, Any],
                          + (f" ({approaching} entries within "
                             f"{_ETA_APPROACHING_TD}td)" if approaching else ""))
         if parts:
-            lines.append("- Maturity ETA (first episode, weekday-approx): "
-                         + " | ".join(parts))
+            label = ("first episode, real trading calendar" if spy_dates
+                     else "first episode, weekday-approx — SPY calendar "
+                          "unavailable")
+            lines.append(f"- Maturity ETA ({label}): " + " | ".join(parts))
 
     hc_dates = _read_appearance_dates(store.high_conviction_history_jsonl)
     if hc_dates:
         fv = _load_json(store.high_conviction_forward_json) or {}
-        eta10 = _add_trading_days(min(hc_dates), 10)
+        eta10 = _add_trading_days(min(hc_dates), 10, spy_dates)
         full = ((fv.get("cohorts") or {}).get("full_shortlist") or {})
         matured_10d = (((full.get("10d") or {}).get("raw") or {}).get("n")
                        or 0)

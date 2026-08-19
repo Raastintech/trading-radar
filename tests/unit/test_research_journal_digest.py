@@ -809,6 +809,78 @@ def test_trading_day_helpers():
     assert _trading_days_between(date(2026, 7, 6), date(2026, 7, 6)) == 0
 
 
+def _business_days(start, n: int, skip=()):
+    from datetime import timedelta
+    out, cur = [], start
+    while len(out) < n:
+        if cur.weekday() < 5 and cur.isoformat() not in skip:
+            out.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return out
+
+
+def _write_spy_parquet(root: Path, dates) -> None:
+    import pandas as pd
+    path = root / "cache" / "prices" / "SPY.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"date": dates, "close": [100.0 + i for i in range(len(dates))]}
+                 ).to_parquet(path)
+
+
+def test_add_trading_days_uses_real_spy_calendar_over_naive_weekdays():
+    """A market holiday inside the window must push the real-calendar ETA
+    a day later than naive weekday-only counting — this is the exact
+    mechanism that made the digest wrongly declare 45d 'due' one cohort
+    early (two market holidays fell inside the window and naive weekday
+    counting didn't know to skip them)."""
+    from datetime import date
+    from dashboards.research_command_center.journal_digest import (
+        _add_trading_days, _trading_days_between)
+    start = date(2026, 7, 6)  # Monday
+    spy_dates = _business_days(start, 10, skip=["2026-07-08"])  # 1 holiday
+
+    naive = _add_trading_days(start, 5)
+    real = _add_trading_days(start, 5, spy_dates)
+    assert naive == date(2026, 7, 13)
+    assert real == date(2026, 7, 14)
+    assert real > naive
+
+    assert _trading_days_between(start, date(2026, 7, 13), spy_dates) == 4
+    assert _trading_days_between(start, date(2026, 7, 13)) == 5
+
+
+def test_maturity_eta_lines_not_due_when_real_calendar_short_by_holidays(
+        fixture_root):
+    """Integration-level regression: with a SPY calendar that has two
+    holidays inside the 45td window (mirroring Juneteenth + the July 4th
+    observance), the earliest cohort must NOT be reported as 'due' even
+    though naive weekday counting alone would have crossed 45."""
+    from datetime import date
+    earliest = date(2026, 6, 15)
+    today = date(2026, 8, 18)
+    # Real trading calendar covering the window, minus two holidays —
+    # mirrors the 43-real-trading-days-elapsed production case.
+    spy_dates = _business_days(earliest, 90,
+                               skip=["2026-06-19", "2026-07-03"])
+    spy_dates = [d for d in spy_dates if d <= today.isoformat()]
+    _write_spy_parquet(fixture_root, spy_dates)
+    _write_history(fixture_root, earliest.isoformat())
+    fwd_path = (fixture_root / "cache" / "research"
+                / "research_forward_latest.json")
+    fwd_obj = json.loads(fwd_path.read_text())
+    fwd_obj["overall"]["matured_by_horizon"] = {"20d": 7, "45d": 0, "60d": 0}
+    _write(fwd_path, fwd_obj)
+
+    from dashboards.research_command_center.journal_digest import (
+        _maturity_eta_lines)
+    inputs = collect_inputs(ArtifactStore(root=fixture_root))
+    lines = _maturity_eta_lines(inputs, today=today)
+    eta_line = [ln for ln in lines if "Maturity ETA" in ln][0]
+    assert "real trading calendar" in eta_line
+    assert "45d due" not in eta_line
+    assert "45d ≈2026-08-19" in eta_line
+
+
 def _write_history(root: Path, appearance: str, n: int = 3,
                    fname: str = "research_watchlist_history.jsonl") -> None:
     p = root / "data" / "research" / fname
