@@ -938,7 +938,15 @@ def _section_alpha_focus(inputs: Dict[str, Any]) -> List[str]:
         f"(HC overlap {counts.get('high_conviction_overlap')}, EO overlap {counts.get('emerging_outlier_overlap')}).")
     review_now = [r.get("ticker") for r in (af.get("review_now") or [])[:5]]
     lines.append(f"- Review Now names: {_join(review_now) if review_now else 'none'}.")
-    eo_review = [r.get("ticker") for r in (af.get("higher_risk_eo_review") or [])[:5]]
+    # A ticker with material red-flag risk notes must not also sit in the
+    # clean Higher-Risk EO Review line — it belongs only in Red-flag
+    # review / Risk Review below, never in both (WGS/RIVN 2026-08-22
+    # duplicate; same rule as _section_todays_operator_focus).
+    eo_review = [
+        ticker for ticker in
+        (r.get("ticker") for r in (af.get("higher_risk_eo_review") or []))
+        if not _priority_red_flag_for(inputs, ticker)
+    ][:5]
     lines.append(f"- Higher-Risk EO Review names: {_join(eo_review) if eo_review else 'none'}.")
     reasons = af.get("deprioritized_by_reason_summary") or {}
     for reason, summary in sorted(reasons.items()):

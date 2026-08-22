@@ -432,7 +432,8 @@ def test_alignment_verdicts_with_leadership():
 
 from dashboards.research_command_center.journal_digest import (  # noqa: E402
     _metric_anomalies_for, _red_flags_for, _review_queue_groups,
-    _section_review_queue, _section_todays_operator_focus,
+    _section_alpha_focus, _section_review_queue,
+    _section_todays_operator_focus,
 )
 
 
@@ -731,6 +732,50 @@ def test_operator_focus_excludes_red_flagged_from_higher_risk(monkeypatch):
     assert not (higher_risk_set & red_flag_set), (
         "no ticker may appear in both Higher-risk emerging review and "
         "Red-flag review only")
+
+
+def test_alpha_focus_excludes_red_flagged_from_higher_risk_eo(monkeypatch):
+    """A ticker with material red-flag risk notes (WGS/RIVN-style,
+    2026-08-22 duplicate) must not sit in the Alpha Focus 'Higher-Risk
+    EO Review' line — it belongs only in Red-flag review / Risk Review,
+    and never in both. Clean EO names (ACVA/MNKD-style) must still be
+    able to appear."""
+    fundamentals = {
+        "WGS": {"quality_label": "UNPROFITABLE_STRESSED",
+                 "operating_margin_pct": -13.3},
+        "RIVN": {"quality_label": "UNPROFITABLE_STRESSED",
+                  "operating_margin_pct": -60.0},
+        "ACVA": {"quality_label": "UNPROFITABLE", "operating_margin_pct": -7.1},
+        "MNKD": {"quality_label": "UNPROFITABLE"},
+    }
+    monkeypatch.setattr(
+        "dashboards.research_command_center.journal_digest.build_fundamentals",
+        lambda ticker, store: fundamentals.get(ticker, {"fallback": True}))
+    inputs = {
+        "store": object(),
+        "high_conviction": {},
+        "emerging_outlier": {"watch": [{"ticker": t} for t in
+                             ("WGS", "RIVN", "ACVA", "MNKD")]},
+        "alpha_focus": {
+            "market_as_of_date": "2026-08-22",
+            "counts": {"review_now": 0, "higher_risk_eo_review": 4,
+                       "wait_for_reset": 0, "deprioritized": 0,
+                       "total_today": 4, "high_conviction_overlap": 0,
+                       "emerging_outlier_overlap": 4},
+            "review_now": [],
+            "higher_risk_eo_review": [
+                {"ticker": t} for t in ("WGS", "RIVN", "ACVA", "MNKD")],
+            "deprioritized_by_reason_summary": {},
+        },
+    }
+    lines = _section_alpha_focus(inputs)
+    eo_line = next(
+        l for l in lines if l.startswith("- Higher-Risk EO Review names:"))
+
+    assert "WGS" not in eo_line
+    assert "RIVN" not in eo_line
+    assert "ACVA" in eo_line
+    assert "MNKD" in eo_line
 
 
 # ── options-overlay structural line + final-finding annotation ───────────────
