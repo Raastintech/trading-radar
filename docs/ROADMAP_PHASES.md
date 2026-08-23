@@ -607,6 +607,36 @@ merge behavior below is preserved as a historical record only.
 
 ---
 
+## Future Direction — Recursive Self-Improvement Governor
+**Status:** future design principle only — not implemented, not scheduled.
+
+The research system may eventually support an AI-assisted recursive
+self-improvement loop where LLM reviewers such as DeepSeek review daily
+digests, forward evidence, cohort failures, data-quality issues, and
+operator feedback, then propose research hypotheses. Claude Code may
+help implement approved experiments in sandbox mode only. Production
+alpha logic must not be changed automatically.
+
+**Core rule:** AI can review, propose, test, and explain. AI cannot
+independently rewrite production scanner logic, scoring, gates, HC/EO
+rules, Alpha Focus rules, or program verdicts.
+
+Any production change must require:
+- an explicit hypothesis
+- a baseline comparison
+- out-of-sample forward evidence
+- a random/control cohort comparison
+- no-lookahead validation
+- human approval
+- passing tests
+- research-only safeguards preserved
+
+**Current status:** this is a future design principle only. Do not
+implement until the 45d and 60d forward-evidence windows have matured
+enough to evaluate whether the current system has a stable edge.
+
+---
+
 ## Governance
 
 - A phase is **complete** only when its exit criteria are satisfied AND the
