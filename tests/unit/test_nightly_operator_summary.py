@@ -368,6 +368,50 @@ def test_warnings_scanner_recall_labeled_as_legacy_funnel():
     assert "decommissioned" in recall_warn[0]
 
 
+def test_warnings_recall_shows_live_cohort_progress_not_bare_verdict():
+    """The live research-board recall note must surface real progress
+    (matured-date count vs floor, cohort recall figures) rather than just
+    an opaque verdict string -- a reader can't tell how close the
+    live-board measurement is to a real answer from "NEED_MORE_DATA"
+    alone."""
+    sidecars = _make_sidecars()
+    ctx = _build_market_context(sidecars["forecast"])
+    snap = _build_alpha_snapshot(sidecars["alpha_radar"], sidecars["scanner"])
+    fwd = _build_forward_evidence(sidecars["forward"])
+    fake_cohorts = {
+        "verdict": "NEED_MORE_DATA",
+        "matured_dates": 13,
+        "gates": {"min_matured_dates": 15},
+        "cohorts": {
+            "scanner_watchlist": {"winner_recall_pct": 13.5},
+            "rs_baseline": {"winner_recall_pct": 5.5},
+        },
+    }
+    with patch("research.nightly_operator_summary._load_json",
+              return_value=fake_cohorts):
+        warns = _build_warnings(sidecars, ctx, fwd, snap)
+    recall_warn = next(w for w in warns if "recall" in w.lower())
+    assert "13/15 matured dates" in recall_warn
+    assert "scanner-watchlist recall 13.5%" in recall_warn
+    assert "RS-baseline 5.5%" in recall_warn
+
+
+def test_warnings_recall_degrades_gracefully_without_cohort_data():
+    """Missing/partial cohort data must not crash the warnings builder or
+    fabricate figures -- it should fall back to the bare verdict form."""
+    sidecars = _make_sidecars()
+    ctx = _build_market_context(sidecars["forecast"])
+    snap = _build_alpha_snapshot(sidecars["alpha_radar"], sidecars["scanner"])
+    fwd = _build_forward_evidence(sidecars["forward"])
+    with patch("research.nightly_operator_summary._load_json",
+              return_value={}):
+        warns = _build_warnings(sidecars, ctx, fwd, snap)
+    recall_warn = next(w for w in warns if "recall" in w.lower())
+    assert "Legacy council-funnel recall" in recall_warn
+    # no cohorts payload -> no live-board note at all (nothing to report)
+    assert "scanner-recall cohorts" not in recall_warn
+
+
 def test_warnings_forward_immature():
     sidecars = _make_sidecars()
     ctx = _build_market_context(sidecars["forecast"])

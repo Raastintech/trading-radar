@@ -145,11 +145,23 @@ TRACKER_VERDICT_RANK = {
 }
 
 _RECALL_RE = re.compile(
-    r"recall[^0-9%\n]{0,40}?([0-9]+(?:\.[0-9]+)?)\s*%", re.IGNORECASE)
+    # Negative lookbehind excludes the legacy council-funnel figure (the
+    # decommissioned pipeline's autopsy number) so a genuinely live-board
+    # recall percentage elsewhere in the same digest is still found.
+    r"(?<!legacy council-funnel )recall[^0-9%\n]{0,40}?"
+    r"([0-9]+(?:\.[0-9]+)?)\s*%", re.IGNORECASE)
 _RECALL_BASELINE_RE = re.compile(
     r"baseline[:\s]+([0-9]+(?:\.[0-9]+)?)\s*%", re.IGNORECASE)
 _RECALL_MAIN_MISS_RE = re.compile(
     r"main miss[:\s]+([A-Z_]+)", re.IGNORECASE)
+# The scanner-truth recall figure traces the decommissioned council funnel
+# (frozen 2026-06-13) and is explicitly labeled as such in the digest
+# (nightly_operator_summary.py). It must never be read as a live-board
+# blocker -- see LIVE_RECALL_VERDICT_RE for the actual live-board signal.
+_LEGACY_RECALL_LABEL_RE = re.compile(
+    r"legacy council-funnel recall", re.IGNORECASE)
+_LIVE_RECALL_VERDICT_RE = re.compile(
+    r"scanner-recall cohorts:\s*([A-Z_]+)", re.IGNORECASE)
 _TRACKER_VERDICT_RE = re.compile(
     r"tracker verdict:\s*([A-Z_]+)", re.IGNORECASE)
 _QUARANTINED_RE = re.compile(r"quarantined:\s*(\d+)", re.IGNORECASE)
@@ -311,6 +323,12 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
     if m:
         recall_main_miss = m.group(1).upper()
 
+    legacy_recall_labeled = bool(_LEGACY_RECALL_LABEL_RE.search(text))
+    live_recall_verdict = None
+    m = _LIVE_RECALL_VERDICT_RE.search(text)
+    if m:
+        live_recall_verdict = m.group(1).upper()
+
     quarantine_count = None
     m = _QUARANTINED_RE.search(text)
     if m:
@@ -429,6 +447,8 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         "scanner_recall_pct": recall_pct,
         "recall_baseline_pct": recall_baseline_pct,
         "recall_main_miss": recall_main_miss,
+        "legacy_recall_labeled": legacy_recall_labeled,
+        "live_recall_verdict": live_recall_verdict,
         "options_overlay_disabled": bool(
             re.search(r"options\s+overlay[^\n]{0,60}disabled", lower)),
         "quarantine_count": quarantine_count,
@@ -1106,7 +1126,11 @@ def build_next_system_actions(
     actions: List[Dict[str, str]] = []
     flaw_areas = {f.get("area") for f in flaws}
 
-    # P0 — scanner recall diagnostics (never auto-loosen)
+    # P0 — scanner recall diagnostics (never auto-loosen). scanner_recall_pct
+    # already excludes the labeled legacy council-funnel figure at
+    # extraction time (see _RECALL_RE) -- it is only ever populated here
+    # from a genuinely live-board recall mention, so no extra
+    # legacy-vs-live branching is needed at this call site.
     recall = signals.get("scanner_recall_pct")
     recall_low = (recall is not None
                   and recall < SCANNER_RECALL_FLOOR_PCT) \

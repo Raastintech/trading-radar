@@ -137,6 +137,50 @@ def test_healthy_recall_creates_no_recall_flaw():
                 if f["area"] == "scanner_recall"]
 
 
+_LEGACY_RECALL_LINE = (
+    "- Warning: Legacy council-funnel recall 0.0% (autopsy of the "
+    "pipeline decommissioned 2026-06-13, not the live board) — main "
+    "miss: FILTER_TOO_STRICT — live research-board recall accruing via "
+    "scanner-recall cohorts: NEED_MORE_DATA")
+
+
+def test_legacy_labeled_recall_extracted_and_flagged():
+    sig = jar.extract_digest_signals(make_digest(
+        recall_line=_LEGACY_RECALL_LINE))
+    assert sig["legacy_recall_labeled"] is True
+    # the legacy figure is excluded from scanner_recall_pct entirely (not
+    # just from flaw-triggering) so it never leaks into any consumer --
+    # e.g. an MCP/dashboard snapshot -- as if it were live-board data.
+    assert sig["scanner_recall_pct"] is None
+    assert sig["live_recall_verdict"] == "NEED_MORE_DATA"
+
+
+def test_legacy_labeled_recall_creates_no_high_flaw():
+    """A recall figure explicitly labeled as the decommissioned council
+    funnel must never be read as a live-board blocker -- it is a
+    historical autopsy, not evidence about the current scanner."""
+    digest = make_digest(recall_line=_LEGACY_RECALL_LINE)
+    audit = jar.audit_daily_digest(digest)
+    assert not [f for f in audit["flaws_detected"]
+                if f["area"] == "scanner_recall"]
+    assert not [a for a in audit["next_system_actions"]
+                if a["area"] == "scanner_recall"]
+    assert "low recall" not in audit["one_line_summary"]
+
+
+def test_non_legacy_recall_still_flagged_alongside_legacy_line():
+    """If a genuinely live-board recall figure ever appears in the same
+    digest as the legacy line, it must still be caught -- the guard only
+    suppresses the specific legacy-labeled occurrence, not all recall
+    signal."""
+    digest = make_digest(
+        recall_line=_LEGACY_RECALL_LINE
+        + "\n- Warning: live-board recall 1.5% vs 40% baseline")
+    audit = jar.audit_daily_digest(digest)
+    flaws = [f for f in audit["flaws_detected"] if f["area"] == "scanner_recall"]
+    assert flaws and flaws[0]["severity"] == "HIGH"
+
+
 # ── 3. MIXED forward evidence => never STRONG ───────────────────────────────
 
 

@@ -1,6 +1,6 @@
 # Research Portfolio Roadmap — 2026-08-25
 
-*Generated 2026-08-25T21:08:08+00:00 · read-only portfolio review · research-only, cache-only.*
+*Generated 2026-08-25T21:08:08+00:00 · updated 2026-08-25T21:43:44+00:00 (same day — §6/§7/§9 revised after building the two approved measurement-infrastructure pieces) · research-only, cache-only.*
 
 This note records the outcome of a read-only portfolio review of the research
 engine's strategy families, forward evidence, and infrastructure gaps as of
@@ -151,18 +151,29 @@ archived rather than re-tested:
   permanently decommissioned 2026-06-13, and `scripts/run_paper_evidence.py`
   does not run. The one strategy that earned the next rung of the
   promotion ladder currently has nowhere to go.
-- **Proposed future action** (design only, not implemented): a narrow,
-  cache-only forward shadow ledger —
-  `research/core_satellite_forward_shadow.py`, append-only JSONL row per
-  day (`date, regime_label, target_exposure, qqq_close, blend_close,
-  shadow_nav`), NAV computed by pure arithmetic from the existing regime
-  classification and already-cached QQQ/BLEND bars — no fills, no
-  slippage modeling, no broker/execution imports, no provider calls beyond
-  what is already cached. A `--report` mode would recompute running
-  CAGR/maxDD/Calmar since the shadow-tracking start date for direct
-  comparison against the original backtest numbers.
-- **Do not implement this yet.** It requires explicit approval as a
-  separate task.
+- **Built and seeded 2026-08-25** (measurement infrastructure — approved
+  separately from the alpha-system freeze; see §9): `research/
+  core_satellite_forward_shadow.py`, a narrow, cache-only forward shadow
+  ledger. Reuses the exact backtested rules rather than re-deriving them
+  (`research.strategy_lab_regime.classify_regime` for the as-of regime,
+  `core_satellite_portfolio.target_exposure`/`blend_asset` for the
+  exposure ladder), with the same no-lookahead rule as the original
+  backtest (exposure decided from day i-1's regime applies to day i's
+  return). Tracks both gate-passing variants (QQQ-only and SPY/QQQ
+  blend). Append-only ledger at `data/research/
+  core_satellite_forward_shadow.jsonl`, metrics sidecar at
+  `cache/research/core_satellite_forward_shadow_latest.json`
+  (CAGR/maxDD/Calmar, suppressed until >=20 realized days to avoid
+  noisy early annualization). No fills, no slippage modeling, no
+  broker/execution imports — pure arithmetic over already-cached bars.
+  Seeded on 2026-08-24 (NAV=1.0 for both variants); the first realized
+  daily return lands the next time it runs. 14 unit tests
+  (`tests/unit/test_core_satellite_forward_shadow.py`).
+- **This does not backfill history.** Per instruction, the ledger starts
+  from whatever session was current when it first ran — it does not
+  reconstruct what the shadow would have shown between the backtest's
+  cutoff and today. That is real forward-validation days lost by not
+  having built this sooner, not something this task recovers.
 
 ## 7. Live-Board Recall Measurement
 
@@ -182,16 +193,44 @@ archived rather than re-tested:
   This is what the digest's "live research-board recall accruing via
   scanner-recall cohorts: NEED_MORE_DATA" refers to — it is ~7 weeks into
   accrual, not stalled at zero.
-- **Future work should re-point the already-proven recall methodology**
-  (the liquid-winner identification approach in `research/
-  scanner_truth_review.py` and the forward-validation approach in
-  `research/rs_recall_forward_validation.py`, both already used for the
-  §3 shadow/RS-top/alpha comparison) at
-  `scanner_recall_cohorts_history.jsonl`'s dated snapshots instead of the
-  old funnel's historized stages. This is substantially a re-pointing
-  exercise, not new methodology.
-- **Do not implement this yet.** It requires explicit approval as a
-  separate task.
+- **Correction (2026-08-25, same day): this measurement already existed
+  and did not need to be built.** A closer read of `research/
+  scanner_recall_cohorts.py` found it already runs a full forward
+  comparison (`build_report`/`_verdict`) of the live board against
+  strict/loose/RS-baseline/random cohorts, at 13/15 matured dates as of
+  today (`cache/research/scanner_recall_cohorts_latest.json`: verdict
+  `NEED_MORE_DATA`, scanner-watchlist 20d winner-recall 13.5% vs.
+  RS-baseline 5.5%, gates need 15 matured dates and haven't yet been
+  met). The earlier framing in this section (re-point the recall
+  methodology at the cohort snapshots) was based on an incomplete read —
+  the methodology was already pointed there. The actual gap was
+  narrower: the digest only surfaced the bare verdict string, and the
+  fallback (non-LLM) audit path was still misreading the labeled legacy
+  figure as a live blocker.
+- **Fixed 2026-08-25** (measurement infrastructure — approved separately
+  from the alpha-system freeze; see §9):
+  - `research/nightly_operator_summary.py` — the live-board recall note
+    now surfaces the real progress (matured-date count vs. the 15-date
+    floor, scanner-watchlist vs. RS-baseline recall at 20d) instead of a
+    bare "NEED_MORE_DATA" string with no way to judge how close it is.
+  - `research/journal_audit_reviewer.py` — `_RECALL_RE` now excludes the
+    labeled "Legacy council-funnel recall" figure via a negative
+    lookbehind, so `scanner_recall_pct` is only ever populated from a
+    genuinely live-board recall mention. Before this fix, the fallback
+    audit path (which ran on 8 of the last 9 nights before the
+    role="chat" fix landed, and will still run whenever the LLM call
+    fails) raised a false HIGH `scanner_recall` flaw, a false P0
+    "build scanner recall diagnostics" action, and a false "low recall"
+    line in the one-line summary — every single night, off a
+    decommissioned number, for at least seven weeks. Verified against
+    today's real digest: zero recall flaws/actions post-fix, and the
+    diagnostics-building action (queued 27 times since 2026-07-08,
+    already ADDRESSED once) will not re-fire off this dead metric again.
+    5 new/updated unit tests.
+- **No new recall-measurement script was written** — there was nothing
+  left to build once the surfacing and parsing were fixed. The
+  scanner-recall-cohorts historizer (§4) continues to accrue toward its
+  own 15-matured-date gate on its own schedule.
 
 ## 8. Guardrails
 
@@ -210,8 +249,25 @@ identically here.
 
 ## 9. Current Status
 
-- No production alpha logic changes approved.
+**Operating principle (set 2026-08-25): wait for 45d/60d before changing
+the alpha system; do not wait for 45d/60d to fix missing measurement
+infrastructure.** These are governed by different constraints — the
+alpha-system verdict is genuinely sample-limited at 45d/60d (§2), while
+measurement infrastructure (Core-Satellite's forward-validation venue,
+§6; live-board recall surfacing, §7) was blocked only on being built, not
+on any horizon maturing. Conflating the two would have used the 45d/60d
+gate as cover for delaying work it never actually governed.
+
+- No production alpha logic changes approved. Scanner logic, scores,
+  rankings, filters, gates, thresholds, factor weights, HC/EO rules,
+  Alpha Focus rules, program verdicts, and candidate selection remain
+  untouched.
 - No new strategy family launches.
-- Waiting for more 45d/60d evidence (§2) — the only place waiting is the
-  correct response.
+- Waiting for more 45d/60d evidence (§2) on the alpha-system verdict —
+  the only place waiting is the correct response.
+- **Measurement infrastructure built 2026-08-25, same day as this
+  principle was set:** the Core-Satellite forward-shadow ledger (§6) and
+  the live-board recall digest surfacing + false-flaw fix (§7). Neither
+  touched scanner logic, scores, gates, candidate selection, or existing
+  evidence files — both are additive diagnostic/bookkeeping layers.
 - Research only — not a signal or recommendation.

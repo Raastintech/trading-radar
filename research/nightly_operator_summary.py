@@ -511,8 +511,27 @@ def _build_warnings(
             cohorts = _load_json(RESEARCH_DIR / "scanner_recall_cohorts_latest.json") or {}
             live_note = ""
             if cohorts:
+                progress = (f" ({cohorts.get('matured_dates')}/"
+                           f"{(cohorts.get('gates') or {}).get('min_matured_dates')} "
+                           "matured dates"
+                           if cohorts.get("matured_dates") is not None
+                           and (cohorts.get("gates") or {}).get(
+                               "min_matured_dates") is not None
+                           else "")
+                watch = (cohorts.get("cohorts") or {}).get(
+                    "scanner_watchlist") or {}
+                rs = (cohorts.get("cohorts") or {}).get("rs_baseline") or {}
+                figures = ("; scanner-watchlist recall "
+                          f"{watch['winner_recall_pct']}% vs RS-baseline "
+                          f"{rs['winner_recall_pct']}% at 20d"
+                          if watch.get("winner_recall_pct") is not None
+                          and rs.get("winner_recall_pct") is not None
+                          else "")
+                progress_close = ")" if progress else ""
                 live_note = (" — live research-board recall accruing via "
-                             f"scanner-recall cohorts: {cohorts.get('verdict', 'UNKNOWN')}")
+                             f"scanner-recall cohorts: "
+                             f"{cohorts.get('verdict', 'UNKNOWN')}"
+                             f"{progress}{figures}{progress_close}")
             warnings.append(
                 f"Legacy council-funnel recall {recall_pct}% (autopsy of the pipeline "
                 f"decommissioned 2026-06-13, not the live board) — main miss: "
