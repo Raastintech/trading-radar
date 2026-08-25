@@ -1757,7 +1757,7 @@ def _llm_audit(digest_text: str) -> Dict[str, Any]:
     resp = client.complete(
         _USER_PROMPT_TEMPLATE.format(context=context, digest=digest_text),
         system=_SYSTEM_PROMPT,
-        role="reasoner",
+        role="chat",
         model=model_override,
         max_tokens=LLM_MAX_TOKENS,
         timeout=LLM_TIMEOUT_SECONDS,
