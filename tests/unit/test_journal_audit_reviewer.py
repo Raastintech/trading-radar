@@ -282,15 +282,20 @@ def test_run_audit_writes_sidecar_and_feedback_queue(tmp_path):
     assert saved["promote_to_signal"] is False
     assert saved["one_line_summary"] == audit["one_line_summary"]
 
+    # recommended_claude_code_tasks are free-text one-liners the LLM
+    # rewords nightly — they never dedupe reliably, so they stay in the
+    # sidecar as read-only notes only and must NOT be queued.
+    assert audit["recommended_claude_code_tasks"]
+    assert saved["recommended_claude_code_tasks"] == \
+        audit["recommended_claude_code_tasks"]
+
     assert queue.exists()
     entries = [json.loads(ln) for ln in
                queue.read_text(encoding="utf-8").splitlines() if ln.strip()]
     assert entries
     assert all(e["source"] == "journal_audit_reviewer" for e in entries)
-    recommended = [e for e in entries if e["kind"] == "recommended_task"]
-    repairs = [e for e in entries if e["kind"] == "system_repair_task"]
-    assert {e["task"] for e in recommended} == \
-        set(audit["recommended_claude_code_tasks"])
+    assert all(e["kind"] == "system_repair_task" for e in entries)
+    repairs = entries
     assert {(r["priority"], r["area"], r["task"]) for r in repairs} == \
         {(a["priority"], a["area"], a["task"])
          for a in audit["next_system_actions"]}
@@ -309,14 +314,16 @@ def test_feedback_queue_dedupes_same_digest(tmp_path):
                if ln.strip()]
     reference = jar.run_audit(digest, root=tmp_path, use_llm=False,
                               write=False)
-    n_expected = len(reference["recommended_claude_code_tasks"]) \
-        + len(reference["next_system_actions"])
-    assert len(entries) == n_expected  # not doubled
+    n_expected = len(reference["next_system_actions"])
+    assert len(entries) == n_expected  # not doubled; recommended tasks unqueued
 
 
 def test_llm_reaudit_of_same_digest_still_queues(tmp_path, monkeypatch):
     """A fallback audit queues first; a later LLM audit of the SAME digest
-    must still append its (richer) tasks — dedupe is per audit source."""
+    must still append its own next_system_actions — dedupe is per audit
+    source, not per digest.  recommended_claude_code_tasks (here "llm
+    task A"/"llm task B") must never appear in the queue at all, on
+    either path — they are sidecar-only read notes."""
     digest = make_digest(quarantined=5)
     jar.run_audit(digest, root=tmp_path, use_llm=False)
     monkeypatch.setattr(jar, "_llm_audit", lambda text: {
@@ -335,9 +342,8 @@ def test_llm_reaudit_of_same_digest_still_queues(tmp_path, monkeypatch):
             queue.read_text(encoding="utf-8").splitlines() if ln.strip()]
     sources = {r["audit_source"] for r in rows}
     assert sources == {"rule_based_fallback", "llm"}
-    assert {r["task"] for r in rows if r["audit_source"] == "llm"
-            and r["kind"] == "recommended_task"} == \
-        {"llm task A", "llm task B"}
+    assert all(r["kind"] == "system_repair_task" for r in rows)
+    assert {r["task"] for r in rows}.isdisjoint({"llm task A", "llm task B"})
 
 
 def test_dashboard_payload_includes_journal_audit(tmp_path):

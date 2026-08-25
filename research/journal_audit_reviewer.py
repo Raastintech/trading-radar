@@ -2130,10 +2130,18 @@ def write_audit_outputs(audit: Dict[str, Any],
                         root: Optional[Path] = None,
                         blocker_snapshot: Optional[Dict[str, Dict]] = None,
                         ) -> Dict[str, Path]:
-    """Persist the audit: full JSON sidecar, repair tasks + recommended
-    tasks appended to the feedback queue, and a compact trend record
-    appended to the audit history (both deduped per digest hash).  These
-    are the module's only writes."""
+    """Persist the audit: full JSON sidecar (includes
+    recommended_claude_code_tasks as read-only notes for a human reader),
+    next_system_actions appended to the feedback queue as trackable
+    repair tasks, and a compact trend record appended to the audit
+    history (both deduped per digest hash).  recommended_claude_code_tasks
+    are NOT queued — they are the LLM's free-text one-liners, reworded
+    every night even for the same underlying issue, so they never
+    dedupe against each other and only accumulate as untriaged backlog
+    (72 open, all repeat_count=1, as of 2026-08-25). next_system_actions
+    have a stable area/priority and templated wording, so they dedupe
+    correctly and are the only queue-worthy output of this module.
+    These are the module's only writes."""
     root = Path(root) if root else REPO_ROOT
     sidecar = root / AUDIT_SIDECAR_REL
     queue = root / FEEDBACK_QUEUE_REL
@@ -2155,9 +2163,7 @@ def write_audit_outputs(audit: Dict[str, Any],
         "research_verdict": audit.get("research_verdict"),
     }
     actions = audit.get("next_system_actions") or []
-    tasks = audit.get("recommended_claude_code_tasks") or []
-    if (actions or tasks) \
-            and not _jsonl_has_digest(queue, digest_sha, audit_source):
+    if actions and not _jsonl_has_digest(queue, digest_sha, audit_source):
         queue.parent.mkdir(parents=True, exist_ok=True)
         with queue.open("a", encoding="utf-8") as fh:
             for action in actions:
@@ -2169,12 +2175,6 @@ def write_audit_outputs(audit: Dict[str, Any],
                     "task": action["task"],
                     "why": action["why"],
                     "success_metric": action["success_metric"],
-                }, ensure_ascii=False) + "\n")
-            for task in tasks:
-                fh.write(json.dumps({
-                    **common,
-                    "kind": "recommended_task",
-                    "task": task,
                 }, ensure_ascii=False) + "\n")
 
     if blocker_snapshot is not None \
