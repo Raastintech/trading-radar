@@ -63,7 +63,6 @@ AUDIT_HISTORY_REL = Path("data") / "research" / "journal_audit_history.jsonl"
 # the explicitly re-enabled Anthropic fallback.
 MODEL_ENV_VAR = "JOURNAL_AUDIT_LLM_MODEL"
 LEGACY_ANTHROPIC_MODEL_ENV_VAR = "JOURNAL_AUDIT_ANTHROPIC_MODEL"
-LLM_TIMEOUT_SECONDS = 240.0
 # 2026-07-16: raised 4000 -> 8000 after a real truncation — the 2026-07-16
 # nightly response hit the 4000-token cap mid-JSON (~9.5k chars) and fell
 # back with "JSONDecodeError: Expecting ',' delimiter ... char 9525".
@@ -73,11 +72,23 @@ LLM_TIMEOUT_SECONDS = 240.0
 # 8000 cap was also hitting core/llm_clients/deepseek_client.py's
 # PROVIDER_MAX_OUTPUT_TOKENS clamp (was 8192, now 65536 — see that file),
 # so both layers were capping this call; 16000 gives real headroom under
-# the new clamp. Timeout raised 90s -> 240s to match: the 8000-token
-# completion on 2026-07-21 already took ~133s, so a larger budget needs
-# more wall-clock room. This is a nightly batch job — latency isn't
-# user-facing.
-LLM_MAX_TOKENS = 16000
+# the new clamp.
+# 2026-08-25: switched role="reasoner" -> "chat" because the reasoner was
+# burning the whole 16000-token budget on hidden chain-of-thought
+# (completion_tokens pinned at 16000 with 0 visible chars). That fix was
+# validated against a small fixed test digest (2820-3782 completion
+# tokens) but every real nightly run since (2026-08-25/26/27) still
+# pinned at 15999-16000 completion tokens and fell back — as the
+# candidate board grew (92 names by 2026-08-27), the real digest's
+# open-ended JSON fields (flaws_detected, candidate_quality_summary,
+# next_system_actions, etc.) outgrew 16000 tokens even in chat mode.
+# 2026-08-27: raised 16000 -> 40000 (well under the 65536 provider clamp,
+# leaving headroom for future board growth). Timeout raised 240s -> 600s
+# to match: at the ~60 tok/s observed on 2026-07-21 (8000 tokens/133s),
+# a 40000-token completion needs up to ~11 minutes of wall-clock room.
+# This is a nightly batch job — latency isn't user-facing.
+LLM_TIMEOUT_SECONDS = 600.0
+LLM_MAX_TOKENS = 40000
 # Raw response preserved here whenever the LLM reply cannot be parsed, so
 # a fallback night leaves the evidence needed to diagnose it.
 LLM_RAW_ERROR_REL = Path("logs") / "journal_audit_llm_raw_error.txt"
