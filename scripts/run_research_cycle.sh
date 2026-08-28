@@ -1526,6 +1526,26 @@ cmd_alpha_focus() {
         "$PY" research/alpha_focus.py "$@"
 }
 
+cmd_topic_shock() {
+    # Topic Shock Detector V0 — the next layer under Alpha Heat Radar.
+    # Cache-only, cred-free: mines the raw pre-filter news corpus
+    # (social_arb_raw_latest.json) plus social_attention/v1.1 chatter for
+    # emergent, cross-ticker phrase clusters, suppresses syndicated/template
+    # boilerplate before clustering, and never invents a ticker mapping.
+    # Reuses alpha_heat_radar.compute_alpha_fit / compute_noise_flags for
+    # the HC/EO/Alpha Focus/Board/sector/regime overlay rather than
+    # duplicating that logic. Shadow-mode: nothing downstream reads its
+    # output yet — this just lets data/research/topic_shock_phrase_history.jsonl
+    # accumulate daily history so a future forward-validation pass isn't
+    # blocked on weeks of missing data. No scanner/score/rank/gate/HC/EO/
+    # Alpha Focus/program-verdict change; no provider calls; no DB writes.
+    # Writes cache/research/topic_shock_detector_latest.json/.md +
+    # logs/topic_shock_detector_latest.txt.
+    log "[CACHE] topic shock detector — emergent topic-shock discovery (research-only, shadow mode)"
+    run_or_warn "topic shock detector" \
+        "$PY" -m research.topic_shock_detector "$@"
+}
+
 cmd_forward_milestones() {
     # Forward-evidence re-audit hook (LLM audit task 52439f07a3b5).
     # Cache-only, cred-free: reads the forward tracker + high-conviction
@@ -1821,6 +1841,13 @@ cmd_nightly() {
     cmd_alpha_failure_root_cause
     cmd_research_operating_policy
     cmd_alpha_focus
+    # Topic Shock Detector V0 — shadow-mode tail, runs after Alpha Focus so
+    # it reads that night's fresh HC/EO/Alpha Focus/Board/social artifacts.
+    # run_or_warn isolates any failure here from the digest below (same
+    # non-fatal-tail convention as every other cache-only diagnostic in this
+    # cycle) — nothing downstream reads its output yet, this just lets its
+    # phrase history accumulate daily.
+    cmd_topic_shock
     # Daily Research Digest — runs after the operator summary and the four
     # policy-layer sidecars above so the journal note reads the final
     # state of every sidecar this cycle produced.  Append-only to
@@ -1973,6 +2000,7 @@ case "$SUB" in
     alpha-failure-root-cause)  cmd_alpha_failure_root_cause   "${POS[@]}" ;;
     research-operating-policy) cmd_research_operating_policy  "${POS[@]}" ;;
     alpha-focus)               cmd_alpha_focus                "${POS[@]}" ;;
+    topic-shock)               cmd_topic_shock                "${POS[@]}" ;;
     forward-milestones)        cmd_forward_milestones         "${POS[@]}" ;;
     latest-scan-programs)      cmd_latest_scan_programs       "${POS[@]}" ;;
     scan-exclusion-impact)     cmd_scan_exclusion_impact      "${POS[@]}" ;;
