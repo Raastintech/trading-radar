@@ -199,6 +199,83 @@ def dataio_module():
 # ── Top Market Attention merge ───────────────────────────────────────────────
 
 
+# ── cohort join tags (Step C) ─────────────────────────────────────────────────
+
+
+def _alpha_focus_fixture():
+    def row(ticker, **kw):
+        base_row = {"ticker": ticker, "is_high_conviction": False,
+                   "is_profitable": True, "is_emerging_outlier": False,
+                   "business_deterioration_risk": None}
+        base_row.update(kw)
+        return base_row
+    return {
+        "review_now": [row("TPG", is_high_conviction=True)],
+        "higher_risk_eo_review": [row("WGS", is_profitable=False,
+                                      is_emerging_outlier=True,
+                                      business_deterioration_risk="LOW")],
+        "wait_for_reset": [row("MGNI", is_high_conviction=True)],
+        "deprioritized_by_focus_rule": [row("ABSI", is_profitable=False,
+                                            business_deterioration_risk="HIGH")],
+    }
+
+
+def test_cohort_tag_index_and_lookup(tmp_path, monkeypatch):
+    fixture_path = tmp_path / "alpha_focus_latest.json"
+    fixture_path.write_text(json.dumps(_alpha_focus_fixture()))
+    monkeypatch.setattr(v11, "ALPHA_FOCUS_JSON", fixture_path)
+
+    idx = v11.build_cohort_tag_index()
+
+    tpg = v11.cohort_tags_for("TPG", idx)
+    assert tpg["is_high_conviction"] is True
+    assert tpg["is_profitable_quality"] is True
+    assert tpg["is_alpha_focus_review_now"] is True
+    assert tpg["is_red_flag"] is False
+
+    wgs = v11.cohort_tags_for("WGS", idx)
+    assert wgs["is_emerging_outlier"] is True
+    assert wgs["is_profitable_quality"] is False
+    assert wgs["is_red_flag"] is True  # unprofitable -> red flag proxy
+
+    absi = v11.cohort_tags_for("ABSI", idx)
+    assert absi["is_red_flag"] is True  # HIGH business-deterioration-risk
+
+    unknown = v11.cohort_tags_for("ZZZZ_NOT_PRESENT", idx)
+    assert unknown == {
+        "is_high_conviction": False, "is_emerging_outlier": False,
+        "is_alpha_focus_review_now": False, "is_wait_for_reset": False,
+        "is_profitable_quality": False, "is_red_flag": True,
+    }  # absent ticker defaults to "not profitable" -> red-flag proxy fires
+
+
+def test_cohort_tag_index_missing_artifact_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(v11, "ALPHA_FOCUS_JSON", tmp_path / "does_not_exist.json")
+    assert v11.build_cohort_tag_index() == {}
+
+
+def test_history_rows_include_join_tags_and_appearances(monkeypatch):
+    monkeypatch.setattr(v11, "build_cohort_tag_index", lambda: {
+        "TPG": {"is_high_conviction": True, "is_profitable": True,
+               "is_emerging_outlier": False, "in_review_now": True,
+               "in_wait_for_reset": False, "in_deprioritized": False,
+               "business_deterioration_risk": None},
+    })
+    res = {"asof_date": "2026-08-28", "leads": [{
+        "ticker": "TPG", "crowd_stage": "EARLY_DISCOVERY",
+        "crowd_stage_v11": "EARLY_DISCOVERY", "stage_changed_v11": False,
+        "lead_type": "UNKNOWN", "primary_source_type": "stocktwits",
+        "velocity_percentile": 0.9, "noise": {"noise_score": 5.0},
+        "history_appearances": 3, "mention_count_24h": 10,
+        "attention_velocity_score": 60.0, "source_diversity_score": 28.0,
+    }]}
+    rows = v11._history_rows(res)
+    assert rows[0]["history_appearances"] == 3
+    assert rows[0]["is_high_conviction"] is True
+    assert rows[0]["is_alpha_focus_review_now"] is True
+    assert rows[0]["is_red_flag"] is False
+
+
 def test_top_market_attention_tags_origin_and_merges_both():
     v11_res = {
         "leads": [

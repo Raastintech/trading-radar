@@ -91,6 +91,7 @@ WATCH_JSON = dataio.RESEARCH_CACHE / "social_attention_v11_watch_universe_latest
 WEIGHTS_JSON = dataio.RESEARCH_CACHE / "social_attention_v11_source_weights_latest.json"
 TOP_ATTENTION_JSON = dataio.RESEARCH_CACHE / "top_market_attention_latest.json"
 HISTORY = dataio.HISTORY_DIR / "social_attention_v11_history.jsonl"
+TOP_ATTENTION_HISTORY = dataio.HISTORY_DIR / "top_market_attention_history.jsonl"
 
 # Expanded universe sizing.  Deliberately modest above the production 75/100
 # cap — this is a manual/on-demand shadow run, not a scheduled cron job; a
@@ -335,6 +336,73 @@ def _primary_source_type(its: Sequence["base.SocialItem"]) -> str:
     return max(counts, key=counts.get) if counts else "unknown"
 
 
+# ── forward-validation join tags (Step C) ────────────────────────────────────
+
+
+ALPHA_FOCUS_JSON = dataio.RESEARCH_CACHE / "alpha_focus_latest.json"
+ALPHA_FOCUS_SECTIONS = ("review_now", "higher_risk_eo_review",
+                        "wait_for_reset", "deprioritized_by_focus_rule")
+
+
+def build_cohort_tag_index() -> Dict[str, Dict[str, Any]]:
+    """Cache-only per-ticker cohort membership from the latest Alpha Focus
+    snapshot, for the forward-validation join in
+    social_attention_v11_forward_validation.py. All four sections publish
+    the same rich per-ticker fields (is_high_conviction/is_profitable/
+    is_emerging_outlier/business_deterioration_risk/...), so one pass
+    builds a complete index without needing separate reads of
+    high_conviction_history.jsonl / emerging_outlier_history.jsonl."""
+    try:
+        data = json.loads(ALPHA_FOCUS_JSON.read_text())
+    except Exception:
+        return {}
+    idx: Dict[str, Dict[str, Any]] = {}
+    for section in ALPHA_FOCUS_SECTIONS:
+        for row in data.get(section) or []:
+            t = str(row.get("ticker") or "").upper()
+            if not t:
+                continue
+            entry = idx.setdefault(t, {
+                "is_high_conviction": False, "is_profitable": False,
+                "is_emerging_outlier": False, "in_review_now": False,
+                "in_higher_risk_eo_review": False, "in_wait_for_reset": False,
+                "in_deprioritized": False, "business_deterioration_risk": None,
+            })
+            entry["is_high_conviction"] = (entry["is_high_conviction"]
+                                           or bool(row.get("is_high_conviction")))
+            entry["is_profitable"] = (entry["is_profitable"]
+                                      or bool(row.get("is_profitable")))
+            entry["is_emerging_outlier"] = (entry["is_emerging_outlier"]
+                                            or bool(row.get("is_emerging_outlier")))
+            entry[f"in_{section}" if section != "deprioritized_by_focus_rule"
+                 else "in_deprioritized"] = True
+            bdr = row.get("business_deterioration_risk")
+            if bdr:
+                entry["business_deterioration_risk"] = bdr
+    return idx
+
+
+def cohort_tags_for(ticker: str, index: Dict[str, Dict[str, Any]]) -> Dict[str, bool]:
+    """Boolean cohort tags for one ticker — defaults to all-False when the
+    ticker is absent from the latest Alpha Focus snapshot (i.e. it is a
+    pure broad-scanner/discovery-only name today, not flagged by any
+    fundamental/quality/risk layer)."""
+    e = index.get(ticker.upper()) or {}
+    is_profitable = bool(e.get("is_profitable"))
+    in_deprioritized = bool(e.get("in_deprioritized"))
+    bdr_high = str(e.get("business_deterioration_risk") or "").upper() == "HIGH"
+    return {
+        "is_high_conviction": bool(e.get("is_high_conviction")),
+        "is_emerging_outlier": bool(e.get("is_emerging_outlier")),
+        "is_alpha_focus_review_now": bool(e.get("in_review_now")),
+        "is_wait_for_reset": bool(e.get("in_wait_for_reset")),
+        "is_profitable_quality": is_profitable,
+        # Red-flag proxy: unprofitable, explicitly deprioritized by the
+        # Alpha Focus rule, or a HIGH business-deterioration-risk tag.
+        "is_red_flag": (not is_profitable) or in_deprioritized or bdr_high,
+    }
+
+
 # ── build ─────────────────────────────────────────────────────────────────────
 
 
@@ -441,9 +509,17 @@ def build(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def _history_rows(res: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Step C addendum: adds history_appearances (repeat/new split) and
+    cohort join tags (is_high_conviction/is_profitable_quality/
+    is_emerging_outlier/is_alpha_focus_review_now/is_wait_for_reset/
+    is_red_flag) from the latest Alpha Focus snapshot, so
+    social_attention_v11_forward_validation.py can build the
+    quality/risk-layer cohorts without a separate historizer."""
     asof = res["asof_date"]
+    tag_index = build_cohort_tag_index()
     rows = []
     for l in res["leads"]:
+        tags = cohort_tags_for(l["ticker"], tag_index)
         rows.append({
             "asof_date": asof,
             "version": VERSION,
@@ -455,6 +531,8 @@ def _history_rows(res: Dict[str, Any]) -> List[Dict[str, Any]]:
             "primary_source_type": l["primary_source_type"],
             "velocity_percentile": l["velocity_percentile"],
             "noise_score": (l.get("noise") or {}).get("noise_score"),
+            "history_appearances": l.get("history_appearances"),
+            **tags,
             "metrics": {
                 "mention_count_24h": l["mention_count_24h"],
                 "attention_velocity_score": l["attention_velocity_score"],
@@ -612,6 +690,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"appended {n} history row(s) for {res['asof_date']}")
     else:
         print(f"history already has {res['asof_date']} — skip (idempotent)")
+
+    # Lightweight historizer for the news-catalyst-only / true-social-only
+    # forward-validation cohorts (Step C) — origin is only ever computed at
+    # snapshot time (build_top_market_attention), so it must be historized
+    # here rather than reconstructed later from a single latest.json.
+    top_dates = _existing_asof_dates(TOP_ATTENTION_HISTORY)
+    if res["asof_date"] not in top_dates:
+        top_rows = [{"asof_date": res["asof_date"], "ticker": r["ticker"],
+                    "origin": r["origin"], "score": r.get("score")}
+                   for r in top.get("rows", [])]
+        nt = dataio.append_jsonl(TOP_ATTENTION_HISTORY, top_rows)
+        print(f"appended {nt} top-attention history row(s) for {res['asof_date']}")
 
     print(f"\nwrote {dataio.rel_to_repo(OUT_JSON)} · "
          f"{dataio.rel_to_repo(TOP_ATTENTION_JSON)} · "
