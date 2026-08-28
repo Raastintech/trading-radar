@@ -327,6 +327,13 @@ def build_latest_scan(root: Optional[Path] = None,
             "benchmark_as_of_date": item.get("benchmark_as_of_date"),
             "same_session": item.get("same_session"),
             "source_scan_generated_at": scanner.get("generated_at"),
+            # Display-only passthrough (Social Attention v1.1 Step A) so the
+            # presentation layer can tell News Catalyst apart from Social
+            # Attention Radar and surface EXHAUSTION_RISK instead of
+            # rendering every social_arb_attention row identically.
+            "scanner_category": item.get("category"),
+            "crowd_stage": item.get("crowd_stage"),
+            "signal_origin": item.get("signal_origin"),
             "research_only": True,
         })
         block["candidate_count"] += 1

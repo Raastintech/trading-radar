@@ -556,6 +556,24 @@ def _social_score_from_item(item: Dict[str, Any]) -> float:
     return min(1.0, max(0.0, raw / 100.0))
 
 
+def _signal_origin(sources: List[str]) -> str:
+    """Display-only classification of which radar(s) actually produced a
+    social_arb_attention row — News Catalyst Radar (`social_arb_radar.py`,
+    sidecar `social_arb`), Social Attention Radar (`social_attention_radar.py`,
+    sidecar `social_attention_radar` / legacy `social_attention`), or both.
+    Never used in scoring — purely for operator-facing labeling so the two
+    radars stop being shown identically."""
+    news = "social_arb" in sources
+    attention = "social_attention_radar" in sources or "social_attention" in sources
+    if news and attention:
+        return "BOTH"
+    if attention:
+        return "SOCIAL_ATTENTION"
+    if news:
+        return "NEWS_CATALYST"
+    return "UNKNOWN"
+
+
 def _load_social_data() -> Dict[str, Any]:
     """Load social attention data from available sidecars."""
     social: Dict[str, Any] = {}
@@ -579,11 +597,20 @@ def _load_social_data() -> Dict[str, Any]:
                     or crowd_stage in _CROWDED_CROWD_STAGES
                 )
                 score = _social_score_from_item(item)
+                this_source = name.replace("_latest.json", "")
                 # A ticker can appear in more than one sidecar (arb radar +
                 # attention radar); keep the strongest signal rather than
-                # letting whichever file loads last win.
+                # letting whichever file loads last win.  `sources` is
+                # separate bookkeeping of every sidecar that mentioned this
+                # ticker (not just the winner) so downstream display can
+                # tell News Catalyst apart from Social Attention Radar
+                # instead of collapsing both into one generic label — it
+                # never affects which entry wins on score/crowded/label.
                 prev = social.get(t)
                 if prev is not None:
+                    prev_sources = prev.get("sources") or [prev["source"]]
+                    if this_source not in prev_sources:
+                        prev_sources = prev_sources + [this_source]
                     # CROWDED is a risk flag — once any sidecar says a name
                     # is already viral, no other entry may clear it,
                     # regardless of which one wins on score.
@@ -591,10 +618,15 @@ def _load_social_data() -> Dict[str, Any]:
                         if crowded and not prev.get("crowded"):
                             prev["crowded"] = True
                             prev["crowd_stage"] = prev.get("crowd_stage") or (crowd_stage or None)
+                        prev["sources"] = prev_sources
                         continue
                     crowded = crowded or bool(prev.get("crowded"))
+                    sources = prev_sources
+                else:
+                    sources = [this_source]
                 social[t] = {
-                    "source": name.replace("_latest.json", ""),
+                    "source": this_source,
+                    "sources": sources,
                     "trust_level": TRUST_MEDIUM,
                     "refresh_cadence": "daily_post_close",
                     "crowded": crowded,
@@ -1675,6 +1707,8 @@ def scan_social_arb(
         score = float(entry.get("score") or 0)
         label_raw = (entry.get("label") or "").upper()
         source = entry.get("source", "unknown")
+        crowd_stage = entry.get("crowd_stage")
+        signal_origin = _signal_origin(entry.get("sources") or [source])
 
         if crowded:
             seen_viral.append(sym)
@@ -1694,6 +1728,21 @@ def scan_social_arb(
 
         research_score = min(100.0, 50.0 + score * 40 - (10 if crowded else 0))
 
+        origin_text = {
+            "NEWS_CATALYST": "News Catalyst Radar",
+            "SOCIAL_ATTENTION": "Social Attention Radar — unconfirmed, "
+                                "forward-validation shows unfiltered leads "
+                                "underperform a random control",
+            "BOTH": "News Catalyst + Social Attention Radar",
+        }.get(signal_origin, f"source: {source}")
+        why_appeared = f"Social/news attention signal ({origin_text})"
+        if crowded:
+            why_appeared += " — ALREADY VIRAL/CROWDED"
+        if (crowd_stage or "").upper() == "EXHAUSTION_RISK":
+            why_appeared += (" — EXHAUSTION_RISK stage: the strongest "
+                             "validated negative cohort in forward testing, "
+                             "treat as a caution flag")
+
         results.append({
             "ticker": sym,
             "category": "social_arb_attention",
@@ -1701,6 +1750,12 @@ def scan_social_arb(
             "research_score": round(research_score, 1),
             "social_score": round(score, 3),
             "social_source": source,
+            # Display-only additions (2026-08-28, Social Attention v1.1 Step
+            # A): neither field changes watchlist_label, research_score, or
+            # routing — they only let the digest/dashboard/ticker-card stop
+            # rendering News Catalyst and Social Attention Radar identically.
+            "crowd_stage": crowd_stage,
+            "signal_origin": signal_origin,
             "crowded": crowded,
             "already_viral": crowded,
             "rs_20d_vs_spy": round(rs_20, 2) if rs_20 is not None else None,
@@ -1709,8 +1764,7 @@ def scan_social_arb(
             "data_source": source,
             "refresh_cadence": "daily_post_close",
             "social_data_fabricated": False,
-            "why_appeared": f"Social attention signal (source: {source})" + (
-                " — ALREADY VIRAL/CROWDED" if crowded else ""),
+            "why_appeared": why_appeared,
             "confirms_if": "Early attention + price not yet extended + fundamental support",
             "invalidates_if": "Already widely discussed (CROWDED), price fully extended",
             "no_trade_recommendation": True,

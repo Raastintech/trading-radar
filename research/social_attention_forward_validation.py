@@ -311,8 +311,12 @@ def _verdict(by_cohort, history_days: int, matured_primary: int) -> Tuple[str, s
     if wins >= 3 and social_beats_random:
         return ("SOCIAL_EDGE_DETECTED",
                 "social-led beats random plus ≥2 of {beats-news, early>viral, "
-                "velocity-predictive} — a social-attention edge is present; confirm "
-                "the remaining gate before any lens routing.")
+                "velocity-predictive} at the primary horizon — but this is a "
+                "RELATIVE edge only (loses less than the alternatives, not "
+                "necessarily a positive absolute return) on a thin, "
+                "horizon-decaying sample; check the cohort table's absolute "
+                "mean_rel_spy before treating this as a standalone signal, "
+                "and confirm the remaining gate before any lens routing.")
     return ("PROMISING_BUT_UNPROVEN",
             "partial edge (some comparisons favorable) but not decisive across the "
             "gates — keep accumulating history.")
@@ -376,6 +380,11 @@ def _write_doc(res: Dict[str, Any]) -> None:
         "## Verdict ladder\n"
         "NEED_MORE_DATA → NO_VALUE → PROMISING_BUT_UNPROVEN → SOCIAL_EDGE_DETECTED →\n"
         "READY_TO_FEED_LENS_RESEARCH_ONLY. Nothing here emits signals or trades.\n\n"
+        "**SOCIAL_EDGE_DETECTED / READY_TO_FEED_LENS_RESEARCH_ONLY describe a "
+        "RELATIVE edge** (social-led loses less than the alternatives) — they do "
+        "not by themselves mean the absolute return is positive. Always check "
+        "the cohort table's `mean_rel_spy` / `mean_end` at the relevant horizon "
+        "before treating either verdict as a standalone signal.\n\n"
         "## Caveat\n"
         "The 'vs News Catalyst Radar' comparison is proxied by the NEWS_LED cohort\n"
         "because the News Catalyst Radar keeps no forward-outcome history. Treat it\n"

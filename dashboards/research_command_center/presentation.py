@@ -53,6 +53,12 @@ PRIORITY_BADGES: Dict[str, Optional[Tuple[str, str]]] = {
 
 # Watchlist label -> friendly badge.  The raw label stays on the card;
 # this is the plain-English translation next to it.
+#
+# NOTE: for label "SOCIAL_ARB"/"CROWDED" this default is only used as a
+# fallback when a row's signal origin can't be determined (e.g. an older
+# cached artifact from before crowd_stage/signal_origin passthrough) —
+# _social_arb_badge() below is the real lookup for social_arb_attention
+# rows and distinguishes News Catalyst from Social Attention Radar.
 LABEL_BADGES: Dict[str, Optional[Tuple[str, str]]] = {
     "SOCIAL_ARB": ("SOCIAL ATTENTION", "positive"),
     "CATALYST": ("CATALYST", "positive"),
@@ -144,6 +150,35 @@ def evidence_summary(evidence: Optional[Dict[str, str]]) -> str:
     return f"Evidence: {'/'.join(matured)} matured"
 
 
+def _social_arb_badge(candidate: Dict[str, Any],
+                      label: str) -> Optional[Tuple[str, str]]:
+    """Badge for a social_arb_attention row — distinguishes News Catalyst
+    Radar pickups from Social Attention Radar leads and surfaces
+    EXHAUSTION_RISK, instead of the old blanket ("SOCIAL ATTENTION",
+    "positive") applied to every row in this category regardless of source
+    or crowd stage. Forward validation showed unfiltered social leads
+    underperform a random control and EXHAUSTION_RISK is the strongest
+    validated *negative* cohort — this badge is display-only and does not
+    change watchlist_label, research_score, or routing.
+    Only engaged for rows the scanner actually tagged social_arb_attention;
+    every other category keeps using the plain LABEL_BADGES lookup below,
+    since WATCH/RISKY/CROWDED are reused by unrelated scan categories."""
+    stage = str(candidate.get("crowd_stage") or "").upper()
+    if stage == "EXHAUSTION_RISK":
+        return ("EXHAUSTION RISK", "caution")
+    if label == "CROWDED":
+        return ("CROWDED", "caution")
+    if label == "SOCIAL_ARB":
+        origin = str(candidate.get("signal_origin") or "").upper()
+        if origin == "NEWS_CATALYST":
+            return ("NEWS CATALYST", "positive")
+        if origin == "SOCIAL_ATTENTION":
+            return ("SOCIAL ATTENTION (unconfirmed)", "caution")
+        if origin == "BOTH":
+            return ("NEWS + SOCIAL ATTENTION", "positive")
+    return LABEL_BADGES.get(label)
+
+
 def candidate_badges(candidate: Dict[str, Any]) -> List[Dict[str, str]]:
     """Concise operator badges from fields the engine already produced.
     Order: scan status, priority, label translation, lifecycle, quality,
@@ -160,8 +195,12 @@ def candidate_badges(candidate: Dict[str, Any]) -> List[Dict[str, str]]:
     elif status == "RETURNING":
         _add(("RETURNING", "positive"))
 
+    label = str(candidate.get("label") or "")
     _add(PRIORITY_BADGES.get(str(candidate.get("priority") or "")))
-    _add(LABEL_BADGES.get(str(candidate.get("label") or "")))
+    if candidate.get("scanner_category") == "social_arb_attention":
+        _add(_social_arb_badge(candidate, label))
+    else:
+        _add(LABEL_BADGES.get(label))
     _add(LIFECYCLE_BADGES.get(str(candidate.get("lifecycle_stage") or "")))
 
     quality = str(candidate.get("fundamental_quality") or "")

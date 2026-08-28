@@ -378,31 +378,80 @@ def _tradier_options_snapshot(ticker: str) -> Optional[Dict[str, Any]]:
 # ── Social data ───────────────────────────────────────────────────────────────
 
 
+def _social_rows(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Candidate rows from a social sidecar, tolerant of each artifact's
+    key: social_attention_radar uses ``leads``, older sidecars used
+    ``candidates``, and social_arb_radar stores its picks under ``items``
+    — which this lookup never checked before, so the News Catalyst
+    Radar's own tickers never reached the ticker card at all."""
+    for key in ("candidates", "leads", "items"):
+        rows = data.get(key)
+        if isinstance(rows, list) and rows:
+            return rows
+    return []
+
+
 def _social_lookup(ticker: str) -> Optional[Dict[str, Any]]:
-    for name in [
-        "social_arb_latest.json",
-        "social_attention_latest.json",
-        "social_attention_radar_latest.json",
-    ]:
+    """Per-ticker social signal from both radars.
+
+    Previously this returned on the FIRST matching sidecar (checked in
+    order: News Catalyst, then Social Attention Radar) — a ticker present
+    in both silently lost its Social Attention Radar detail (crowd_stage,
+    attention_velocity_score, lead_type) entirely, and the card could never
+    show that both radars flagged a name. It also only ever read the
+    ``candidates``/``leads`` keys, so the News Catalyst Radar's own
+    ``items`` key was never matched — its tickers never reached the card.
+    Now both are looked up and kept as separate sub-blocks
+    (`news_catalyst` / `social_attention_radar`); the flat top-level keys
+    (`source`/`score`/`crowded`/`label`) stay for
+    backward compatibility, preferring the Social Attention Radar entry
+    when both exist since it carries the richer fields, with `crowded`
+    the union across both so the existing risk-flag check never regresses.
+    """
+    kinds = {
+        "social_arb_latest.json": "news_catalyst",
+        "social_attention_latest.json": "social_attention_radar",  # legacy path
+        "social_attention_radar_latest.json": "social_attention_radar",
+    }
+    found: Dict[str, Dict[str, Any]] = {}
+    for name, kind in kinds.items():
+        if kind in found:
+            continue  # a real radar file already matched this kind
         path = RESEARCH_DIR / name
         if not path.exists():
             continue
         try:
             data = json.loads(path.read_text())
-            for item in data.get("candidates", data.get("leads", [])):
+            for item in _social_rows(data):
                 t = (item.get("ticker") or item.get("symbol") or "").upper()
-                if t == ticker.upper():
-                    return {
-                        "available": True,
-                        "source": name.replace("_latest.json", ""),
-                        "score": item.get("score") or item.get("deterministic_score") or 0,
-                        "crowded": item.get("already_viral") or item.get("crowded") or False,
-                        "label": item.get("label") or item.get("news_label") or "",
-                        "fabricated": False,
-                    }
+                if t != ticker.upper():
+                    continue
+                entry = {
+                    "available": True,
+                    "source": name.replace("_latest.json", ""),
+                    "score": item.get("score") or item.get("deterministic_score") or 0,
+                    "crowded": item.get("already_viral") or item.get("crowded") or False,
+                    "label": item.get("label") or item.get("news_label") or "",
+                    "fabricated": False,
+                }
+                if kind == "social_attention_radar":
+                    entry["crowd_stage"] = item.get("crowd_stage")
+                    entry["attention_velocity_score"] = item.get("attention_velocity_score")
+                    entry["lead_type"] = item.get("lead_type")
+                found[kind] = entry
+                break
         except Exception:
             pass
-    return None
+    if not found:
+        return None
+    primary = found.get("social_attention_radar") or found.get("news_catalyst")
+    merged = dict(primary)
+    merged["crowded"] = any(e.get("crowded") for e in found.values())
+    merged["news_catalyst"] = found.get("news_catalyst")
+    merged["social_attention_radar"] = found.get("social_attention_radar")
+    merged["both_sources"] = ("news_catalyst" in found
+                              and "social_attention_radar" in found)
+    return merged
 
 
 # ── Scanner context ───────────────────────────────────────────────────────────
@@ -848,13 +897,35 @@ def _format_text(card: Dict[str, Any]) -> str:
             f"  NOTE: {opt.get('note', 'Research-only — execution disabled.')}",
         ]
 
-    lines += ["", "=== SOCIAL ATTENTION ==="]
+    lines += ["", "=== SOCIAL / NEWS ATTENTION ==="]
     soc = card.get("social_attention") or {}
     if soc.get("available"):
-        lines += [
-            f"  Source: {soc.get('source')}  |  Score: {soc.get('score')}  |  Crowded: {soc.get('crowded')}",
-            f"  Label: {soc.get('label')}",
-        ]
+        nc = soc.get("news_catalyst")
+        sa = soc.get("social_attention_radar")
+        if nc:
+            lines.append(
+                f"  [News Catalyst]  Score: {_s(nc.get('score'))}  |  "
+                f"Crowded: {_s(nc.get('crowded'))}  |  Label: {_s(nc.get('label'))}")
+        if sa:
+            lines.append(
+                f"  [Social Attention]  Stage: {_s(sa.get('crowd_stage'))}  |  "
+                f"Lead type: {_s(sa.get('lead_type'))}  |  "
+                f"Velocity score: {_s(sa.get('attention_velocity_score'))}  |  "
+                f"Crowded: {_s(sa.get('crowded'))}")
+            if str(sa.get("crowd_stage") or "").upper() == "EXHAUSTION_RISK":
+                lines.append(
+                    "  !! EXHAUSTION_RISK — historically the strongest "
+                    "validated negative forward cohort; treat as a caution "
+                    "flag, not confirmation.")
+        if not nc and not sa:
+            # Defensive fallback for an older cached artifact predating the
+            # news_catalyst/social_attention_radar split.
+            lines += [
+                f"  Source: {soc.get('source')}  |  Score: {soc.get('score')}  |  Crowded: {soc.get('crowded')}",
+                f"  Label: {soc.get('label')}",
+            ]
+        if soc.get("both_sources"):
+            lines.append("  (flagged by both News Catalyst and Social Attention Radar)")
     else:
         lines.append(f"  NO_SOCIAL_DATA — {soc.get('note', '')}")
 

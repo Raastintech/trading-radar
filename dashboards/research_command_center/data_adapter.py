@@ -1212,9 +1212,17 @@ def build_ticker_detail(ticker: str,
     fwd = _forward_block(fwd_entry)
 
     social_status = None
+    social_signal_origin = None
+    social_crowd_stage = None
     cats = item.get("all_categories") or [item.get("category")]
     if "social_arb_attention" in cats:
         social_status = "SOCIAL_ATTENTION_SIGNAL"
+        # Display-only (Social Attention v1.1 Step A): lets the drawer show
+        # whether this came from the News Catalyst Radar, the Social
+        # Attention Radar, or both, and flag EXHAUSTION_RISK — instead of
+        # one opaque "SOCIAL_ATTENTION_SIGNAL" that mixed both radars.
+        social_signal_origin = item.get("signal_origin")
+        social_crowd_stage = item.get("crowd_stage")
 
     return {
         "ticker": t,
@@ -1243,6 +1251,8 @@ def build_ticker_detail(ticker: str,
         "warnings": row.get("warnings", []),
         "forward": fwd,
         "social_status": social_status,
+        "social_signal_origin": social_signal_origin,
+        "social_crowd_stage": social_crowd_stage,
         "claude_review": None,  # not published by any current artifact
         "manual_review_required": True,
         "fallback": None,
@@ -1774,6 +1784,10 @@ def build_social_overview(store: Optional[ArtifactStore] = None) -> Dict[str, An
             "ticker": item.get("ticker"),
             "research_score": item.get("research_score"),
             "watchlist_label": item.get("watchlist_label"),
+            # Display-only (Social Attention v1.1 Step A) — see
+            # build_ticker_detail for the same fields on the drawer.
+            "signal_origin": item.get("signal_origin"),
+            "crowd_stage": item.get("crowd_stage"),
         })
 
     if social is None and not lane:
