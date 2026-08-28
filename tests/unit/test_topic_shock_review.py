@@ -393,6 +393,54 @@ def test_operator_summary_suggests_wait_for_reset():
     assert rev.suggested_action(data) == "Wait for reset"
 
 
+def test_clean_watch_reset_day_still_recommends_wait_for_reset():
+    # Specific, non-generic, non-mega-cap, multi-source cluster — a real
+    # topic shock that just happens to be extended/gate-blocked today.
+    alerts = [
+        _alert("uranium supply shock", rev.tsd.LABEL_WATCH_FOR_RESET,
+              evidence_phrases=["uranium supply disruption"], source_diversity=4,
+              mapped_tickers=[_mapped("CCJ")], alpha_fit_overlays={"CCJ": _overlay()}),
+        _alert("cybersecurity breach wave", rev.tsd.LABEL_WATCH_FOR_RESET,
+              evidence_phrases=["ransomware breach wave"], source_diversity=3,
+              mapped_tickers=[_mapped("CRWD")], alpha_fit_overlays={"CRWD": _overlay()}),
+    ]
+    data = _report(alerts)
+    assert rev.suggested_action(data) == "Wait for reset"
+
+
+def test_generic_heavy_watch_reset_day_recommends_no_true_shock_action():
+    # Majority of today's Watch-for-Reset clusters are quality-flagged
+    # (broad known category / generic phrase / mega-cap co-mention) — the
+    # kind of day that produced the original wording complaint.
+    alerts = [
+        _alert("Crypto", rev.tsd.LABEL_WATCH_FOR_RESET, known_topic="Crypto",
+              evidence_phrases=["spy qqq"], mapped_tickers=[_mapped("AAPL")],
+              alpha_fit_overlays={"AAPL": _overlay()}),
+        _alert("wall street", rev.tsd.LABEL_WATCH_FOR_RESET, evidence_phrases=["wall street"]),
+        _alert("aapl msft", rev.tsd.LABEL_WATCH_FOR_RESET, evidence_phrases=["aapl msft"],
+              mapped_tickers=[_mapped("AAPL"), _mapped("MSFT")],
+              alpha_fit_overlays={"AAPL": _overlay(), "MSFT": _overlay()}),
+        _alert("uranium supply shock", rev.tsd.LABEL_WATCH_FOR_RESET,
+              evidence_phrases=["uranium supply disruption"], source_diversity=4,
+              mapped_tickers=[_mapped("CCJ")], alpha_fit_overlays={"CCJ": _overlay()}),
+    ]
+    data = _report(alerts)
+    assert rev.suggested_action(data) == rev.NO_TRUE_SHOCK_ACTION
+
+
+def test_generic_heavy_day_shows_no_true_shock_action_in_full_report(tmp_path, capsys):
+    alerts = [
+        _alert("Crypto", rev.tsd.LABEL_WATCH_FOR_RESET, known_topic="Crypto",
+              evidence_phrases=["spy qqq"], mapped_tickers=[_mapped("AAPL")],
+              alpha_fit_overlays={"AAPL": _overlay()}),
+        _alert("wall street", rev.tsd.LABEL_WATCH_FOR_RESET, evidence_phrases=["wall street"]),
+    ]
+    data = _report(alerts)
+    code, out = _run(tmp_path, data, capsys=capsys)
+    assert "No true topic-shock action today" in out
+    assert "use normal Alpha Focus / High-Conviction workflow" in out
+
+
 def test_operator_summary_suggests_ignore_as_noise():
     data = _report([
         _alert("a", rev.tsd.LABEL_REDFLAG_NOISE),

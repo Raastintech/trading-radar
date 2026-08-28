@@ -191,6 +191,12 @@ def compute_verdict(data: Dict[str, Any]) -> str:
     return "No true topic-shock alpha candidate today."
 
 
+NO_TRUE_SHOCK_ACTION = (
+    "No true topic-shock action today — use normal Alpha Focus / High-Conviction "
+    "workflow; wait-for-reset only applies to already-supported names."
+)
+
+
 def suggested_action(data: Dict[str, Any]) -> str:
     counts = data.get("counts") or {}
     total = counts.get("alerts", 0)
@@ -204,6 +210,17 @@ def suggested_action(data: Dict[str, Any]) -> str:
     if total == 0:
         return "No action today"
     if watch_reset >= 1:
+        # "Wait for reset" only means something if the underlying clusters
+        # represent real topic heat that happens to be extended/gate-blocked.
+        # If most of them are quality-flagged (broad known category, generic
+        # phrase, mega-cap ticker-soup, basket mismatch, single-source),
+        # they were never a specific shock to begin with — recommending a
+        # "reset" implies there's a real setup to wait on, which overstates
+        # what a pile of earnings-season/mega-cap chatter actually is.
+        watch_alerts = _by_label(data, tsd.LABEL_WATCH_FOR_RESET)
+        flagged = sum(1 for a in watch_alerts if quality_flags(a))
+        if watch_alerts and flagged > len(watch_alerts) / 2:
+            return NO_TRUE_SHOCK_ACTION
         return "Wait for reset"
     if (redflag + exhaustion) >= max(1, round(total * 0.5)):
         return "Ignore as noise"
