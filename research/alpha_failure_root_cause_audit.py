@@ -43,9 +43,14 @@ from research.cohort_attribution import (
     _enrich_rows,
     _load_json as ca_load_json,
     _load_jsonl,
+    _outlier_analysis as ca_outlier_analysis,
     _read_price_dates,
     _sample_status,
     _total_negative_abs_by_horizon,
+    _winsorized_mean as ca_winsorized_mean,
+    headline_excess_pct,
+    headline_mean_return_pct,
+    outlier_driven,
 )
 from research.cohort_attribution import _horizon_stats as ca_horizon_stats
 from research.strategy_lab_regime import build_regime_labels
@@ -112,14 +117,21 @@ def _agg(rows: List[Dict[str, Any]], ret_field: str, excess_field: Optional[str]
     values = [float(r[ret_field]) for r in rows if r.get(ret_field) is not None]
     excess = ([float(r[excess_field]) for r in rows if excess_field and r.get(excess_field) is not None]
               if excess_field else [])
-    return {
+    stat = {
         "n": len(values),
         "mean_return_pct": _mean(values),
         "median_return_pct": _median(values),
+        "winsorized_mean_return_pct": ca_winsorized_mean(values),
         "win_rate": _win_rate(values),
         "excess_vs_spy_pct": _mean(excess) if excess else None,
+        "winsorized_excess_vs_spy_pct": ca_winsorized_mean(excess) if excess else None,
         "sample_status": _sample_status(len(values)),
+        "outlier_analysis": ca_outlier_analysis(values),
     }
+    stat["outlier_flagged"] = outlier_driven(stat)
+    stat["headline_mean_return_pct"] = headline_mean_return_pct(stat)
+    stat["headline_excess_vs_spy_pct"] = headline_excess_pct(stat, "spy")
+    return stat
 
 
 # ── price-cache helpers (self-contained; no core.config / credentials) ──────
@@ -230,8 +242,12 @@ def _cohort_summary(cohort: Optional[Dict[str, Any]], horizon: str = "10d") -> D
         "matured_count": h.get("matured_count"),
         "mean_return_pct": h.get("mean_return_pct"),
         "median_return_pct": h.get("median_return_pct"),
+        "winsorized_mean_return_pct": h.get("winsorized_mean_return_pct"),
+        "outlier_flagged": outlier_driven(h),
+        "headline_mean_return_pct": headline_mean_return_pct(h),
         "win_rate": h.get("win_rate"),
         "excess_vs_spy_pct": h.get("excess_vs_spy_pct"),
+        "headline_excess_vs_spy_pct": headline_excess_pct(h, "spy"),
         "sample_status": h.get("sample_status"),
         "primary_result": cohort.get("primary_result"),
         "primary_result_text": cohort.get("primary_result_text"),
@@ -249,8 +265,8 @@ def build_signal_family_attribution(cohort_report: Dict[str, Any]) -> Dict[str, 
         (name, f) for name, f in families.items()
         if f.get("present") and f.get("matured_count") and f["matured_count"] >= MIN_MATURED_TO_EVALUATE
     ]
-    best = max(interpretable, key=lambda kv: (kv[1].get("mean_return_pct") or -1e9), default=None)
-    worst = min(interpretable, key=lambda kv: (kv[1].get("mean_return_pct") or 1e9), default=None)
+    best = max(interpretable, key=lambda kv: (kv[1].get("headline_mean_return_pct") or -1e9), default=None)
+    worst = min(interpretable, key=lambda kv: (kv[1].get("headline_mean_return_pct") or 1e9), default=None)
     return {
         "primary_horizon": horizon,
         "families": families,
@@ -356,29 +372,37 @@ def build_entry_timing_audit(root: Path, history: List[Dict[str, Any]],
     for v in ENTRY_VARIANTS:
         rets = variant_returns[v]
         excess = variant_excess[v]
-        variants_out.append({
+        variant_stat = {
             "variant": v,
             "n": len(rets),
             "mean_return_pct": _mean(rets),
             "median_return_pct": _median(rets),
+            "winsorized_mean_return_pct": ca_winsorized_mean(rets),
             "win_rate": _win_rate(rets),
             "excess_vs_spy_pct": _mean(excess) if excess else None,
             "sample_status": _sample_status(len(rets)),
-        })
-    baseline_mean = next((x["mean_return_pct"] for x in variants_out if x["variant"] == "detection_close"), None)
+            "outlier_analysis": ca_outlier_analysis(rets),
+        }
+        variant_stat["outlier_flagged"] = outlier_driven(variant_stat)
+        variant_stat["headline_mean_return_pct"] = headline_mean_return_pct(variant_stat)
+        variants_out.append(variant_stat)
+    baseline_headline = next(
+        (x["headline_mean_return_pct"] for x in variants_out if x["variant"] == "detection_close"), None)
     for x in variants_out:
         x["delta_vs_detection_close_pct"] = (
-            round(x["mean_return_pct"] - baseline_mean, 2)
-            if x["mean_return_pct"] is not None and baseline_mean is not None else None
+            round(x["headline_mean_return_pct"] - baseline_headline, 2)
+            if x["headline_mean_return_pct"] is not None and baseline_headline is not None else None
         )
     interpretable = [x for x in variants_out if x["n"] >= MIN_MATURED_TO_EVALUATE]
-    best_variant = max(interpretable, key=lambda x: x["mean_return_pct"] or -1e9, default=None)
+    best_variant = max(interpretable, key=lambda x: x["headline_mean_return_pct"] or -1e9, default=None)
     conclusion = (
         "Insufficient matured alternate-entry samples to diagnose timing." if not interpretable else
         (f"'{best_variant['variant']}' is the best-performing simulated entry "
-         f"({best_variant['mean_return_pct']}% mean, n={best_variant['n']}), "
+         f"({best_variant['headline_mean_return_pct']}% mean, n={best_variant['n']}), "
          f"{'beating' if (best_variant['delta_vs_detection_close_pct'] or 0) > 0 else 'not clearly beating'} "
-         "detection-close entry, but this is diagnostic only — not a trade recommendation.")
+         "detection-close entry, but this is diagnostic only — not a trade recommendation."
+         + (" [outlier-capped headline mean; raw mean "
+            f"{best_variant['mean_return_pct']}%]" if best_variant.get("outlier_flagged") else ""))
     )
     return {
         "holding_period_days": horizon,
@@ -431,8 +455,8 @@ def build_regime_conditioned_evidence(history: List[Dict[str, Any]],
         stat["n_episodes_all_rows"] = len(rows)
         regimes.append(stat)
     interpretable = [r for r in regimes if r["n"] >= MIN_MATURED_TO_EVALUATE]
-    best = max(interpretable, key=lambda r: r["mean_return_pct"] or -1e9, default=None)
-    worst = min(interpretable, key=lambda r: r["mean_return_pct"] or 1e9, default=None)
+    best = max(interpretable, key=lambda r: r["headline_mean_return_pct"] or -1e9, default=None)
+    worst = min(interpretable, key=lambda r: r["headline_mean_return_pct"] or 1e9, default=None)
     return {
         "present": True,
         "label_source": "research.strategy_lab_regime.build_regime_labels (price-derived, point-in-time)",
@@ -443,8 +467,8 @@ def build_regime_conditioned_evidence(history: List[Dict[str, Any]],
         "worst_regime": worst,
         "conclusion": (
             "Regime split is too thin to interpret yet." if not interpretable else
-            f"Best matured regime is {best['regime']} ({best['mean_return_pct']}% mean, n={best['n']}); "
-            f"worst is {worst['regime']} ({worst['mean_return_pct']}% mean, n={worst['n']})."
+            f"Best matured regime is {best['regime']} ({best['headline_mean_return_pct']}% mean, n={best['n']}); "
+            f"worst is {worst['regime']} ({worst['headline_mean_return_pct']}% mean, n={worst['n']})."
         ),
         "caveats": [
             "Regime labels are reconstructed from cached price-only features, not retained "
@@ -466,13 +490,16 @@ def build_factor_ablation(root: Path, history: List[Dict[str, Any]]) -> Dict[str
     total_negative_abs = _total_negative_abs_by_horizon(history)
     baseline = _ablation_stats(history, price_dates, total_negative_abs)
 
+    baseline_headline = headline_mean_return_pct(baseline)
+
     def _rule(name: str, predicate) -> Dict[str, Any]:
         kept = [r for r in history if predicate(r)]
         removed_n = len(history) - len(kept)
         stat = _ablation_stats(kept, price_dates, total_negative_abs)
+        stat_headline = headline_mean_return_pct(stat)
         delta = (
-            round(stat["mean_return_pct"] - baseline["mean_return_pct"], 2)
-            if stat.get("mean_return_pct") is not None and baseline.get("mean_return_pct") is not None else None
+            round(stat_headline - baseline_headline, 2)
+            if stat_headline is not None and baseline_headline is not None else None
         )
         return {
             "rule": name,
@@ -480,6 +507,9 @@ def build_factor_ablation(root: Path, history: List[Dict[str, Any]]) -> Dict[str
             "n_remaining": len(kept),
             "matured_count": stat.get("matured_count"),
             "mean_return_pct": stat.get("mean_return_pct"),
+            "winsorized_mean_return_pct": stat.get("winsorized_mean_return_pct"),
+            "outlier_flagged": outlier_driven(stat),
+            "headline_mean_return_pct": stat_headline,
             "win_rate": stat.get("win_rate"),
             "excess_vs_spy_pct": stat.get("excess_vs_spy_pct"),
             "sample_status": stat.get("sample_status"),
@@ -517,6 +547,9 @@ def build_factor_ablation(root: Path, history: List[Dict[str, Any]]) -> Dict[str
             "n": len(history),
             "matured_count": baseline.get("matured_count"),
             "mean_return_pct": baseline.get("mean_return_pct"),
+            "winsorized_mean_return_pct": baseline.get("winsorized_mean_return_pct"),
+            "outlier_flagged": outlier_driven(baseline),
+            "headline_mean_return_pct": baseline_headline,
             "win_rate": baseline.get("win_rate"),
             "excess_vs_spy_pct": baseline.get("excess_vs_spy_pct"),
             "sample_status": baseline.get("sample_status"),
@@ -586,20 +619,25 @@ def build_random_universe_control(root: Path, history: List[Dict[str, Any]],
                 excess.append(ret - spy_ret)
             picked += 1
             used_pairs += 1
-    return {
+    random_stat = {
         "n": len(rets),
         "n_dates": len(dates_selected),
         "per_date_sample_target": per_date,
         "mean_return_pct": _mean(rets),
         "median_return_pct": _median(rets),
+        "winsorized_mean_return_pct": ca_winsorized_mean(rets),
         "win_rate": _win_rate(rets),
         "excess_vs_spy_pct": _mean(excess) if excess else None,
         "sample_status": _sample_status(len(rets)),
-        "note": (
-            "Sampled from the CURRENT top-1000 universe snapshot, not a point-in-time "
-            "reconstruction of the universe on each historical date; treat as an approximate control."
-        ),
+        "outlier_analysis": ca_outlier_analysis(rets),
     }
+    random_stat["outlier_flagged"] = outlier_driven(random_stat)
+    random_stat["headline_mean_return_pct"] = headline_mean_return_pct(random_stat)
+    random_stat["note"] = (
+        "Sampled from the CURRENT top-1000 universe snapshot, not a point-in-time "
+        "reconstruction of the universe on each historical date; treat as an approximate control."
+    )
+    return random_stat
 
 
 def build_baseline_comparison(root: Path, cohort_report: Dict[str, Any], history: List[Dict[str, Any]],
@@ -614,6 +652,8 @@ def build_baseline_comparison(root: Path, cohort_report: Dict[str, Any], history
         "excess_vs_qqq_pct": broad_h.get("excess_vs_qqq_pct"),
         "excess_vs_iwm_pct": broad_h.get("excess_vs_iwm_pct"),
         "excess_vs_sector_pct": broad_h.get("excess_vs_sector_pct"),
+        "outlier_flagged": outlier_driven(broad_h),
+        "headline_excess_vs_spy_pct": headline_excess_pct(broad_h, "spy"),
         "matured_count": broad_h.get("matured_count"),
         "sample_status": broad_h.get("sample_status"),
     }
@@ -894,13 +934,14 @@ def _explicit_findings(cohort_report: Dict[str, Any], baseline: Dict[str, Any],
 
     rand = baseline.get("random_same_universe_control") or {}
     pool = baseline.get("candidate_pool_vs_market_benchmarks") or {}
+    pool_headline_excess = pool.get("headline_excess_vs_spy_pct", pool.get("excess_vs_spy_pct"))
     findings.append(
         "Random same-universe control currently beats the actual candidate pool: "
-        f"random control mean={rand.get('mean_return_pct')}% (win={rand.get('win_rate')}, "
-        f"n={rand.get('n')}) vs candidate pool excess_vs_spy={pool.get('excess_vs_spy_pct')}% "
-        f"(n={pool.get('matured_count')})."
-        if (rand.get("mean_return_pct") is not None and pool.get("excess_vs_spy_pct") is not None
-            and rand.get("mean_return_pct") > (pool.get("excess_vs_spy_pct") or 0))
+        f"random control mean={rand.get('headline_mean_return_pct', rand.get('mean_return_pct'))}% "
+        f"(win={rand.get('win_rate')}, n={rand.get('n')}) vs candidate pool "
+        f"excess_vs_spy={pool_headline_excess}% (n={pool.get('matured_count')})."
+        if (rand.get("mean_return_pct") is not None and pool_headline_excess is not None
+            and rand.get("headline_mean_return_pct", rand.get("mean_return_pct")) > (pool_headline_excess or 0))
         else "Random same-universe control does not currently beat the actual candidate pool."
     )
 
@@ -972,15 +1013,22 @@ def build_report(root: Optional[Path] = None, now: Optional[datetime] = None) ->
     best_current = rankings.get("best_current")
     worst_drag = rankings.get("biggest_explanatory_drag") or rankings.get("biggest_drag")
 
+    def _cohort_headline_text(item: Optional[Dict[str, Any]]) -> str:
+        if not item:
+            return None
+        headline = item.get("headline_mean_return_pct", item.get("mean_return_pct"))
+        text = f"{item.get('label')} (mean {headline}%, n={item.get('matured_count')})"
+        if item.get("outlier_flagged"):
+            text += f" [outlier-capped; raw mean {item.get('mean_return_pct')}%]"
+        return text
+
     dashboard_summary = {
         "top_likely_failure_cause": root_cause.get("top_likely_failure_cause"),
         "best_surviving_cohort": (
-            f"{best_current.get('label')} (mean {best_current.get('mean_return_pct')}%, "
-            f"n={best_current.get('matured_count')})" if best_current else "none meet the evidence floor"
+            _cohort_headline_text(best_current) if best_current else "none meet the evidence floor"
         ),
         "worst_harmful_cohort": (
-            f"{worst_drag.get('label')} (mean {worst_drag.get('mean_return_pct')}%, "
-            f"n={worst_drag.get('matured_count')})" if worst_drag else "n/a"
+            _cohort_headline_text(worst_drag) if worst_drag else "n/a"
         ),
         "next_decision_date": DECISION_DATES[0],
         "current_recommendation": stop_continue.get("current_recommendation"),
@@ -1083,8 +1131,15 @@ def render_text(report: Dict[str, Any]) -> str:
         if not f.get("present"):
             lines.append(f"- {name}: missing")
         else:
-            lines.append(f"- {name}: n={f.get('matured_count')} mean={_fmt_pct(f.get('mean_return_pct'))} "
-                         f"win={f.get('win_rate')} status={f.get('sample_status')}")
+            outlier_suffix = (
+                f" [outlier-capped; raw mean {_fmt_pct(f.get('mean_return_pct'))}]"
+                if f.get("outlier_flagged") else ""
+            )
+            lines.append(
+                f"- {name}: n={f.get('matured_count')} "
+                f"mean={_fmt_pct(f.get('headline_mean_return_pct', f.get('mean_return_pct')))} "
+                f"win={f.get('win_rate')} status={f.get('sample_status')}{outlier_suffix}"
+            )
     et = report.get("entry_timing_audit") or {}
     lines.append("")
     lines.append(f"Section B - Entry timing: {et.get('conclusion')}")

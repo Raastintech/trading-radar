@@ -108,6 +108,34 @@ def _winsorized_mean(values: Sequence[float]) -> Optional[float]:
     return _mean([min(max(v, lo), hi) for v in vals])
 
 
+def outlier_driven(h: Dict[str, Any]) -> bool:
+    """True when a horizon-stats dict's raw mean is disproportionately
+    driven by 1-2 extreme rows (see _outlier_analysis)."""
+    return bool((h.get("outlier_analysis") or {}).get("driven_by_one_or_two_outliers"))
+
+
+def headline_mean_return_pct(h: Dict[str, Any]) -> Optional[float]:
+    """Outlier-guarded headline mean: the winsorized mean when the raw mean
+    is outlier-driven (e.g. one bad/corrupted price-cache row producing a
+    triple-digit-percent return), else the raw mean. Reporting-only — does
+    not change mean_return_pct itself, any score, ranking, gate, threshold,
+    or HC/EO/program-verdict logic; it only picks which already-computed
+    number is used for best/worst-cohort headlines and narrative text."""
+    if outlier_driven(h) and h.get("winsorized_mean_return_pct") is not None:
+        return h["winsorized_mean_return_pct"]
+    return h.get("mean_return_pct")
+
+
+def headline_excess_pct(h: Dict[str, Any], name: str = "spy") -> Optional[float]:
+    """Outlier-guarded headline excess-vs-benchmark, mirroring
+    headline_mean_return_pct."""
+    winsorized_key = f"winsorized_excess_vs_{name}_pct"
+    raw_key = f"excess_vs_{name}_pct"
+    if outlier_driven(h) and h.get(winsorized_key) is not None:
+        return h[winsorized_key]
+    return h.get(raw_key)
+
+
 def _sample_status(n_matured: int) -> str:
     if n_matured < MIN_MATURED_TO_EVALUATE:
         return "TOO_EARLY"
@@ -458,6 +486,7 @@ def _horizon_stats(rows: List[Dict[str, Any]], horizon: int, price_dates: Sequen
     for name in ("spy", "qqq", "iwm", "sector"):
         vals = [float(r[f"ret_{horizon}d_vs_{name}"]) for r in rows if r.get(f"ret_{horizon}d_vs_{name}") is not None]
         excess[f"excess_vs_{name}_pct"] = _mean(vals)
+        excess[f"winsorized_excess_vs_{name}_pct"] = _winsorized_mean(vals)
     mae_vals = [float(r[f"mae_{horizon}d"]) for r in rows if r.get(f"mae_{horizon}d") is not None]
     neg_sum = sum(float(r[field]) for r in negatives)
     share = abs(neg_sum) / total_negative_abs * 100.0 if total_negative_abs > 0 else None
@@ -550,8 +579,11 @@ def _rank_item(cohort: Optional[Dict[str, Any]], horizon: str) -> Optional[Dict[
         "mean_return_pct": h.get("mean_return_pct"),
         "median_return_pct": h.get("median_return_pct"),
         "winsorized_mean_return_pct": h.get("winsorized_mean_return_pct"),
+        "outlier_flagged": outlier_driven(h),
+        "headline_mean_return_pct": headline_mean_return_pct(h),
         "win_rate": h.get("win_rate"),
         "excess_vs_spy_pct": h.get("excess_vs_spy_pct"),
+        "headline_excess_vs_spy_pct": headline_excess_pct(h, "spy"),
         "negative_return_sum_pct_points": h.get("negative_return_sum_pct_points"),
         "share_of_total_negative_return_pct": h.get("share_of_total_negative_return_pct"),
         "sample_status": h.get("sample_status"),
@@ -564,7 +596,7 @@ def _rankings(cohorts: List[Dict[str, Any]], horizon: str = "10d") -> Dict[str, 
     if not candidates:
         candidates = [c for c in cohorts if c["horizons"].get(horizon, {}).get("matured_count", 0) >= MIN_MATURED_TO_EVALUATE]
     worst = sorted(candidates, key=lambda c: (float(c["horizons"][horizon].get("negative_return_sum_pct_points") or 0.0), c["id"]))[:10]
-    best = sorted(candidates, key=lambda c: (-(float(c["horizons"][horizon].get("mean_return_pct") or -1e9)), c["id"]))[:10]
+    best = sorted(candidates, key=lambda c: (-(float(headline_mean_return_pct(c["horizons"][horizon]) or -1e9)), c["id"]))[:10]
     excluded = {
         "broad_scanner",
         "did_not_qualify",
@@ -606,6 +638,9 @@ def _summary_line(cohort: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "result": cohort.get("primary_result_text"),
         "matured_count": h.get("matured_count"),
         "mean_return_pct": h.get("mean_return_pct"),
+        "winsorized_mean_return_pct": h.get("winsorized_mean_return_pct"),
+        "outlier_flagged": outlier_driven(h),
+        "headline_mean_return_pct": headline_mean_return_pct(h),
         "win_rate": h.get("win_rate"),
         "sample_status": h.get("sample_status"),
     }
@@ -786,6 +821,12 @@ def _fmt_pct(value: Any, digits: int = 1) -> str:
     return f"{float(value):.{digits}f}%"
 
 
+def _outlier_note(h: Dict[str, Any]) -> str:
+    if not outlier_driven(h):
+        return ""
+    return f" [outlier-capped; raw mean {_fmt_pct(h.get('mean_return_pct'))}]"
+
+
 def _cohort_brief(cohort: Optional[Dict[str, Any]], horizon: str = "10d") -> str:
     if not cohort:
         return "missing"
@@ -794,9 +835,10 @@ def _cohort_brief(cohort: Optional[Dict[str, Any]], horizon: str = "10d") -> str
     return (
         f"{cohort['label']}: n={h.get('matured_count')}, "
         f"win={_fmt_pct(wr * 100 if wr is not None else None)}, "
-        f"mean={_fmt_pct(h.get('mean_return_pct'))}, "
-        f"vs SPY={_fmt_pct(h.get('excess_vs_spy_pct'))}, "
+        f"mean={_fmt_pct(headline_mean_return_pct(h))}, "
+        f"vs SPY={_fmt_pct(headline_excess_pct(h, 'spy'))}, "
         f"status={cohort.get('primary_result_text')}"
+        f"{_outlier_note(h)}"
     )
 
 
@@ -816,8 +858,10 @@ def render_text(report: Dict[str, Any]) -> str:
         _cohort_brief(find("high_conviction_alpha")),
         _cohort_brief(find("emerging_outlier_watch")),
         "",
-        f"Biggest drag cohort: {worst.get('label')} mean={_fmt_pct(worst.get('mean_return_pct'))} negative_sum={_fmt_pct(worst.get('negative_return_sum_pct_points'))}",
-        f"Best current cohort: {best.get('label')} mean={_fmt_pct(best.get('mean_return_pct'))} win={_fmt_pct((best.get('win_rate') or 0) * 100 if best.get('win_rate') is not None else None)}",
+        f"Biggest drag cohort: {worst.get('label')} mean={_fmt_pct(worst.get('headline_mean_return_pct', worst.get('mean_return_pct')))} negative_sum={_fmt_pct(worst.get('negative_return_sum_pct_points'))}"
+        f"{' [outlier-capped; raw mean ' + _fmt_pct(worst.get('mean_return_pct')) + ']' if worst.get('outlier_flagged') else ''}",
+        f"Best current cohort: {best.get('label')} mean={_fmt_pct(best.get('headline_mean_return_pct', best.get('mean_return_pct')))} win={_fmt_pct((best.get('win_rate') or 0) * 100 if best.get('win_rate') is not None else None)}"
+        f"{' [outlier-capped; raw mean ' + _fmt_pct(best.get('mean_return_pct')) + ']' if best.get('outlier_flagged') else ''}",
         f"Sample warning: {dash.get('sample_maturity_warning') or 'none'}",
         "",
         "Special focus (10d):",
@@ -827,7 +871,15 @@ def render_text(report: Dict[str, Any]) -> str:
             lines.append(f"- {key}: no data")
         else:
             wr = item.get("win_rate")
-            lines.append(f"- {key}: {item.get('label')} n={item.get('matured_count')} mean={_fmt_pct(item.get('mean_return_pct'))} win={_fmt_pct(wr * 100 if wr is not None else None)}")
+            outlier_suffix = (
+                f" [outlier-capped; raw mean {_fmt_pct(item.get('mean_return_pct'))}]"
+                if item.get("outlier_flagged") else ""
+            )
+            lines.append(
+                f"- {key}: {item.get('label')} n={item.get('matured_count')} "
+                f"mean={_fmt_pct(item.get('headline_mean_return_pct', item.get('mean_return_pct')))} "
+                f"win={_fmt_pct(wr * 100 if wr is not None else None)}{outlier_suffix}"
+            )
     lines.extend(["", "Caveats:"])
     lines.extend(f"- {c}" for c in report.get("caveats") or [])
     return "\n".join(lines) + "\n"
