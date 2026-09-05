@@ -656,6 +656,14 @@ def hard_exclusions(item: Dict[str, Any], fund: Dict[str, Any],
     dil = _num(fund.get("dilution_3q_pct"))
     if dil is not None and dil >= EXTREME_DILUTION_3Q_PCT:
         out.append(f"extreme dilution {dil:+.0f}%/3q")
+    elif dil is not None and dil < SUSPECT_BUYBACK_3Q_PCT:
+        # Symmetric to the extreme-dilution exclusion above: a share-count
+        # drop this large is a provider data gap, not a real buyback (see
+        # SUSPECT_BUYBACK_3Q_PCT comment), so the ticker can't be trusted
+        # for a HIGH_CONVICTION/PROMISING call until the data resolves —
+        # it stays visible in "rejected", never silently hidden.
+        out.append(f"dilution_3q_pct {dil:+.0f}%/3q outside plausible range "
+                    "— diluted-share-count data gap, not a real buyback")
     gm = _num(fund.get("gross_margin_pct"))
     if gm is not None and gm < 0:
         out.append("negative gross margin")

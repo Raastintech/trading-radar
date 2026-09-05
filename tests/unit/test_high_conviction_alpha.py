@@ -122,6 +122,21 @@ def test_severe_dilution_excludes():
     assert any("dilution" in e for e in c["exclusions"])
 
 
+def test_data_suspect_negative_dilution_excludes_even_with_strong_fundamentals():
+    # RYAN-style case (2026-08-03/04): otherwise-excellent fundamentals and
+    # price action, but the diluted-share-count field implies a >25% drop
+    # over 3 quarters that is really a provider data gap (missing
+    # convertible-unit adjustment), not a real buyback.  Must not reach
+    # HIGH_CONVICTION on the strength of the other factors alone.
+    item = _item(rs_63d_vs_spy=20, rs_20d_vs_spy=8, earliness_label="EARLY")
+    fund = _fund(operating_margin_pct=40, gross_margin_pct=80,
+                 rev_growth_3q_pct=30, pe_ttm=18, p_fcf_ttm=15,
+                 dilution_3q_pct=-52.7)
+    c = _eval(item=item, fund=fund)
+    assert c["classification"] == "REJECTED"
+    assert any("data gap" in e for e in c["exclusions"])
+
+
 # ── 4. negative gross margin prevents high conviction ───────────────────────
 
 
