@@ -40,10 +40,9 @@ import pytest
 # The stub FMP_API_KEY above is not recognised as "offline" by
 # research_scanner._is_offline_fmp() (which only treats ""/"offline"/"stub" as
 # offline), so a test that reaches an un-mocked FMP code path issues a REAL
-# HTTP request. It 401s on the stub key, but core/fmp_client.py:_get calls
-# budget_consume() BEFORE the request and log_endpoint() only after a success —
-# so every such call silently burned FMP monthly budget while leaving no row in
-# fmp_endpoint_log to explain it (measured: 14 calls per full unit run).
+# HTTP request. It 401s on the stub key — and a 401 is a call FMP served and
+# charged for, so it costs real monthly budget (measured: 14 calls per full
+# unit run).
 #
 # This fixture makes that failure loud instead of silent. Any attempt to reach
 # the FMP host during a unit test raises; tests must mock the client. Non-FMP
@@ -59,11 +58,14 @@ class RealProviderCallBlocked(RuntimeError):
 def _block_real_fmp_http(monkeypatch):
     """Two layers, because blocking the socket alone is not enough.
 
-    core/fmp_client.py:_get calls budget_consume() BEFORE issuing the request,
-    so a guard that only blocks the HTTP still lets the monthly counter climb.
-    Layer 1 therefore intercepts FMPClient._get itself, ahead of the counter.
-    Layer 2 catches anything that builds its own session and talks to FMP
-    without going through the client at all.
+    Layer 1 intercepts FMPClient._get itself, so the failure names the fix
+    (mock the client) instead of surfacing as a socket error from deep inside
+    requests. Layer 2 catches anything that builds its own session and talks
+    to FMP without going through the client at all.
+
+    Neither layer costs budget: _get charges the counter only once a response
+    comes back (tests/unit/test_fmp_budget_accounting.py pins that), so a
+    blocked call is free by construction rather than by luck.
 
     Both raise RealProviderCallBlocked. Callers that already wrap provider
     access in try/except (get_company_profile and friends) degrade to None
@@ -72,7 +74,7 @@ def _block_real_fmp_http(monkeypatch):
     """
     import requests
 
-    # ── layer 1: ahead of budget_consume() ──────────────────────────────────
+    # ── layer 1: the client's own entry point ───────────────────────────────
     try:
         from core.fmp_client import FMPClient
 

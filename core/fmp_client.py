@@ -24,9 +24,11 @@ Key stable API differences vs legacy /v3/:
   • earnings endpoint is /stable/earnings-calendar (hyphen, not underscore)
 
 Budget model:
-  750 RPM rate limit (token bucket).
+  750 RPM rate limit (token bucket), consumed per attempt.
   50,000 calls/month (monthly enforcement in Gatekeeper).
-  All calls go through budget_consume() + log_endpoint() for visibility.
+  Every served response — success or error status — is booked once through
+  budget_consume() + log_endpoint(); a request that never got a response is
+  charged to neither.
 
 Quote caching strategy:
   Batch quotes via get_quotes_batch() are cached for TTL_QUOTE (20 s) under
@@ -97,20 +99,36 @@ class FMPClient:
         # budget_consume() is telemetry-only (always returns True).
         # No monthly/daily call cap is enforced — plan page shows 750 RPM + 50 GB
         # bandwidth, not a call count ceiling.
-        self._gate.budget_consume(budget_cost)   # increments counters, never blocks
+        #
+        # Accounting rule: the rate bucket gates ATTEMPTS (an attempt is what the
+        # provider rate-limits), but the budget counter and the endpoint log both
+        # record a call only once a response actually comes back — and then they
+        # record it together, error status included, because a 401/429/5xx is a
+        # request FMP served and charged for.  Booking the counter ahead of the
+        # request instead (the pre-2026-09 order) charged the month for calls
+        # that never reached the wire and left no fmp_endpoint_log row to explain
+        # the spend; research/fmp_budget.py sizes every provider run off that
+        # counter, so the drift shrank real budget.
         self._bucket.consume(budget_cost)         # ← the only real gate
         url = f"{cfg.FMP_BASE_URL}{path}"
         try:
             resp = self._session.get(url, params=params or {}, timeout=15)
+        except Exception as exc:
+            # No response — connection refused, DNS, timeout, or a test guard.
+            # Nothing was served, so nothing is charged.
+            logger.error("FMP request failed %s: %s", path, exc)
+            raise
+
+        self._gate.budget_consume(budget_cost)   # increments counters, never blocks
+        self._gate.log_endpoint(path, saved=0, resp_bytes=len(resp.content))
+        try:
             resp.raise_for_status()
-            resp_bytes = len(resp.content)
-            self._gate.log_endpoint(path, saved=0, resp_bytes=resp_bytes)
             return resp.json()
         except requests.HTTPError as exc:
             logger.error("FMP HTTP error %s %s: %s", path, params, exc)
             raise
         except Exception as exc:
-            logger.error("FMP request failed %s: %s", path, exc)
+            logger.error("FMP response unreadable %s: %s", path, exc)
             raise
 
     @staticmethod

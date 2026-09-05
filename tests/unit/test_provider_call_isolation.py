@@ -7,10 +7,12 @@ FMP calls. Two things combined to hide it:
   ``"stub"`` as offline, and ``tests/conftest.py`` stubs ``FMP_API_KEY`` as
   ``"test_fmp_key"`` — so ``build_scanner(offline=True)`` still called
   ``_batch_fmp_profiles``, which went to the wire.
-* ``core/fmp_client.py:_get`` calls ``budget_consume()`` **before** the request
-  but ``log_endpoint()`` only after a success, so the failed calls incremented
-  the monthly counter while leaving no row in ``fmp_endpoint_log`` — spend with
-  no audit trail.
+* ``core/fmp_client.py:_get`` called ``budget_consume()`` **before** the
+  request but ``log_endpoint()`` only after a success, so the failed calls
+  incremented the monthly counter while leaving no row in
+  ``fmp_endpoint_log`` — spend with no audit trail.  That ordering is fixed
+  (see ``tests/unit/test_fmp_budget_accounting.py``); this file pins the
+  other half, that the calls do not happen at all.
 
 ``tests/conftest.py`` now installs a two-layer autouse guard. These tests pin it
 in place so removing it fails loudly rather than quietly restoring the leak.
