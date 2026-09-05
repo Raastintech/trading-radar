@@ -850,14 +850,20 @@ def _section_cohort_attribution(inputs: Dict[str, Any]) -> List[str]:
     hc = dash.get("high_conviction") or {}
     eo = dash.get("emerging_outlier") or {}
     warning = dash.get("sample_maturity_warning")
+
+    def _outlier_note(c: Dict[str, Any]) -> str:
+        if not c.get("outlier_flagged"):
+            return ""
+        return f" [outlier-capped; raw mean {_fmt(c.get('mean_return_pct'))}]"
+
     lines.append(
         f"- Dragging performance: {drag.get('label') or 'n/a'} "
-        f"(10d mean {drag.get('mean_return_pct')}, "
-        f"win {drag.get('win_rate')}).")
+        f"(10d mean {_fmt(drag.get('headline_mean_return_pct', drag.get('mean_return_pct')))}, "
+        f"win {drag.get('win_rate')}){_outlier_note(drag)}.")
     lines.append(
         f"- Best current cohort: {best.get('label') or 'n/a'} "
-        f"(10d mean {best.get('mean_return_pct')}, "
-        f"win {best.get('win_rate')}).")
+        f"(10d mean {_fmt(best.get('headline_mean_return_pct', best.get('mean_return_pct')))}, "
+        f"win {best.get('win_rate')}){_outlier_note(best)}.")
     lines.append(
         f"- High-Conviction 10d sample: {hc.get('matured_count')} "
         f"({hc.get('result') or hc.get('status')}).")

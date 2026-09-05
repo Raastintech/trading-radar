@@ -201,6 +201,44 @@ def test_journal_digest_includes_concise_cohort_attribution():
     assert "Do not conclude HC/EO alpha" in text
 
 
+def test_journal_digest_cohort_attribution_uses_headline_not_raw_mean():
+    """Outlier-flagged cohorts must render the outlier-capped headline mean
+    (with the raw mean shown only as an annotation), never the raw mean as
+    the headline figure — regression for a display bug where the digest read
+    mean_return_pct instead of headline_mean_return_pct."""
+    inputs = {
+        "cohort_attribution": {
+            "dashboard_summary": {
+                "biggest_drag_cohort": {
+                    "label": "Repeat candidates",
+                    "mean_return_pct": 44.34,
+                    "winsorized_mean_return_pct": -1.14,
+                    "headline_mean_return_pct": -1.14,
+                    "outlier_flagged": True,
+                    "win_rate": 0.464,
+                },
+                "best_current_cohort": {
+                    "label": "Same Session Clean",
+                    "mean_return_pct": 5.76,
+                    "headline_mean_return_pct": 5.76,
+                    "outlier_flagged": False,
+                    "win_rate": 0.677,
+                },
+                "high_conviction": {"matured_count": 0, "result": "Too early to evaluate."},
+                "emerging_outlier": {"matured_count": 0, "result": "Too early to evaluate."},
+                "sample_maturity_warning": None,
+            }
+        }
+    }
+
+    text = "\n".join(jd._section_cohort_attribution(inputs))
+
+    assert "Dragging performance: Repeat candidates (10d mean -1.14" in text
+    assert "[outlier-capped; raw mean 44.34]" in text
+    assert "Best current cohort: Same Session Clean (10d mean 5.76" in text
+    assert "[outlier-capped" not in text.split("Best current cohort")[1]
+
+
 def test_no_scanner_scoring_routing_filter_logic_changed_by_attribution_module():
     for rel in (
         "research/research_scanner.py",
