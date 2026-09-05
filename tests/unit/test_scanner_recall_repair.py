@@ -150,6 +150,13 @@ def _synthetic_world(monkeypatch, tmp_path):
     monkeypatch.setattr(PLAN, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(AUD, "DOCS_DIR", tmp_path)
     monkeypatch.setattr(UDS, "DOCS_DIR", tmp_path)
+    # scanner_emission_gap_audit._write_doc has no DOCS_DIR constant — it builds
+    # docs/research/SCANNER_EMISSION_GAP_AUDIT.md from dataio.REPO at call time,
+    # so it escaped the redirects above and rewrote the TRACKED doc with
+    # synthetic 2-ticker numbers on every run. dataio.REPO is read at call time
+    # here, so patching it sandboxes the write; sibling modules that bound their
+    # own paths from dataio.REPO at import time are unaffected.
+    monkeypatch.setattr(dataio, "REPO", tmp_path)
     # minimal synthetic universe snapshot so the audit + dynamic builder run on
     # tmp rather than the real cache/universe snapshot.
     snap_path = tmp_path / "snap.json"
@@ -282,6 +289,32 @@ def test_orchestrator_build_emits_surfacing_hooks(monkeypatch, tmp_path):
     assert set(s["mcp_summary_block"]) >= {
         "system_recall", "rs_recall", "emission_gap_stage", "leading_theme",
         "action_needed"}
+
+
+def test_orchestrator_build_never_writes_the_tracked_doc(monkeypatch, tmp_path):
+    """ORCH.build() must not rewrite docs/research/SCANNER_EMISSION_GAP_AUDIT.md.
+
+    Regression: scanner_emission_gap_audit._write_doc builds its path from
+    dataio.REPO at call time, so it escaped the fixture's DOCS_DIR redirects and
+    overwrote the tracked doc with synthetic two-ticker numbers on every test
+    run. The doc is a real research artifact; a test must never author it.
+    """
+    from research.scanner_truth import dataio
+
+    tracked = Path(dataio.REPO) / "docs" / "research" / "SCANNER_EMISSION_GAP_AUDIT.md"
+    before = tracked.stat().st_mtime_ns if tracked.exists() else None
+    before_bytes = tracked.read_bytes() if tracked.exists() else None
+
+    _synthetic_world(monkeypatch, tmp_path)
+    ORCH.build()
+
+    after = tracked.stat().st_mtime_ns if tracked.exists() else None
+    assert after == before, "ORCH.build() rewrote the tracked emission-gap doc"
+    if before_bytes is not None:
+        assert tracked.read_bytes() == before_bytes, "tracked doc content changed"
+
+    # and the sandboxed copy IS written, so the code path really ran
+    assert (tmp_path / "docs" / "research" / "SCANNER_EMISSION_GAP_AUDIT.md").exists()
 
 
 # ── 7. research-only invariants ──────────────────────────────────────────────

@@ -36,6 +36,72 @@ for _key, _val in _STUB_ENV.items():
 import pytest
 
 
+# ── Real-provider network guard ──────────────────────────────────────────────
+# The stub FMP_API_KEY above is not recognised as "offline" by
+# research_scanner._is_offline_fmp() (which only treats ""/"offline"/"stub" as
+# offline), so a test that reaches an un-mocked FMP code path issues a REAL
+# HTTP request. It 401s on the stub key, but core/fmp_client.py:_get calls
+# budget_consume() BEFORE the request and log_endpoint() only after a success —
+# so every such call silently burned FMP monthly budget while leaving no row in
+# fmp_endpoint_log to explain it (measured: 14 calls per full unit run).
+#
+# This fixture makes that failure loud instead of silent. Any attempt to reach
+# the FMP host during a unit test raises; tests must mock the client. Non-FMP
+# hosts are untouched.
+_FMP_HOSTS = ("financialmodelingprep.com",)
+
+
+class RealProviderCallBlocked(RuntimeError):
+    """A unit test attempted a real provider HTTP call."""
+
+
+@pytest.fixture(autouse=True)
+def _block_real_fmp_http(monkeypatch):
+    """Two layers, because blocking the socket alone is not enough.
+
+    core/fmp_client.py:_get calls budget_consume() BEFORE issuing the request,
+    so a guard that only blocks the HTTP still lets the monthly counter climb.
+    Layer 1 therefore intercepts FMPClient._get itself, ahead of the counter.
+    Layer 2 catches anything that builds its own session and talks to FMP
+    without going through the client at all.
+
+    Both raise RealProviderCallBlocked. Callers that already wrap provider
+    access in try/except (get_company_profile and friends) degrade to None
+    exactly as they do for any other request failure, so behaviour under test
+    is unchanged — only the budget hit and the wire traffic disappear.
+    """
+    import requests
+
+    # ── layer 1: ahead of budget_consume() ──────────────────────────────────
+    try:
+        from core.fmp_client import FMPClient
+
+        def _blocked_get(self, path, params=None, budget_cost=1):
+            raise RealProviderCallBlocked(
+                f"unit test attempted a real FMP call: {path}\n"
+                "Mock the client (e.g. patch research_scanner._batch_fmp_profiles "
+                "or core.fmp_client.get_fmp) instead of reaching the wire."
+            )
+
+        monkeypatch.setattr(FMPClient, "_get", _blocked_get)
+    except Exception:  # pragma: no cover - client unavailable in this context
+        pass
+
+    # ── layer 2: anything bypassing FMPClient ───────────────────────────────
+    _real_request = requests.Session.request
+
+    def _guarded(self, method, url, *args, **kwargs):
+        if any(h in str(url) for h in _FMP_HOSTS):
+            raise RealProviderCallBlocked(
+                f"unit test attempted a real FMP call: {method} {url}\n"
+                "Mock the client instead of reaching the wire."
+            )
+        return _real_request(self, method, url, *args, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", _guarded)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _sandbox_research_scanner_outputs(tmp_path, monkeypatch):
     import sys

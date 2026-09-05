@@ -529,6 +529,19 @@ class TestScannerEnrichmentIntegration(unittest.TestCase):
         # Create SPY parquet
         _make_parquet(self.tmp, "SPY", 300, price=500.0, volume=50_000_000)
 
+        # build_scanner(offline=True) does NOT stop _batch_fmp_profiles from
+        # calling the provider: that helper gates on _is_offline_fmp(), which
+        # inspects FMP_API_KEY and does not see the conftest stub key as
+        # offline. Left un-mocked these tests issued real HTTP per run. Return
+        # exactly what the offline branch returns, so the assertions below
+        # exercise the same enrichment path they always did.
+        import research.research_scanner as rs
+        patcher = patch.object(
+            rs, "_batch_fmp_profiles", side_effect=lambda tickers: {t: None for t in tickers}
+        )
+        self.mock_profiles = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _run_scanner_offline(self):
         import research.research_scanner as rs
         orig_price_dir = rs.PRICE_DIR
