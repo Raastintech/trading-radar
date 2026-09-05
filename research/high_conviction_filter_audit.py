@@ -105,6 +105,16 @@ GATE_REGISTRY = [
        "Extreme repeated dilution — a severe, multi-quarter fact.",
        lambda it, f, r, dh: hca._num(f.get("dilution_3q_pct")) is not None
        and hca._num(f.get("dilution_3q_pct")) >= hca.EXTREME_DILUTION_3Q_PCT),
+    _g("suspect_buyback", CAT_INTEGRITY,
+       f"dilution_3q_pct < {hca.SUSPECT_BUYBACK_3Q_PCT:.0f}%",
+       "hard_exclude", "KEEP_HARD",
+       "A share-count drop this steep is a diluted-share-count data gap, not "
+       "a real buyback — an integrity failure in the feed rather than an "
+       "alpha opinion, so the metric cannot be trusted for a conviction "
+       "call until it resolves.  Symmetric to extreme_dilution on the "
+       "opposite side of the same field.",
+       lambda it, f, r, dh: hca._num(f.get("dilution_3q_pct")) is not None
+       and hca._num(f.get("dilution_3q_pct")) < hca.SUSPECT_BUYBACK_3Q_PCT),
     _g("negative_gross_margin", CAT_SEVERE, "gross_margin_pct < 0",
        "hard_exclude", "INVESTIGATE",
        "Negative gross margin is severe, but for some lifecycles (early "

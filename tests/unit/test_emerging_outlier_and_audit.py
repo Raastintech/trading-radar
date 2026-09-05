@@ -483,3 +483,120 @@ def test_gm_100_unit_economics_marked_uninformative():
     d = [x for x in ev["dimensions"]
          if x["dimension"] == "STRONG_UNIT_ECONOMICS"][0]
     assert "uninformative" in d["detail"]
+
+
+# ── 22. suspect-buyback gate keeps the audit aligned with V1 ────────────────
+#
+# Commit 742b67e made a diluted-share-count drop below SUSPECT_BUYBACK_3Q_PCT
+# (-25%/3q) a hard HC exclusion: a drop that steep is a provider data gap, not
+# a real buyback. GATE_REGISTRY carried an extreme_dilution gate for the
+# positive side of that field but nothing for the negative side, so the audit's
+# decomposition could no longer reproduce V1's reject decision. The consistency
+# guard asserts fired_gates is non-empty iff V1 rejected, so the first affected
+# name on the board would have flipped gate_decomposition_matches_v1 to False
+# and surfaced as an unexplained mismatch rather than a known gate.
+
+
+def _suspect_root(tmp_path):
+    """A board with one clean name and one suspect-buyback name."""
+    return _scan_root(tmp_path, tickers=[
+        ("GOODCO", {}, {}, {}),
+        ("SUSPECT", {}, {"dilution_3q_pct": -52.7}, {}),
+    ])
+
+
+def test_suspect_buyback_gate_registered():
+    gates = {g["gate"]: g for g in audit.GATE_REGISTRY}
+    assert "suspect_buyback" in gates, "registry must mirror V1.hard_exclusions"
+    g = gates["suspect_buyback"]
+    # A feed defect, not an alpha opinion — same taxonomy as the other
+    # integrity gates, and hard for the same reason.
+    assert g["category"] == audit.CAT_INTEGRITY
+    assert g["behavior"] == "hard_exclude"
+    assert g["default_recommended_status"] == "KEEP_HARD"
+
+
+def test_suspect_buyback_threshold_tracks_v1_constant():
+    """The gate must not hard-code its own threshold."""
+    g = {x["gate"]: x for x in audit.GATE_REGISTRY}["suspect_buyback"]
+    assert f"{hca.SUSPECT_BUYBACK_3Q_PCT:.0f}" in g["threshold"]
+    # fires below the constant, not at or above it
+    assert g["_check"](_item(), _fund(dilution_3q_pct=-52.7), _routed(), "NONE")
+    assert g["_check"](_item(), _fund(dilution_3q_pct=-25.1), _routed(), "NONE")
+    assert not g["_check"](_item(), _fund(dilution_3q_pct=-24.9), _routed(), "NONE")
+    assert not g["_check"](_item(), _fund(dilution_3q_pct=1.0), _routed(), "NONE")
+    # a missing value is not a gate hit
+    assert not g["_check"](_item(), _fund(dilution_3q_pct=None), _routed(), "NONE")
+
+
+def test_suspect_buyback_appears_in_gate_decomposition(tmp_path):
+    a = audit.build_audit(_suspect_root(tmp_path))
+    matrix = {g["gate"]: g for g in a["gate_review_matrix"]}
+    assert "suspect_buyback" in matrix
+    assert matrix["suspect_buyback"]["latest_affected"] == 1
+    assert matrix["suspect_buyback"]["sole_reason_tickers"] == ["SUSPECT"]
+
+
+def test_suspect_buyback_keeps_decomposition_matching_v1(tmp_path):
+    a = audit.build_audit(_suspect_root(tmp_path))
+    assert a["gate_decomposition_matches_v1"] is True
+
+
+def test_suspect_buyback_ticker_explained_not_mismatched(tmp_path):
+    """The affected name is attributed to a known gate, not left unexplained."""
+    a = audit.build_audit(_suspect_root(tmp_path))
+    one_away = {c["ticker"]: c["gate"] for c in a["one_rule_away"]["candidates"]}
+    assert one_away.get("SUSPECT") == "suspect_buyback"
+
+
+def test_registry_without_the_gate_would_mismatch(tmp_path, monkeypatch):
+    """Proves the gate is load-bearing rather than decorative.
+
+    With the gate removed the audit reproduces the pre-fix failure, so this
+    test fails if someone deletes the entry.
+    """
+    root = _suspect_root(tmp_path)
+    monkeypatch.setattr(
+        audit, "GATE_REGISTRY",
+        [g for g in audit.GATE_REGISTRY if g["gate"] != "suspect_buyback"])
+    a = audit.build_audit(root)
+    assert a["gate_decomposition_matches_v1"] is False
+
+
+def test_suspect_buyback_gate_changes_no_classification(tmp_path):
+    """Audit-only alignment: HC's own verdicts are untouched by the registry.
+
+    The registry is the audit's *description* of V1. Adding an entry must not
+    move a classification, a score, or an exclusion list.
+    """
+    root = _suspect_root(tmp_path)
+    hc = hca.build_shortlist(root)
+    by_ticker = {c["ticker"]: c
+                 for part in ("shortlist", "quality_but_extended",
+                              "improving_but_unproven", "rejected")
+                 for c in hc[part]}
+
+    # V1 rejects the suspect name on its own, with the data-gap reason.
+    assert by_ticker["SUSPECT"]["classification"] == "REJECTED"
+    assert any("data gap" in e for e in by_ticker["SUSPECT"]["exclusions"])
+    # and the clean name is entirely unaffected.
+    assert by_ticker["GOODCO"]["classification"] != "REJECTED"
+    assert by_ticker["GOODCO"]["exclusions"] == []
+
+    # Same verdicts with the gate removed from the audit's registry: the
+    # registry describes V1, it does not drive it.
+    saved = audit.GATE_REGISTRY
+    audit.GATE_REGISTRY = [g for g in saved if g["gate"] != "suspect_buyback"]
+    try:
+        again = hca.build_shortlist(root)
+    finally:
+        audit.GATE_REGISTRY = saved
+    again_by = {c["ticker"]: c
+                for part in ("shortlist", "quality_but_extended",
+                             "improving_but_unproven", "rejected")
+                for c in again[part]}
+    for tk in ("SUSPECT", "GOODCO"):
+        assert again_by[tk]["classification"] == by_ticker[tk]["classification"]
+        assert again_by[tk]["high_conviction_score"] == \
+            by_ticker[tk]["high_conviction_score"]
+        assert again_by[tk]["exclusions"] == by_ticker[tk]["exclusions"]
