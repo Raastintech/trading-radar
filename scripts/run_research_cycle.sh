@@ -1136,9 +1136,16 @@ cmd_research_scanner() {
     # Phase 4B/4C — Research Scanner + Watchlist Scorer.  RESEARCH-ONLY / CACHE-
     # FIRST.  Runs six scanner categories (Early Accumulation, Beaten-Down
     # Recovery, Sector/Theme Leaders, Catalyst Watch, Social Arb, Asymmetric)
-    # against the price cache and assigns watchlist labels.  FMP optional (degrades
-    # gracefully).  Emits no signals, no trade recommendations.  Alpaca not required.
-    log "[CACHE] Phase 4B/4C research scanner + watchlist scorer (research-only)"
+    # against the price cache and assigns watchlist labels.  Emits no signals,
+    # no trade recommendations.  Alpaca not required.
+    #
+    # Cost: cache-FIRST but not cache-ONLY — the categories that need issuer
+    # facts call FMP (earnings calendar once per run, analyst grades for names
+    # with earnings, fundamentals in the asymmetric scan, and one company
+    # profile per deduped watchlist name).  Each degrades gracefully to None on
+    # failure, which is why this step long carried a [CACHE] label it did not
+    # earn.  Pass --offline for a genuinely cache-only run (then it is [CACHE]).
+    log "[PROVIDER] Phase 4B/4C research scanner + watchlist scorer (research-only)"
     run_or_warn "research scanner" "$PY" research/research_scanner.py "$@"
 }
 
