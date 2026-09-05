@@ -5,6 +5,8 @@ Tasks covered:
   - Task 2: _validated_theme_label / _why_it_matters category mismatch
   - Task 3: M&A buyer-vs-target: TTMI mapped, AG suffix dropped
   - Task 4: Claude KEEP cannot revive a corporate-suffix drop (AG never reaches Claude)
+  - Task 5: AMBIGUOUS_ROLE_TITLE_TICKERS guard (COO/CTO/CIO/... executive-title
+    ambiguity — "Dell COO speaks about AI" must not map ticker COO)
 
 All tests are pure-Python; no network, no provider calls.
 """
@@ -290,3 +292,178 @@ def test_ag_never_reaches_candidate_list_after_corporate_suffix_drop():
         "Claude KEEP can only act on candidates that reach score_candidates()"
     )
     assert drop["reasons"].get("ambiguous_generic_word_alias", 0) >= 1
+
+
+# ─── Task 5: executive-title ambiguity (COO/CTO/CIO/...) ───────────────────
+#
+# Root cause: "Dell Technologies COO Says Agentic Demand Is Reshaping The
+# Data Center..." was mapping ticker COO (The Cooper Companies) purely from
+# a bare-uppercase Pass-2 regex hit on the job title "COO" in the headline.
+# COO then out-scored DELL's own alpha_fit in topic_shock_detector's
+# assign_topic_label (DELL was extended/gate-blocked; COO, with no real
+# connection to the story, was not) and became the CITED ticker behind a
+# false TOPIC_RESEARCH_NOW alert. These tests exercise normalize_items()
+# directly — the actual regex/evidence-extraction layer where the false
+# mapping was created — rather than hand-built ticker_evidence, since the
+# fix is in how that evidence gets built in the first place.
+
+_ROLE_TITLE_KNOWN = {"DELL", "COO", "AAPL"}
+
+
+def _raw_item(title: str, symbol: str = "", url: str = "https://example.com/x") -> Dict[str, Any]:
+    return {
+        "title": title,
+        "symbol": symbol,
+        "source": "Alpaca (Benzinga)",
+        "source_type": "fmp_stock_news",
+        "timestamp": "2026-09-02T12:00:00+00:00",
+        "url": url,
+    }
+
+
+def test_role_title_tickers_constant_exists():
+    assert hasattr(sar, "AMBIGUOUS_ROLE_TITLE_TICKERS")
+    for sym in ("COO", "CTO", "CIO", "CMO", "CISO", "CHRO"):
+        assert sym in sar.AMBIGUOUS_ROLE_TITLE_TICKERS, f"{sym} missing from AMBIGUOUS_ROLE_TITLE_TICKERS"
+
+
+def test_real_dell_coo_headline_maps_dell_not_coo():
+    """The actual headline that produced the false COO mapping in production."""
+    item = sar.normalize_items(
+        [_raw_item(
+            "Dell Technologies COO Says Agentic Demand Is Reshaping The Data Center "
+            "And The Underlying Infrastructure; We're Expecting AI To Be 75% Of All "
+            "Data Center Demand By 2030",
+            symbol="DELL",
+        )],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert item.tickers_mentioned == ["DELL"]
+    assert "COO" not in item.ticker_evidence
+
+
+def test_dell_coo_speaks_maps_dell_if_evidence_exists_not_coo():
+    """'Dell COO speaks about AI' maps DELL (via FMP subject tag) and never COO."""
+    item = sar.normalize_items(
+        [_raw_item("Dell COO speaks about AI", symbol="DELL")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "DELL" in item.tickers_mentioned
+    assert "COO" not in item.tickers_mentioned
+
+
+def test_dell_coo_says_all_caps_does_not_map_coo():
+    """'DELL COO says AI demand is strong' — DELL maps via its own bare-uppercase
+    hit; COO must not, despite also being all-caps in the same headline."""
+    item = sar.normalize_items(
+        [_raw_item("DELL COO says AI demand is strong")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "DELL" in item.tickers_mentioned
+    assert "COO" not in item.tickers_mentioned
+
+
+def test_cooper_companies_alias_maps_coo():
+    """'The Cooper Companies COO reports earnings' maps COO via the validated
+    COMPANY_ALIASES company-name match, not the bare role-title token."""
+    assert "COO" in sar.COMPANY_ALIASES
+    assert "cooper companies" in sar.COMPANY_ALIASES["COO"]
+    item = sar.normalize_items(
+        [_raw_item("The Cooper Companies COO reports earnings")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "COO" in item.tickers_mentioned
+    assert item.ticker_evidence["COO"]["alias"] == "cooper companies"
+
+
+def test_cashtag_coo_maps():
+    """'$COO breaks out on volume' — explicit cashtag always maps."""
+    item = sar.normalize_items(
+        [_raw_item("$COO breaks out on volume")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "COO" in item.tickers_mentioned
+    assert item.ticker_evidence["COO"]["direct_symbol"] is True
+
+
+def test_exchange_prefixed_coo_maps():
+    """'NYSE:COO shares rise after earnings' — exchange-prefixed mention maps."""
+    item = sar.normalize_items(
+        [_raw_item("NYSE:COO shares rise after earnings")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "COO" in item.tickers_mentioned
+    assert item.ticker_evidence["COO"]["direct_symbol"] is True
+
+
+def test_coo_stock_market_phrase_maps():
+    """'COO stock price rises' — explicit market phrase attached to the token
+    is the only thing that lets a bare mention through."""
+    item = sar.normalize_items(
+        [_raw_item("COO stock price rises")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "COO" in item.tickers_mentioned
+
+
+def test_bare_coo_with_no_evidence_does_not_map():
+    """A completely bare 'COO' mention (no role-title verb, no market phrase,
+    no cashtag/exchange-prefix/alias/subject) still does not map — plain
+    uppercase text alone is never sufficient for an ambiguous ticker."""
+    item = sar.normalize_items(
+        [_raw_item("COO comments on quarterly results")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "COO" not in item.tickers_mentioned
+
+
+def test_existing_valid_ticker_mappings_still_pass():
+    """A normal, non-ambiguous ticker (AAPL) is unaffected by the new guard."""
+    item = sar.normalize_items(
+        [_raw_item("AAPL unveils new foldable iPhone design")],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    assert "AAPL" in item.tickers_mentioned
+
+
+def test_no_fabricated_role_word_ticker_mappings():
+    """CEO/CFO (already in COMMON_FALSE_TICKERS) and the new ambiguous set
+    never fabricate a ticker mapping from generic role-word text alone."""
+    item = sar.normalize_items(
+        [_raw_item("The CEO and CFO discussed CTO succession plans with the board")],
+        _ROLE_TITLE_KNOWN | {"CTO"},
+    )[0]
+    assert item.tickers_mentioned == []
+
+
+def test_topic_shock_style_cluster_drops_false_coo_but_keeps_dell():
+    """map_cluster_tickers (topic_shock_detector's mapping layer) receives
+    clean per-document evidence from normalize_items — this is the layer
+    that actually produced the false COO-backed TOPIC_RESEARCH_NOW alert,
+    since it reads social_arb_raw's normalized_items directly (pre-
+    build_story_groups). Confirms the fix reaches that path too."""
+    from research import topic_shock_detector as tsd
+
+    item = sar.normalize_items(
+        [_raw_item(
+            "Dell Technologies COO Says Agentic Demand Is Reshaping The Data Center",
+            symbol="DELL",
+        )],
+        _ROLE_TITLE_KNOWN,
+    )[0]
+    conf: Dict[str, float] = {}
+    for ticker, ev in (item.ticker_evidence or {}).items():
+        if ev.get("direct_symbol"):
+            conf[ticker] = 0.85
+        elif ev.get("is_subject") or ev.get("in_title"):
+            conf[ticker] = 0.65
+    doc = {
+        "doc_id": "arb:0", "text": item.title, "domain": item.source,
+        "pipeline": "social_arb_raw",
+        "tickers_hint": sorted(set(item.tickers_mentioned)),
+        "ticker_confidence": conf,
+    }
+    cluster = {"documents": [doc], "known_topic": None}
+    mapped = {m["ticker"]: m for m in tsd.map_cluster_tickers(cluster)}
+    assert "COO" not in mapped, "false COO mapping must not reach topic_shock_detector's cluster mapping"
+    assert "DELL" in mapped

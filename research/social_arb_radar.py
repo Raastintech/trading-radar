@@ -101,6 +101,33 @@ COMMON_FALSE_TICKERS = {
 # alias from COMPANY_ALIASES, or an explicit FMP subject tag.
 CORPORATE_SUFFIX_TICKERS = frozenset({"AG", "SA", "SE", "NV", "PLC"})
 
+# Tickers that are also common executive-title acronyms (COO=Chief Operating
+# Officer, CTO=Chief Technology Officer, CIO=Chief Information Officer,
+# CMO=Chief Marketing Officer, CISO=Chief Information Security Officer,
+# CHRO=Chief Human Resources Officer).  A bare uppercase token in news text
+# ("Dell COO says AI demand is strong") is almost always the job title, not
+# the stock — the company actually being discussed is usually named
+# elsewhere in the headline (and mapped normally through its own evidence).
+# Mapping survives only when there is at least one of: a $-prefixed mention
+# ("$COO"), an "EXCHANGE:SYM" prefix ("NYSE:COO"), a validated company-name
+# alias from COMPANY_ALIASES, an explicit FMP subject tag, or a market
+# phrase attached to the same token ("COO stock", "COO shares",
+# "COO earnings", "COO price target"). CEO/CFO are not listed here because
+# they are already unconditionally excluded via COMMON_FALSE_TICKERS (not
+# real primary tickers in the traded universe this pipeline maps against).
+AMBIGUOUS_ROLE_TITLE_TICKERS = frozenset({"COO", "CTO", "CIO", "CMO", "CISO", "CHRO"})
+
+
+def _has_role_title_market_evidence(sym: str, scope: str) -> bool:
+    """True if `sym` is followed by an explicit market phrase in `scope`
+    ("COO stock", "COO shares", "COO earnings", "COO price target") —
+    the positive-evidence pathway that lets a bare mention of an
+    executive-title-ambiguous ticker still count."""
+    return bool(re.search(
+        rf"\b{re.escape(sym)}\b\s+(?:stock|shares|earnings|price target)\b",
+        scope, re.IGNORECASE,
+    ))
+
 FALLBACK_SYMBOLS = {
     "AAPL", "MSFT", "NVDA", "GOOGL", "GOOG", "AMZN", "META", "TSLA", "AMD",
     "AVGO", "SMCI", "VRT", "ORCL", "CRM", "NOW", "SNOW", "PLTR", "CRWD",
@@ -193,6 +220,7 @@ COMPANY_ALIASES = {
     "MP": ["mp materials"],
     "TTMI": ["ttm technologies"],
     "AG": ["first majestic", "first majestic silver"],
+    "COO": ["cooper companies"],
 }
 
 THEME_RULES: Dict[str, Dict[str, Any]] = {
@@ -1414,12 +1442,33 @@ def normalize_items(raw_items: Sequence[Dict[str, Any]], known_symbols: set[str]
                     e = _ev(sym)
                     e["direct_symbol"] = True
                     e["in_title" if in_title else "in_body"] = True
+        # Pass 1b — exchange-prefixed tickers ("NYSE:COO", "NASDAQ:COO"): as
+        # trustworthy as a $-cashtag. This is the primary way an executive-
+        # title-ambiguous ticker (see AMBIGUOUS_ROLE_TITLE_TICKERS) gets
+        # unambiguous market evidence without a cashtag.
+        for scope, in_title in ((title_text, True), (body_text, False)):
+            for sym in re.findall(r"\b(?:NYSE|NASDAQ|AMEX|OTC)\s*:\s*([A-Z]{1,5})\b", scope, re.IGNORECASE):
+                sym = sym.upper()
+                if sym in known_symbols and sym not in KNOWN_INSTRUMENTS and sym not in COMMON_FALSE_TICKERS:
+                    e = _ev(sym)
+                    e["direct_symbol"] = True
+                    e["in_title" if in_title else "in_body"] = True
         # Pass 2 — bare uppercase tokens: require 2-5 letters AND reject any
         # token sitting adjacent to "&" (catches the S&P → P / AT&T → T /
         # P&G → G class of false positives). Single-letter tickers in news text
         # without a $-prefix are essentially always false positives, so they are
         # intentionally NOT matched here — they can still arrive via the raw
         # `symbol` field above or via COMPANY_ALIASES below.
+        #
+        # Executive-title ambiguity: a subset of real tickers (COO/CTO/CIO/
+        # CMO/CISO/CHRO — see AMBIGUOUS_ROLE_TITLE_TICKERS) are also common
+        # job-title acronyms ("Dell COO says..."). A bare uppercase hit alone
+        # is not sufficient evidence for those — it is dropped here unless an
+        # explicit market phrase is attached to the same token in this scope
+        # ("COO stock", "COO shares", "COO earnings", "COO price target").
+        # The company actually being discussed (e.g. DELL) is unaffected and
+        # continues to map through its own evidence (subject tag, cashtag,
+        # company-name alias, or its own bare-uppercase mention).
         for scope, in_title in ((title_text, True), (body_text, False)):
             for m in re.finditer(r"\b([A-Z]{2,5})\b", scope):
                 sym = m.group(1).upper()
@@ -1429,6 +1478,8 @@ def normalize_items(raw_items: Sequence[Dict[str, Any]], known_symbols: set[str]
                 if prev_c == "&" or next_c == "&":
                     continue
                 if sym in known_symbols and sym not in KNOWN_INSTRUMENTS and sym not in COMMON_FALSE_TICKERS:
+                    if sym in AMBIGUOUS_ROLE_TITLE_TICKERS and not _has_role_title_market_evidence(sym, scope):
+                        continue
                     e = _ev(sym)
                     e["direct_symbol"] = True
                     e["in_title" if in_title else "in_body"] = True
