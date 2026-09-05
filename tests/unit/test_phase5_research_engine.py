@@ -28,6 +28,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
@@ -217,6 +218,62 @@ def test_scanner_batch_fmp_profiles_offline():
     assert all(v is None for v in profiles.values())
 
 
+def _explode(*a, **k):
+    raise AssertionError("cache-only run reached the provider")
+
+
+def test_batch_fmp_profiles_honours_the_offline_argument(monkeypatch):
+    """offline= must stand on its own, not defer to FMP_API_KEY.
+
+    The helper used to gate only on _is_offline_fmp(), which reads the key and
+    nothing else — so a caller holding a live key went to the wire even under
+    build_scanner(offline=True). That is how the unit suite spent real FMP
+    calls (2026-09-05) and how a cache-only nightly run could quietly bill the
+    provider.
+    """
+    import research.research_scanner as rs
+    monkeypatch.setenv("FMP_API_KEY", "a_live_looking_key")
+    assert not rs._is_offline_fmp(), "fixture must exercise the live-key path"
+    monkeypatch.setattr("core.fmp_client.get_fmp", _explode)
+
+    profiles = rs._batch_fmp_profiles(["NVDA", "AAPL"], offline=True)
+    assert profiles == {"NVDA": None, "AAPL": None}
+
+
+def test_batch_fmp_profiles_still_fetches_when_online(monkeypatch):
+    """The gate must not turn every run cache-only."""
+    import research.research_scanner as rs
+    monkeypatch.setenv("FMP_API_KEY", "a_live_looking_key")
+    monkeypatch.setattr(
+        "core.fmp_client.get_fmp",
+        lambda: SimpleNamespace(get_company_profile=lambda t: {"symbol": t}))
+
+    assert rs._batch_fmp_profiles(["NVDA"]) == {"NVDA": {"symbol": "NVDA"}}
+
+
+def test_build_scanner_offline_forwards_the_flag(monkeypatch):
+    """End of the wire: build_scanner(offline=True) reaches no provider."""
+    import research.research_scanner as rs
+    monkeypatch.setenv("FMP_API_KEY", "a_live_looking_key")
+    monkeypatch.setattr("core.fmp_client.get_fmp", _explode)
+    monkeypatch.setattr(rs, "_build_universe", lambda cap=200: (["NVDA", "AAPL"], {}))
+    monkeypatch.setattr(rs, "_load_cached_frame", lambda sym: None)
+    monkeypatch.setattr(rs, "_load_social_data", lambda: {})
+
+    seen = {}
+    real = rs._batch_fmp_profiles
+
+    def _recording(tickers, offline=False):
+        seen["offline"] = offline
+        return real(tickers, offline=offline)
+
+    monkeypatch.setattr(rs, "_batch_fmp_profiles", _recording)
+    result = rs.build_scanner(offline=True)
+
+    assert seen["offline"] is True
+    assert result["offline_mode"] is True
+
+
 def test_scanner_all_labels_in_allowed_set(tmp_path, monkeypatch):
     """Run build_scanner offline and verify all watchlist labels are allowed."""
     import research.research_scanner as rs
@@ -225,7 +282,8 @@ def test_scanner_all_labels_in_allowed_set(tmp_path, monkeypatch):
     monkeypatch.setattr(rs, "_load_cached_frame", lambda sym: None)
     monkeypatch.setattr(rs, "_load_social_data", lambda: {})
     monkeypatch.setattr(rs, "_fmp_earnings_calendar", lambda days_ahead=21: [])
-    monkeypatch.setattr(rs, "_batch_fmp_profiles", lambda tickers: {t: None for t in tickers})
+    monkeypatch.setattr(rs, "_batch_fmp_profiles",
+                        lambda tickers, offline=False: {t: None for t in tickers})
 
     result = rs.build_scanner(offline=True)
     for item in result.get("watchlist", []):
@@ -239,7 +297,8 @@ def test_scanner_no_trade_instructions_in_output(tmp_path, monkeypatch):
     monkeypatch.setattr(rs, "_load_cached_frame", lambda sym: None)
     monkeypatch.setattr(rs, "_load_social_data", lambda: {})
     monkeypatch.setattr(rs, "_fmp_earnings_calendar", lambda days_ahead=21: [])
-    monkeypatch.setattr(rs, "_batch_fmp_profiles", lambda tickers: {t: None for t in tickers})
+    monkeypatch.setattr(rs, "_batch_fmp_profiles",
+                        lambda tickers, offline=False: {t: None for t in tickers})
 
     result = rs.build_scanner(offline=True)
     serialized = json.dumps(result).lower()
@@ -254,7 +313,8 @@ def test_scanner_guardrails_present(tmp_path, monkeypatch):
     monkeypatch.setattr(rs, "_load_cached_frame", lambda sym: None)
     monkeypatch.setattr(rs, "_load_social_data", lambda: {})
     monkeypatch.setattr(rs, "_fmp_earnings_calendar", lambda days_ahead=21: [])
-    monkeypatch.setattr(rs, "_batch_fmp_profiles", lambda tickers: {t: None for t in tickers})
+    monkeypatch.setattr(rs, "_batch_fmp_profiles",
+                        lambda tickers, offline=False: {t: None for t in tickers})
 
     result = rs.build_scanner(offline=True)
     g = result.get("guardrails", {})

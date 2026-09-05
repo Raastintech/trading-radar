@@ -1208,9 +1208,19 @@ def _enrich_item(item: Dict[str, Any], profile: Optional[Dict[str, Any]]) -> Dic
     return item
 
 
-def _batch_fmp_profiles(tickers: List[str]) -> Dict[str, Optional[Dict[str, Any]]]:
-    """Fetch FMP company profiles for a batch of tickers (offline-safe)."""
-    if _is_offline_fmp():
+def _batch_fmp_profiles(
+    tickers: List[str],
+    offline: bool = False,
+) -> Dict[str, Optional[Dict[str, Any]]]:
+    """Fetch FMP company profiles for a batch of tickers (offline-safe).
+
+    ``offline`` is the caller's explicit cache-only request and is honoured on
+    its own — the same contract as scan_catalyst_watch / scan_asymmetric.
+    Gating on ``_is_offline_fmp()`` alone was not enough: that helper only
+    reads FMP_API_KEY, so a caller holding a real (or stubbed) key still went
+    to the wire under ``build_scanner(offline=True)``.
+    """
+    if offline or _is_offline_fmp():
         return {t: None for t in tickers}
     profiles: Dict[str, Optional[Dict[str, Any]]] = {}
     for t in tickers:
@@ -2289,7 +2299,8 @@ def build_scanner(offline: bool = False, universe_cap: int = DEFAULT_UNIVERSE_CA
     watchlist = sorted(seen.values(), key=lambda x: x["research_score"], reverse=True)
 
     # Phase 4A.3: Fetch profiles for all watchlist items (not just top 25)
-    profile_cache = _batch_fmp_profiles([item["ticker"] for item in watchlist])
+    profile_cache = _batch_fmp_profiles(
+        [item["ticker"] for item in watchlist], offline=offline)
 
     # Phase 4A.3: Central enrichment pass — fills all required technical,
     # liquidity, and metadata fields across all scanner category paths.

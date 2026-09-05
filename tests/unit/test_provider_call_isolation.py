@@ -6,7 +6,9 @@ FMP calls. Two things combined to hide it:
 * ``research_scanner._is_offline_fmp()`` treats only ``""``/``"offline"``/
   ``"stub"`` as offline, and ``tests/conftest.py`` stubs ``FMP_API_KEY`` as
   ``"test_fmp_key"`` — so ``build_scanner(offline=True)`` still called
-  ``_batch_fmp_profiles``, which went to the wire.
+  ``_batch_fmp_profiles``, which went to the wire.  The helper now honours
+  ``offline=`` directly (pinned in ``test_phase5_research_engine.py``); the
+  guard below stays for every other un-mocked path.
 * ``core/fmp_client.py:_get`` called ``budget_consume()`` **before** the
   request but ``log_endpoint()`` only after a success, so the failed calls
   incremented the monthly counter while leaving no row in
@@ -93,11 +95,10 @@ def test_blocked_calls_do_not_consume_budget():
 def test_scanner_profile_batch_is_safe_under_the_guard():
     """The helper that leaked: it must return cleanly and spend nothing.
 
-    ``_batch_fmp_profiles`` gates on ``_is_offline_fmp()`` rather than on
-    ``build_scanner``'s ``offline=`` argument, so with the conftest stub key it
-    takes the live branch. Under the guard that branch must still return a
-    well-formed result (it catches provider errors per ticker) and must not
-    move the budget counter.
+    Called without ``offline=`` — as any live nightly run does — the conftest
+    stub key still routes it down the live branch. Under the guard that branch
+    must return a well-formed result (it catches provider errors per ticker)
+    and must not move the budget counter.
     """
     import research.research_scanner as rs
 
