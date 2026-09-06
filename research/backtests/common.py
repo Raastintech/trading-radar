@@ -45,14 +45,17 @@ REPLAY_DIR_PREFIXES: tuple[str, ...] = (
     "cache/replay_market_cap",
     "cache/replay_universe",
     "cache/research/historical_replay_intermediates",
+    "cache/research/alpha_reconstruction_intermediates",
 )
 
 # File-name prefixes the replay owns inside otherwise-live directories.
 REPLAY_FILE_PREFIXES: tuple[str, ...] = (
     "cache/research/historical_replay_",
     "cache/research/historical_fundamental_replay_",
+    "cache/research/alpha_reconstruction_",
     "logs/historical_replay_",
     "logs/historical_fundamental_replay_",
+    "logs/alpha_reconstruction_",
 )
 
 REPLAY_WRITE_PREFIXES: tuple[str, ...] = REPLAY_DIR_PREFIXES + REPLAY_FILE_PREFIXES
@@ -334,6 +337,24 @@ class ReplayVerdict(str, Enum):
 
 REPLAY_VERDICTS: frozenset[str] = frozenset(v.value for v in ReplayVerdict)
 
+
+class FingerprintVerdict(str, Enum):
+    """Per-fingerprint verdicts for the Alpha Reconstruction Lab.
+
+    A third ladder, disjoint from both the live evidence ladder and
+    :class:`ReplayVerdict`. A fingerprint is a *hypothesis about what winners
+    looked like beforehand*, scored on historical data the author has already
+    seen; the strongest thing it can earn is "worth testing forward".
+    """
+
+    PROMISING = "PROMISING_RESEARCH_FINGERPRINT"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    REJECTED_OVERFIT = "REJECTED_OVERFIT"
+    REJECTED_NEGATIVE = "REJECTED_NEGATIVE_SELECTION"
+
+
+FINGERPRINT_VERDICTS: frozenset[str] = frozenset(v.value for v in FingerprintVerdict)
+
 # Verdict tokens owned by the LIVE evidence ladder / program verdicts. The
 # replay is forbidden from emitting any of these.
 FORBIDDEN_LIVE_VERDICTS: frozenset[str] = frozenset(
@@ -350,6 +371,22 @@ FORBIDDEN_LIVE_VERDICTS: frozenset[str] = frozenset(
         "NO_VALUE",
     }
 )
+
+
+def assert_fingerprint_verdict(verdict: str) -> str:
+    """Guard a fingerprint verdict on its way into an artifact."""
+    v = str(verdict)
+    if v in FORBIDDEN_LIVE_VERDICTS:
+        raise ValueError(
+            f"{v!r} belongs to the live verdict ladder and must never be emitted "
+            "by the replay harness"
+        )
+    if v not in FINGERPRINT_VERDICTS:
+        raise ValueError(
+            f"{v!r} is not a fingerprint verdict; allowed: "
+            f"{sorted(FINGERPRINT_VERDICTS)}"
+        )
+    return v
 
 
 def assert_replay_verdict(verdict: str) -> str:
