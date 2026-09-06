@@ -46,6 +46,10 @@ REPLAY_DIR_PREFIXES: tuple[str, ...] = (
     "cache/replay_universe",
     "cache/research/historical_replay_intermediates",
     "cache/research/alpha_reconstruction_intermediates",
+    "cache/research/alpha_tournament_intermediates",
+    "cache/research/m1_conviction_intermediates",
+    "cache/research/m1_missing_data_intermediates",
+    "cache/research/m1_surprise_intermediates",
 )
 
 # File-name prefixes the replay owns inside otherwise-live directories.
@@ -53,9 +57,17 @@ REPLAY_FILE_PREFIXES: tuple[str, ...] = (
     "cache/research/historical_replay_",
     "cache/research/historical_fundamental_replay_",
     "cache/research/alpha_reconstruction_",
+    "cache/research/alpha_tournament_",
+    "cache/research/m1_conviction_",
+    "cache/research/m1_missing_data_",
+    "cache/research/m1_surprise_",
     "logs/historical_replay_",
     "logs/historical_fundamental_replay_",
     "logs/alpha_reconstruction_",
+    "logs/alpha_tournament_",
+    "logs/m1_conviction_",
+    "logs/m1_missing_data_",
+    "logs/m1_surprise_overlay_",
 )
 
 REPLAY_WRITE_PREFIXES: tuple[str, ...] = REPLAY_DIR_PREFIXES + REPLAY_FILE_PREFIXES
@@ -355,6 +367,56 @@ class FingerprintVerdict(str, Enum):
 
 FINGERPRINT_VERDICTS: frozenset[str] = frozenset(v.value for v in FingerprintVerdict)
 
+
+class TournamentVerdict(str, Enum):
+    """Per-strategy verdicts for the open Alpha Discovery Tournament.
+
+    A fourth ladder. It is wider than :class:`FingerprintVerdict` because the
+    tournament asks a wider question: not "does this beat the universe on the
+    median" but "does this setup have positive asymmetric expectancy". A lane
+    can be worth keeping as a special situation, or worth keeping only as an
+    avoid-list, without being an alpha pool — and those are different answers
+    that a single INCONCLUSIVE would flatten.
+    """
+
+    TRUE_ALPHA_CANDIDATE_POOL = "TRUE_ALPHA_CANDIDATE_POOL"
+    PROMISING_BUT_UNPROVEN = "PROMISING_BUT_UNPROVEN"
+    SPECIAL_SITUATION_ONLY = "SPECIAL_SITUATION_ONLY"
+    AVOID_TRAP = "AVOID_TRAP"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    REJECTED_NEGATIVE_SELECTION = "REJECTED_NEGATIVE_SELECTION"
+    REJECTED_OVERFIT = "REJECTED_OVERFIT"
+    REJECTED_DATA_UNSAFE = "REJECTED_DATA_UNSAFE"
+
+
+TOURNAMENT_VERDICTS: frozenset[str] = frozenset(v.value for v in TournamentVerdict)
+
+
+class ConvictionVerdict(str, Enum):
+    """Verdicts for second-stage conviction overlays inside a source pool.
+
+    A fifth ladder, for a narrower question than the tournament's: given a pool
+    that already works as a basket, does ranking inside it improve the per-name
+    expectancy a human actually experiences when reading a shortlist? An
+    overlay can be a useful avoid-filter without being a conviction ranker, and
+    a pool can be worth keeping while every overlay on it fails.
+    """
+
+    PROMISING_RESEARCH_SOURCE_POOL = "PROMISING_RESEARCH_SOURCE_POOL"
+    PROMISING_CONVICTION_OVERLAY = "PROMISING_CONVICTION_OVERLAY"
+    # An event overlay can be informative as a TAG on a minority of names
+    # without being able to order the whole list. That is a real outcome and
+    # deserves its own token rather than being flattened into INCONCLUSIVE.
+    USEFUL_EVENT_ANNOTATION = "USEFUL_EVENT_ANNOTATION"
+    USEFUL_AVOID_FILTER = "USEFUL_AVOID_FILTER"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    REJECTED_OVERFIT = "REJECTED_OVERFIT"
+    REJECTED_NEGATIVE_SELECTION = "REJECTED_NEGATIVE_SELECTION"
+    REJECTED_DATA_UNSAFE = "REJECTED_DATA_UNSAFE"
+
+
+CONVICTION_VERDICTS: frozenset[str] = frozenset(v.value for v in ConvictionVerdict)
+
 # Verdict tokens owned by the LIVE evidence ladder / program verdicts. The
 # replay is forbidden from emitting any of these.
 FORBIDDEN_LIVE_VERDICTS: frozenset[str] = frozenset(
@@ -371,6 +433,36 @@ FORBIDDEN_LIVE_VERDICTS: frozenset[str] = frozenset(
         "NO_VALUE",
     }
 )
+
+
+def assert_conviction_verdict(verdict: str) -> str:
+    """Guard a conviction-overlay verdict on its way into an artifact."""
+    v = str(verdict)
+    if v in FORBIDDEN_LIVE_VERDICTS:
+        raise ValueError(
+            f"{v!r} belongs to the live verdict ladder and must never be emitted "
+            "by the replay harness"
+        )
+    if v not in CONVICTION_VERDICTS:
+        raise ValueError(
+            f"{v!r} is not a conviction verdict; allowed: {sorted(CONVICTION_VERDICTS)}"
+        )
+    return v
+
+
+def assert_tournament_verdict(verdict: str) -> str:
+    """Guard a tournament verdict on its way into an artifact."""
+    v = str(verdict)
+    if v in FORBIDDEN_LIVE_VERDICTS:
+        raise ValueError(
+            f"{v!r} belongs to the live verdict ladder and must never be emitted "
+            "by the replay harness"
+        )
+    if v not in TOURNAMENT_VERDICTS:
+        raise ValueError(
+            f"{v!r} is not a tournament verdict; allowed: {sorted(TOURNAMENT_VERDICTS)}"
+        )
+    return v
 
 
 def assert_fingerprint_verdict(verdict: str) -> str:
