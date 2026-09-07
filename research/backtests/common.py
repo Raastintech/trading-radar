@@ -50,6 +50,8 @@ REPLAY_DIR_PREFIXES: tuple[str, ...] = (
     "cache/research/m1_conviction_intermediates",
     "cache/research/m1_missing_data_intermediates",
     "cache/research/m1_surprise_intermediates",
+    "cache/research/m1_data_guard_intermediates",
+    "cache/research/m1_price_refresh_intermediates",
     "cache/research/m1_analyst_actions_intermediates",
 )
 
@@ -62,6 +64,8 @@ REPLAY_FILE_PREFIXES: tuple[str, ...] = (
     "cache/research/m1_conviction_",
     "cache/research/m1_missing_data_",
     "cache/research/m1_surprise_",
+    "cache/research/m1_data_guard_",
+    "cache/research/m1_price_refresh_",
     "cache/research/m1_analyst_actions_",
     "logs/historical_replay_",
     "logs/historical_fundamental_replay_",
@@ -70,6 +74,8 @@ REPLAY_FILE_PREFIXES: tuple[str, ...] = (
     "logs/m1_conviction_",
     "logs/m1_missing_data_",
     "logs/m1_surprise_overlay_",
+    "logs/m1_data_guard_",
+    "logs/m1_price_refresh_",
     "logs/m1_analyst_actions_",
 )
 
