@@ -37,6 +37,7 @@ Quote caching strategy:
 """
 from __future__ import annotations
 import logging
+import re
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -55,6 +56,85 @@ QUOTE_BATCH_SIZE = 50          # FMP stable quote supports ≥50 symbols per cal
 TTL_QUOTE_AH     = 5 * 60      # after-hours quote TTL: 5 min (price moves slowly)
 
 logger = logging.getLogger(__name__)
+
+# ── credential redaction for logs ────────────────────────────────────────────
+#
+# requests puts the FULL request URL inside its exception strings, and the API
+# key travels as a query parameter on every FMP call.  Logging an exception
+# verbatim therefore writes the key to disk — 1,546 times in one rate-limited
+# research pass (2026-09-07).  Nothing in this module may render a provider
+# exception, URL or parameter map into a log record without going through the
+# helpers below.
+
+_REDACTED = "***REDACTED***"
+
+# Query/keyword parameters whose VALUE is a secret, wherever they appear.
+_SECRET_PARAM_KEYS: frozenset[str] = frozenset({
+    "apikey", "api_key", "apikey[]", "token", "access_token", "auth",
+    "authorization", "bearer", "key", "secret", "password", "passwd", "pwd",
+    "signature", "sig",
+})
+
+# A whole URL, dropped rather than trimmed: the endpoint path is logged as its
+# own field, so nothing is lost by refusing to render the URL at all.
+_URL_RE = re.compile(r"https?://\S+")
+
+# `apikey=abc123`, `token: abc123`, `"api_key": "abc123"` — the same secret
+# arriving through a body, a header dump or a prose message rather than a URL.
+# Longest key first so `access_token` is matched as itself and not as `token`,
+# and the boundaries are explicit rather than `\b`: an underscore is a word
+# character, so `\b` would never fire on the `key` inside `api_key`.
+_KV_SECRET_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9_])(" + "|".join(
+        re.escape(k) for k in sorted(_SECRET_PARAM_KEYS, key=len, reverse=True))
+    + r")(?![A-Za-z0-9_])([\"']?\s*[:=]\s*)([\"']?)([^\s,&})\"']+)"
+)
+
+_MAX_LOGGED_ERROR_CHARS = 300
+
+
+def _scrub(value: object) -> str:
+    """Render *value* as a log-safe string with credentials removed.
+
+    Three passes, deliberately overlapping — each one alone has a known hole:
+      1. drop whole URLs (kills the query string the key rides on);
+      2. mask secret-looking key/value pairs anywhere else in the text;
+      3. replace the configured key literally, in case it reached the text
+         through a shape neither pattern anticipated.
+    """
+    text = str(value)
+    text = _URL_RE.sub("<url redacted>", text)
+    # Groups: 1 the key, 2 the separator, 3 an opening quote if there was one.
+    # The value is dropped; any closing quote was never consumed, so it stays.
+    text = _KV_SECRET_RE.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{_REDACTED}", text)
+    for attr in ("FMP_API_KEY", "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "TRADIER_TOKEN"):
+        secret = getattr(cfg, attr, "") or ""
+        # A very short value would be a substring of ordinary words.
+        if isinstance(secret, str) and len(secret) >= 6:
+            text = text.replace(secret, _REDACTED)
+    return text
+
+
+def _safe_params(params: Optional[Dict]) -> Dict:
+    """A copy of *params* with secret values masked, safe to log."""
+    if not params:
+        return {}
+    return {k: (_REDACTED if str(k).lower() in _SECRET_PARAM_KEYS else v)
+            for k, v in params.items()}
+
+
+def _safe_exc(exc: BaseException) -> str:
+    """Exception type plus a short, scrubbed message. Never the URL."""
+    msg = _scrub(exc).strip()
+    if len(msg) > _MAX_LOGGED_ERROR_CHARS:
+        msg = msg[:_MAX_LOGGED_ERROR_CHARS] + "…"
+    return f"{type(exc).__name__}: {msg}" if msg else type(exc).__name__
+
+
+def _status_of(exc: BaseException) -> Optional[int]:
+    """HTTP status carried by a requests exception, when there is one."""
+    return getattr(getattr(exc, "response", None), "status_code", None)
 
 
 class _TokenBucket:
@@ -116,7 +196,8 @@ class FMPClient:
         except Exception as exc:
             # No response — connection refused, DNS, timeout, or a test guard.
             # Nothing was served, so nothing is charged.
-            logger.error("FMP request failed %s: %s", path, exc)
+            logger.error("FMP request failed path=%s params=%s: %s",
+                         path, _safe_params(params), _safe_exc(exc))
             raise
 
         self._gate.budget_consume(budget_cost)   # increments counters, never blocks
@@ -125,10 +206,13 @@ class FMPClient:
             resp.raise_for_status()
             return resp.json()
         except requests.HTTPError as exc:
-            logger.error("FMP HTTP error %s %s: %s", path, params, exc)
+            logger.error("FMP HTTP error path=%s params=%s status=%s: %s",
+                         path, _safe_params(params), _status_of(exc),
+                         _safe_exc(exc))
             raise
         except Exception as exc:
-            logger.error("FMP response unreadable %s: %s", path, exc)
+            logger.error("FMP response unreadable path=%s params=%s: %s",
+                         path, _safe_params(params), _safe_exc(exc))
             raise
 
     @staticmethod
@@ -202,7 +286,7 @@ class FMPClient:
                     self._gate.put(f"fmp:quote:{sym}", entry)
                     result[sym] = entry
             except Exception as exc:
-                logger.warning("Quote batch failed for chunk %s: %s", chunk[:3], exc)
+                logger.warning("Quote batch failed for chunk %s: %s", chunk[:3], _safe_exc(exc))
 
         missing = set(sym.upper() for sym in symbols) - set(result)
         if missing:
@@ -472,7 +556,7 @@ class FMPClient:
             return result
 
         except Exception as exc:
-            logger.warning("Fundamentals fetch failed %s: %s", ticker, exc)
+            logger.warning("Fundamentals fetch failed %s: %s", ticker, _safe_exc(exc))
             return None
 
     # ── Company profile (market cap, sector) ─────────────────────────────────
@@ -504,7 +588,7 @@ class FMPClient:
             self._gate.put(key, result)
             return result
         except Exception as exc:
-            logger.debug("get_company_profile failed %s: %s", ticker, exc)
+            logger.debug("get_company_profile failed %s: %s", ticker, _safe_exc(exc))
             return None
 
     # ── Security master (company screener) ──────────────────────────────────
@@ -544,7 +628,7 @@ class FMPClient:
             self._gate.put(key, rows)
             return rows
         except Exception as exc:
-            logger.warning("get_company_screener failed: %s", exc)
+            logger.warning("get_company_screener failed: %s", _safe_exc(exc))
             return []
 
     # ── Sector P/E ratios ─────────────────────────────────────────────────────
@@ -607,7 +691,7 @@ class FMPClient:
             self._gate.put(key, rows)
             return rows
         except Exception as exc:
-            logger.debug("get_insider_trading failed %s: %s", ticker, exc)
+            logger.debug("get_insider_trading failed %s: %s", ticker, _safe_exc(exc))
             self._gate.put(key, [])
             return []
 
@@ -630,7 +714,7 @@ class FMPClient:
             self._gate.put(key, rows)
             return rows
         except Exception as exc:
-            logger.debug("get_analyst_grades failed %s: %s", ticker, exc)
+            logger.debug("get_analyst_grades failed %s: %s", ticker, _safe_exc(exc))
             self._gate.put(key, [])
             return []
 
