@@ -56,11 +56,12 @@ import argparse
 import json
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from research.backtests.common import (
+    FetchNotAuthorised,
     LiveArtifactTripwire,
     ROOT,
     add_safety_args,
@@ -90,6 +91,7 @@ LATEST_REL = "cache/research/m1_price_refresh_latest.json"
 REPORT_TXT_REL = "logs/m1_price_refresh_latest.txt"
 INTERMEDIATES_REL = "cache/research/m1_price_refresh_intermediates"
 PROGRESS_REL = f"{INTERMEDIATES_REL}/refresh_progress.jsonl"
+PROVIDER_LAG_REL = "cache/research/m1_price_refresh_provider_lag.json"
 
 #: The endpoint the original replay backfill used. One call returns a symbol's
 #: full daily history, so a refresh costs exactly one call per ticker whether
@@ -104,6 +106,12 @@ RATE_PER_MIN = 600  # safety margin under the provider's 750 RPM ceiling
 #: -point round-trips through parquet and JSON move a close by far less than
 #: this; a split re-adjustment moves it by orders of magnitude more.
 DRIFT_TOLERANCE = 1e-4
+
+#: Placeholder keys that must never reach the provider. ``offline_env()``
+#: installs "offline"; ``tests/conftest.py`` installs a stub. Either one
+#: authenticates as nobody, so the fetch refuses rather than burning calls.
+OFFLINE_SENTINELS: frozenset[str] = frozenset({"offline", "test_fmp_key", "dummy",
+                                               "changeme", "none", "null"})
 
 NOTE = (
     "M1 PRICE REFRESH — RESEARCH ONLY. Deep price-history maintenance for a "
@@ -127,6 +135,30 @@ def valid_ticker(sym: object) -> bool:
     return bool(TICKER_RE.match(str(sym).strip().upper()))
 
 
+#: A name listed too recently to HAVE the required depth cannot be deepened by
+#: refetching — the bars do not exist yet. Measured 2026-09-08: all 89 shallow
+#: names in the queue were young listings, so 89 of 108 planned calls would have
+#: returned NO_NEW_BARS. 273 sessions is roughly 400 calendar days; anything
+#: that started trading inside that window is excluded from the queue and
+#: counted separately, so the plan states what a refresh can actually fix.
+YOUNG_LISTING_CALENDAR_DAYS = 400
+
+#: How long a name confirmed to be PROVIDER-LAGGED stays out of the queue.
+#:
+#: A "stale" name is one whose cached last bar is behind the required session.
+#: The queue assumes that means OUR cache is behind — but on 2026-09-08 all 19
+#: stale names came back NO_NEW_BARS, and a direct probe of AVB showed the
+#: provider itself holding no bar after 2026-08-24. The cache was level with
+#: the provider; there was nothing to fetch. Left alone, those 19 names would
+#: be re-queued every single day, spending ~400 calls a month to be told the
+#: same thing.
+#:
+#: So a NO_NEW_BARS is recorded as evidence about the PROVIDER, and the name is
+#: deferred until this many days have passed. Seven days keeps the worst-case
+#: catch-up lag immaterial for a 273-bar momentum window while cutting the
+#: steady-state cost of a permanently-lagged name by ~86%.
+PROVIDER_LAG_RECHECK_DAYS = 7
+
 REASON_STALE = "stale_behind_required_session"
 REASON_SHALLOW = "shallow_below_m1_minimum"
 REASON_MISSING = "missing_no_parquet"
@@ -135,11 +167,115 @@ REASON_MISSING = "missing_no_parquet"
 # ── planning (zero provider calls) ──────────────────────────────────────────
 
 
+def load_provider_lag(root: Path) -> dict[str, dict[str, Any]]:
+    """Read the provider-lag memo. Missing or malformed reads as empty.
+
+    Fail-open is deliberate: a memo this module cannot read must cost calls,
+    never data. The worst case of ignoring it is the old behaviour.
+    """
+    path = root / PROVIDER_LAG_REL
+    if not path.exists():
+        return {}
+    try:
+        doc = json.loads(path.read_text())
+    except Exception:
+        return {}
+    entries = doc.get("entries") if isinstance(doc, dict) else None
+    if not isinstance(entries, dict):
+        return {}
+    return {str(k).upper(): v for k, v in entries.items() if isinstance(v, dict)}
+
+
+def provider_lag_defers(entry: dict[str, Any] | None, *,
+                        cache_last_bar: str | None, required: date) -> bool:
+    """True when a memo entry still vouches for skipping this ticker.
+
+    Three ways an entry stops counting, all of them fail-open:
+
+    * the cache moved on since the memo was written — the memo describes a
+      series that no longer exists, so it says nothing about today;
+    * the re-check date has arrived;
+    * anything about the entry is unreadable.
+    """
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("cache_last_bar") != cache_last_bar:
+        return False
+    try:
+        return required < date.fromisoformat(str(entry["recheck_on"]))
+    except Exception:
+        return False
+
+
+def build_provider_lag_entry(*, provider_last_bar: str, cache_last_bar: str | None,
+                             observed_on: date,
+                             previous: dict[str, Any] | None = None) -> dict[str, Any]:
+    """One memo entry: what the provider had, when we looked, when to look again."""
+    prior = 0
+    if isinstance(previous, dict) and \
+            previous.get("provider_last_bar") == provider_last_bar:
+        try:
+            prior = int(previous.get("confirmations") or 0)
+        except (TypeError, ValueError):
+            prior = 0
+    return {
+        "provider_last_bar": provider_last_bar,
+        "cache_last_bar": cache_last_bar,
+        "observed_on": observed_on.isoformat(),
+        "recheck_on": (observed_on + timedelta(days=PROVIDER_LAG_RECHECK_DAYS)).isoformat(),
+        "confirmations": prior + 1,
+    }
+
+
+def save_provider_lag(root: Path, entries: dict[str, dict[str, Any]],
+                      *, now: datetime | None = None) -> Path:
+    """Persist the memo. Guarded write; replay namespace only."""
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    return write_replay_json(root / PROVIDER_LAG_REL, {
+        "kind": "m1_price_refresh_provider_lag",
+        "updated_at": stamp,
+        "recheck_days": PROVIDER_LAG_RECHECK_DAYS,
+        "note": (
+            "Evidence about the PROVIDER, not about our cache. A ticker listed "
+            "here returned NO_NEW_BARS: the provider's own last bar matched the "
+            "one already cached, so there was nothing to fetch. It is kept out "
+            "of the refresh queue until recheck_on. Deleting this file is safe "
+            "— it only costs calls."
+        ),
+        "research_only": True,
+        "entries": dict(sorted(entries.items())),
+    }, root=root)
+
+
+
+def _is_young_listing(d: TickerDepth, required: date) -> bool:
+    """True when the series is short because the name is new, not because bars
+    are missing. Such a name cannot be deepened by refetching."""
+    if not d.first_bar:
+        return False
+    try:
+        first = date.fromisoformat(d.first_bar)
+    except ValueError:
+        return False
+    return (required - first).days < YOUNG_LISTING_CALENDAR_DAYS
+
+
+class _Flag:
+    """Tiny holder so plan_refresh can be called with or without the flag."""
+
+    def __init__(self, value: bool = False):
+        self.value = value
+
+
 def plan_refresh(root: Path, *, now: datetime | None = None,
                  extra_tickers: list[str] | None = None,
-                 limit: int | None = None) -> dict[str, Any]:
+                 limit: int | None = None,
+                 only_stale: bool = False,
+                 recheck_provider_lag: bool = False) -> dict[str, Any]:
     """Work out what needs fetching, and what it would cost. No calls made."""
+    args_only_stale = _Flag(only_stale)
     required = _required_session(now)
+    lag_memo = {} if recheck_provider_lag else load_provider_lag(root)
     prices_dir = root / PRICES_REL
     cache_present = prices_dir.is_dir()
 
@@ -150,7 +286,9 @@ def plan_refresh(root: Path, *, now: datetime | None = None,
     by_ticker = {d.ticker: d for d in depths}
 
     stale: list[str] = []
+    lagged: list[str] = []
     shallow: list[str] = []
+    young: list[str] = []
     for d in depths:
         if not d.passes_floor or not d.readable:
             continue
@@ -160,8 +298,21 @@ def plan_refresh(root: Path, *, now: datetime | None = None,
             continue
         if d.is_stale(required):
             stale.append(d.ticker)
+            if provider_lag_defers(lag_memo.get(d.ticker),
+                                   cache_last_bar=d.last_bar, required=required):
+                # Stale, but a previous fetch proved the provider has no newer
+                # bar either. Still counted as stale — that is the cache's real
+                # state — but not queued, because the call is known to be a
+                # no-op until the provider moves.
+                lagged.append(d.ticker)
         elif not d.depth_ok:
-            shallow.append(d.ticker)
+            if _is_young_listing(d, required):
+                # Shallow because it has not existed long enough. A refetch
+                # returns the same bars; the queue would be spending calls to
+                # be told nothing changed.
+                young.append(d.ticker)
+            else:
+                shallow.append(d.ticker)
 
     missing = sorted(
         {t.upper() for t in (extra_tickers or [])}
@@ -169,7 +320,11 @@ def plan_refresh(root: Path, *, now: datetime | None = None,
         - set(excl)
     )
 
-    todo = sorted(set(stale) | set(shallow) | set(missing))
+    queueable_stale = set(stale) - set(lagged)
+    if getattr(args_only_stale, "value", False):
+        todo = sorted(queueable_stale)
+    else:
+        todo = sorted(queueable_stale | set(shallow) | set(missing))
     planned_calls = len(todo)
 
     return {
@@ -180,9 +335,24 @@ def plan_refresh(root: Path, *, now: datetime | None = None,
         "tickers_stale": sorted(stale),
         "tickers_shallow": sorted(shallow),
         "tickers_missing": missing,
+        "tickers_young_listing_excluded": sorted(young),
+        "tickers_provider_lag_deferred": sorted(lagged),
         "n_stale": len(stale),
+        "n_stale_queued": len(queueable_stale),
+        "n_provider_lag_deferred": len(lagged),
+        "provider_lag_rule": (
+            f"a stale name whose last recorded fetch proved the provider has no "
+            f"newer bar is re-checked every {PROVIDER_LAG_RECHECK_DAYS} days "
+            f"instead of every run; --recheck-provider-lag ignores the memo"),
+        "recheck_provider_lag": bool(recheck_provider_lag),
         "n_shallow": len(shallow),
         "n_missing": len(missing),
+        "n_young_listing_excluded": len(young),
+        "young_listing_rule": (
+            f"a name whose first bar is inside {YOUNG_LISTING_CALENDAR_DAYS} "
+            "calendar days cannot reach the depth floor by refetching, so it is "
+            "not queued"),
+        "only_stale": bool(only_stale),
         "n_tickers": planned_calls,
         "planned_calls": planned_calls,
         "calls_per_ticker": 1,
@@ -241,7 +411,13 @@ def failure_behaviour_block() -> dict[str, Any]:
             "recorded as HISTORY_DRIFT, and the data guard REFUSES the next "
             "shadow run outright. Repair requires --allow-history-rewrite."
         ),
-        "no_new_bars": "Recorded as NO_NEW_BARS. Not a failure; no write.",
+        "no_new_bars": (
+            "Recorded as NO_NEW_BARS. Not a failure; no write. The provider's "
+            "own last bar is written to the provider-lag memo and the ticker "
+            f"is kept out of the queue for {PROVIDER_LAG_RECHECK_DAYS} days, so "
+            "a provider that is itself behind cannot re-charge the same call "
+            "every run."
+        ),
         "partial_run": (
             "Every ticker is written and ledgered independently, so an "
             "interrupted run leaves a consistent cache and a resumable ledger. "
@@ -270,6 +446,16 @@ def render_report(plan: dict[str, Any], budget: dict[str, Any],
     A(f"    stale (behind session)   {plan['n_stale']}")
     A(f"    shallow (< {M1_MIN_BARS_REQUIRED} bars)     {plan['n_shallow']}")
     A(f"    missing (no parquet)     {plan['n_missing']}")
+    A(f"    young listings excluded  {plan.get('n_young_listing_excluded', 0)} "
+      "(too new to reach the depth floor — a refetch cannot help)")
+    n_lag = plan.get("n_provider_lag_deferred", 0)
+    A(f"    provider-lagged deferred {n_lag} "
+      f"(provider has no newer bar either; re-checked every "
+      f"{PROVIDER_LAG_RECHECK_DAYS} days)")
+    if plan.get("recheck_provider_lag"):
+        A("    provider-lag memo IGNORED this run (--recheck-provider-lag)")
+    if plan.get("only_stale"):
+        A("    queue restricted to STALE names only (--only-stale)")
     A(f"  expected calls             {plan['planned_calls']} "
       f"({plan['calls_per_ticker']} per ticker, {plan['endpoint']})")
     A(f"  destination path           {plan['destination_path']}/{{SYM}}.parquet")
@@ -290,7 +476,8 @@ def render_report(plan: dict[str, Any], budget: dict[str, Any],
     A("")
     A("TICKERS (diagnostic — a maintenance queue, not a candidate list)")
     A("-" * 78)
-    for key in ("tickers_stale", "tickers_shallow", "tickers_missing"):
+    for key in ("tickers_stale", "tickers_shallow", "tickers_missing",
+                "tickers_provider_lag_deferred"):
         v = plan.get(key) or []
         A(f"  {key:<26} {len(v)}: {', '.join(v[:20])}{' …' if len(v) > 20 else ''}")
     if result:
@@ -299,7 +486,9 @@ def render_report(plan: dict[str, Any], budget: dict[str, Any],
         A("-" * 78)
         for k in ("calls_made", "updated_count", "no_new_bars_count",
                   "bars_added", "failed_refresh_count", "missing_ticker_count",
-                  "history_drift_count", "empty_count"):
+                  "history_drift_count", "empty_count",
+                  "provider_lag_recorded", "provider_lag_cleared",
+                  "provider_lag_memo_size"):
             A(f"  {k:<26} {result.get(k)}")
         if result.get("history_drift_tickers"):
             A("")
@@ -350,7 +539,10 @@ def _write_artifacts(root: Path, plan: dict[str, Any], budget: dict[str, Any],
 def plan_stage(args) -> int:
     root = Path(args.root)
     tripwire = LiveArtifactTripwire.snapshot(root)
-    plan = plan_refresh(root, extra_tickers=_extra(args), limit=args.limit)
+    plan = plan_refresh(
+        root, extra_tickers=_extra(args), limit=args.limit,
+        only_stale=bool(getattr(args, "only_stale", False)),
+        recheck_provider_lag=bool(getattr(args, "recheck_provider_lag", False)))
     cap = args.max_calls if args.max_calls is not None else DEFAULT_MAX_CALLS
     budget = budget_block(plan["planned_calls"], cap)
     _write_artifacts(root, plan, budget, None, "plan")
@@ -414,7 +606,10 @@ def merge_forward(existing, incoming, *, allow_rewrite: bool = False):
 
 def fetch_stage(args) -> int:
     root = Path(args.root)
-    plan = plan_refresh(root, extra_tickers=_extra(args), limit=args.limit)
+    plan = plan_refresh(
+        root, extra_tickers=_extra(args), limit=args.limit,
+        only_stale=bool(getattr(args, "only_stale", False)),
+        recheck_provider_lag=bool(getattr(args, "recheck_provider_lag", False)))
     todo = plan["todo"]
     cap = args.max_calls if args.max_calls is not None else DEFAULT_MAX_CALLS
     budget = budget_block(len(todo), cap)
@@ -441,16 +636,30 @@ def fetch_stage(args) -> int:
     import pandas as pd  # noqa: PLC0415
     import requests  # noqa: PLC0415
 
+    # Credential resolution, and why it is written this way. This module calls
+    # offline_env() at IMPORT time, which sets FMP_API_KEY to the string
+    # "offline" so no analysis stage can reach a provider. A credential load
+    # with override=False cannot displace that sentinel, so the fetch inherited
+    # it and every call came back 401 — 108 of them on 2026-09-07, spending an
+    # operator's approved budget to discover a problem that was knowable before
+    # the first call. Hence: override=True, read the key from the environment
+    # rather than from core.config (which may already be cached with the
+    # sentinel), and REFUSE up front if what we hold cannot authenticate.
     ep_path = os.getenv("SNIPER_ENV_PATH", "").strip()
-    if ep_path:
+    if ep_path and Path(ep_path).exists():
         from dotenv import load_dotenv as _ld  # noqa: PLC0415
 
-        _ld(ep_path, override=False)
+        _ld(ep_path, override=True)
     import core.config as cfg  # noqa: PLC0415
     from core.data_gatekeeper import get_gatekeeper  # noqa: PLC0415
 
-    base = cfg.FMP_BASE_URL.rstrip("/")
-    key = cfg.FMP_API_KEY
+    key = (os.environ.get("FMP_API_KEY") or "").strip()
+    if not key or key in OFFLINE_SENTINELS:
+        raise FetchNotAuthorised(
+            "no usable FMP credential: FMP_API_KEY is "
+            f"{'unset' if not key else 'the offline sentinel'}. Point "
+            "SNIPER_ENV_PATH at the credential file. No calls were made.")
+    base = (os.environ.get("FMP_BASE_URL") or cfg.FMP_BASE_URL).rstrip("/")
     gate = get_gatekeeper()
 
     prices_dir = root / PRICES_REL
@@ -461,8 +670,14 @@ def fetch_stage(args) -> int:
     counts = {"calls_made": 0, "updated_count": 0, "bars_added": 0,
               "no_new_bars_count": 0, "failed_refresh_count": 0,
               "missing_ticker_count": 0, "history_drift_count": 0,
-              "empty_count": 0}
+              "empty_count": 0, "provider_lag_recorded": 0,
+              "provider_lag_cleared": 0}
     drift_tickers: list[str] = []
+    # The memo is keyed to the planner's clock (the required session), not to
+    # wall-clock now, so "deferred for N days" means the same N the planner
+    # measures when it decides whether to re-queue.
+    lag_entries = load_provider_lag(root)
+    lag_observed_on = date.fromisoformat(plan["required_session"])
     stamps: list[float] = []
 
     for sym in todo:
@@ -544,13 +759,31 @@ def fetch_stage(args) -> int:
             drift_tickers.append(sym)
         elif status == "NO_NEW_BARS":
             counts["no_new_bars_count"] += 1
+            # The call proved something about the PROVIDER: its own latest bar
+            # is the one already cached. Record it so the next run does not buy
+            # the same answer again.
+            provider_last = str(inc.index.max())[:10]
+            cache_last = (str(existing.sort_index().index.max())[:10]
+                          if existing is not None and len(existing) else None)
+            lag_entries[sym] = build_provider_lag_entry(
+                provider_last_bar=provider_last, cache_last_bar=cache_last,
+                observed_on=lag_observed_on, previous=lag_entries.get(sym))
+            counts["provider_lag_recorded"] += 1
+            row.update(provider_last_bar=provider_last,
+                       recheck_on=lag_entries[sym]["recheck_on"])
         elif merged is not None:
             merged.to_parquet(path)
             counts["updated_count"] += 1
             counts["bars_added"] += added
+            # The provider moved. Any memo about it is now history.
+            if lag_entries.pop(sym, None) is not None:
+                counts["provider_lag_cleared"] += 1
         _append(progress, row)
 
-    result = {**counts, "history_drift_tickers": drift_tickers}
+    save_provider_lag(root, lag_entries)
+    result = {**counts, "history_drift_tickers": drift_tickers,
+              "provider_lag_memo_size": len(lag_entries),
+              "provider_lag_memo_path": PROVIDER_LAG_REL}
     _write_artifacts(root, plan, budget, result, "fetch")
     print(render_report(plan, budget, result))
     print(f"\n{tripwire.report()}")
@@ -572,6 +805,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "ones are planned as fetches).")
     p.add_argument("--limit", type=int, default=None,
                    help="Audit only the first N cached series (debugging).")
+    p.add_argument("--only-stale", action="store_true",
+                   help="queue only names behind the required session — the "
+                        "subset a refetch can actually change.")
+    p.add_argument("--recheck-provider-lag", action="store_true",
+                   help="ignore the provider-lag memo and re-queue every stale "
+                        "name, including those a previous fetch proved the "
+                        "provider cannot advance yet.")
     p.add_argument("--allow-history-rewrite", action="store_true",
                    help="Permit overwriting stored historical bars when the "
                         "provider disagrees (e.g. a genuine split "

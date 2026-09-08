@@ -53,7 +53,7 @@ def test_plan_makes_no_provider_call_and_reports_the_estimate(tmp_path, monkeypa
                         lambda *a, **k: pytest.fail("plan attempted a network call"))
     root = sandbox(tmp_path, {
         "DEEP": make_frame(400),                              # fine
-        "SHAL": make_frame(150),                              # needs history
+        "SHAL": make_frame(150, stride=8),                    # long-listed but gappy
         "STAL": make_frame(400, last=REQ - timedelta(days=5)),  # needs a top-up
     })
     rc = R.plan_stage(args_for(root))
@@ -71,7 +71,7 @@ def test_plan_makes_no_provider_call_and_reports_the_estimate(tmp_path, monkeypa
 
 
 def test_plan_reports_every_field_the_brief_requires(tmp_path):
-    root = sandbox(tmp_path, {"SHAL": make_frame(150)})
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
     R.plan_stage(args_for(root, tickers="NEWSYM"))
     payload = json.loads((root / R.LATEST_REL).read_text())
     assert payload["plan"]["n_tickers"] >= 1          # number of tickers
@@ -84,7 +84,7 @@ def test_plan_reports_every_field_the_brief_requires(tmp_path):
 
 
 def test_plan_does_not_read_the_monthly_budget_from_credentials(tmp_path):
-    root = sandbox(tmp_path, {"SHAL": make_frame(150)})
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
     R.plan_stage(args_for(root))
     payload = json.loads((root / R.LATEST_REL).read_text())
     assert payload["budget"]["monthly_budget_read_here"] is False
@@ -114,7 +114,7 @@ def test_missing_tickers_are_planned_as_fetches(tmp_path):
 
 
 def test_fetch_refuses_without_execute_fetch(tmp_path):
-    root = sandbox(tmp_path, {"SHAL": make_frame(150)})
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
     with pytest.raises(FetchNotAuthorised) as e:
         R.fetch_stage(args_for(root, "fetch"))
     assert "--execute-fetch" in str(e.value)
@@ -122,14 +122,14 @@ def test_fetch_refuses_without_execute_fetch(tmp_path):
 
 
 def test_fetch_refuses_over_the_call_cap(tmp_path):
-    root = sandbox(tmp_path, {f"S{i}": make_frame(150) for i in range(5)})
+    root = sandbox(tmp_path, {f"S{i}": make_frame(150, stride=8) for i in range(5)})
     with pytest.raises(FetchNotAuthorised) as e:
         R.fetch_stage(args_for(root, "fetch", execute_fetch=True, max_calls=2))
     assert "exceed" in str(e.value)
 
 
 def test_main_turns_a_refusal_into_a_clean_exit_not_a_traceback(tmp_path):
-    root = sandbox(tmp_path, {"SHAL": make_frame(150)})
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
     assert R.main(["fetch", "--root", str(root)]) == 3
 
 
@@ -237,7 +237,7 @@ def test_refresh_cannot_write_a_live_price_cache_or_ledger(forbidden):
 
 
 def test_plan_touches_no_live_artifact_and_creates_no_live_dirs(tmp_path):
-    root = sandbox(tmp_path, {"SHAL": make_frame(150), "DEEP": make_frame(400)})
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8), "DEEP": make_frame(400)})
     R.plan_stage(args_for(root))
     assert not (root / "cache" / "prices").exists()
     assert not (root / "cache" / "prices_deep").exists()
@@ -253,7 +253,7 @@ def test_plan_touches_no_live_artifact_and_creates_no_live_dirs(tmp_path):
 
 
 def test_refresh_emits_no_signal_ranking_or_verdict(tmp_path):
-    root = sandbox(tmp_path, {"SHAL": make_frame(150)})
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
     R.plan_stage(args_for(root))
     payload = json.loads((root / R.LATEST_REL).read_text())
     assert payload["emits_signal"] is False
@@ -303,10 +303,18 @@ def _fetch_args(root: Path):
 
 
 def _stub_provider(monkeypatch, rows):
-    """A 200 response carrying `rows`, and a gatekeeper that touches no DB."""
+    """A 200 response carrying `rows`, and a gatekeeper that touches no DB.
+
+    Also installs a non-sentinel key: these tests exercise the WRITE path, and
+    the credential gate would otherwise refuse before reaching it (the unit
+    suite's own stub key is a sentinel, by design).
+    """
     import requests
 
     import core.data_gatekeeper as dg
+
+    monkeypatch.setenv("FMP_API_KEY", "unittestkey1234567890")
+    monkeypatch.delenv("SNIPER_ENV_PATH", raising=False)
 
     class _Resp:
         status_code = 200
@@ -410,3 +418,294 @@ def test_a_legitimate_symbol_still_writes_into_the_replay_cache(tmp_path, monkey
     assert payload["result"]["updated_count"] == 1
     assert payload["result"]["history_drift_count"] == 0
     assert payload["result"]["bars_added"] == len(new_dates)
+
+
+# ── 5. the credential path ──────────────────────────────────────────────────
+#
+# The failure this pins actually happened, on 2026-09-07: `offline_env()` runs
+# at import and sets FMP_API_KEY to the sentinel "offline", the fetch loaded the
+# credential file with override=False so the sentinel survived, and all 108
+# approved calls came back 401. The budget was spent discovering something that
+# was knowable before the first call.
+
+
+def test_offline_sentinel_is_refused_before_any_call(tmp_path, monkeypatch):
+    import requests
+
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
+    monkeypatch.setenv("FMP_API_KEY", "offline")
+    monkeypatch.delenv("SNIPER_ENV_PATH", raising=False)
+    monkeypatch.setattr(requests, "get",
+                        lambda *a, **k: pytest.fail("a call was made with a sentinel key"))
+    with pytest.raises(FetchNotAuthorised) as e:
+        R.fetch_stage(args_for(root, "fetch", execute_fetch=True, max_calls=10))
+    assert "offline sentinel" in str(e.value)
+    assert "No calls were made" in str(e.value)
+
+
+def test_an_empty_credential_is_refused_before_any_call(tmp_path, monkeypatch):
+    import requests
+
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
+    monkeypatch.setenv("FMP_API_KEY", "")
+    monkeypatch.delenv("SNIPER_ENV_PATH", raising=False)
+    monkeypatch.setattr(requests, "get",
+                        lambda *a, **k: pytest.fail("a call was made with no key"))
+    with pytest.raises(FetchNotAuthorised):
+        R.fetch_stage(args_for(root, "fetch", execute_fetch=True, max_calls=10))
+
+
+def test_the_credential_file_overrides_the_import_time_sentinel(tmp_path, monkeypatch):
+    """override=False was the bug: the sentinel outranked the real key."""
+    cred = tmp_path / "creds.env"
+    cred.write_text("FMP_API_KEY=realkey123456\n")
+    monkeypatch.setenv("FMP_API_KEY", "offline")
+    monkeypatch.setenv("SNIPER_ENV_PATH", str(cred))
+    seen = {}
+
+    class _Resp:
+        status_code = 200
+        content = b"[]"
+
+        @staticmethod
+        def json():
+            return []
+
+    def _get(url, params=None, timeout=None):
+        seen["key"] = (params or {}).get("apikey")
+        return _Resp()
+
+    import requests
+
+    import core.data_gatekeeper as dg
+
+    class _Gate:
+        def budget_consume(self, n=1):
+            return True
+
+        def log_endpoint(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(dg, "get_gatekeeper", lambda: _Gate())
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
+    R.fetch_stage(args_for(root, "fetch", execute_fetch=True, max_calls=10))
+    assert seen["key"] == "realkey123456", "the credential file must win"
+
+
+def test_a_conftest_stub_key_is_also_refused(tmp_path, monkeypatch):
+    """The unit suite's stub key authenticates as nobody; refuse it too."""
+    import requests
+
+    root = sandbox(tmp_path, {"SHAL": make_frame(150, stride=8)})
+    monkeypatch.setenv("FMP_API_KEY", "test_fmp_key")
+    monkeypatch.delenv("SNIPER_ENV_PATH", raising=False)
+    monkeypatch.setattr(requests, "get",
+                        lambda *a, **k: pytest.fail("a call was made with a stub key"))
+    with pytest.raises(FetchNotAuthorised):
+        R.fetch_stage(args_for(root, "fetch", execute_fetch=True, max_calls=10))
+
+
+# ── 6. the queue only holds names a refetch can change ──────────────────────
+#
+# Measured 2026-09-08: the queue held 108 names. 89 were young listings that
+# cannot reach the depth floor because the bars do not exist yet, and the other
+# 19 were behind the required session at the PROVIDER, which a refetch cannot
+# fix either. The plan now says so instead of quoting 108.
+
+
+def test_a_young_listing_is_not_queued(tmp_path):
+    """Shallow because it is new, not because bars are missing."""
+    root = sandbox(tmp_path, {"NEWCO": make_frame(120)})   # ~120 business days
+    plan = R.plan_refresh(root)
+    assert plan["n_shallow"] == 0
+    assert plan["n_young_listing_excluded"] == 1
+    assert "NEWCO" in plan["tickers_young_listing_excluded"]
+    assert plan["todo"] == []
+
+
+def test_a_genuinely_gappy_series_is_still_queued(tmp_path):
+    """Long-listed but thin on bars: a refetch might actually deepen it."""
+    root = sandbox(tmp_path, {"GAPPY": make_frame(150, stride=8)})
+    plan = R.plan_refresh(root)
+    assert "GAPPY" in plan["tickers_shallow"]
+    assert plan["n_young_listing_excluded"] == 0
+    assert plan["todo"] == ["GAPPY"]
+
+
+def test_only_stale_restricts_the_queue(tmp_path):
+    root = sandbox(tmp_path, {
+        "STAL": make_frame(400, last=REQ - timedelta(days=5)),
+        "GAPPY": make_frame(150, stride=8),
+    })
+    full = R.plan_refresh(root)
+    assert set(full["todo"]) == {"STAL", "GAPPY"}
+    only = R.plan_refresh(root, only_stale=True)
+    assert only["todo"] == ["STAL"]
+    assert only["only_stale"] is True
+
+
+def test_the_young_listing_rule_is_published_in_the_plan(tmp_path):
+    root = sandbox(tmp_path, {"NEWCO": make_frame(120)})
+    plan = R.plan_refresh(root)
+    assert str(R.YOUNG_LISTING_CALENDAR_DAYS) in plan["young_listing_rule"]
+
+
+# ── 9. a provider that is itself behind must not be re-billed every run ─────
+#
+# The 2026-09-08 fetch spent 19 calls and added 0 bars: every one of the stale
+# names came back NO_NEW_BARS, and a direct probe showed the provider holding
+# no bar past the one already cached. "Stale" had been read as "our cache is
+# behind" when it actually meant "the provider is behind". Unfixed, that is
+# ~400 wasted calls a month to re-learn the same fact.
+#
+# The memo records what the PROVIDER had, and defers the name — without ever
+# hiding it from the staleness count, which is the cache's real state.
+
+
+def _lag_memo(root: Path) -> dict:
+    return json.loads((root / R.PROVIDER_LAG_REL).read_text())
+
+
+def _seed_memo(root: Path, sym: str, *, provider_last: str, cache_last: str,
+               observed_on: date) -> None:
+    R.save_provider_lag(root, {sym: R.build_provider_lag_entry(
+        provider_last_bar=provider_last, cache_last_bar=cache_last,
+        observed_on=observed_on)})
+
+
+def _bars_at(price: float, *dates):
+    """Bars that AGREE with a stored close, so the drift guard stays quiet.
+
+    The shared ``_bars`` helper prices at 10.0; ``make_frame`` stores 50.0, and
+    an overlapping bar that disagrees is a HISTORY_DRIFT by design. These tests
+    are about the lag memo, not about drift.
+    """
+    return [{"date": d, "open": price, "high": price, "low": price,
+             "close": price, "volume": 1_000_000} for d in dates]
+
+
+def _stale_sandbox(tmp_path: Path) -> tuple[Path, str]:
+    """A cache holding one stale name, plus its ACTUAL last bar.
+
+    ``make_frame`` snaps to business days, so the last bar is not simply the
+    date handed in — and the memo is keyed to the stored bar, not to intent.
+    """
+    frame = make_frame(400, last=REQ - timedelta(days=5))
+    return sandbox(tmp_path, {"STAL": frame}), str(frame.index.max())[:10]
+
+
+def test_a_no_new_bars_fetch_records_what_the_provider_had(tmp_path, monkeypatch):
+    """The call is spent once; its answer is kept."""
+    root, last = _stale_sandbox(tmp_path)
+    # The provider returns history that stops exactly where the cache does.
+    _stub_provider(monkeypatch, _bars_at(50.0, last))
+    rc = R.fetch_stage(_fetch_args(root))
+    assert rc == 0
+
+    memo = _lag_memo(root)
+    entry = memo["entries"]["STAL"]
+    assert entry["provider_last_bar"] == last
+    assert entry["cache_last_bar"] == last
+    assert entry["confirmations"] == 1
+    assert entry["recheck_on"] == str(REQ + timedelta(days=R.PROVIDER_LAG_RECHECK_DAYS))
+
+
+def test_a_provider_lagged_name_is_not_re_queued_the_next_run(tmp_path):
+    """The whole point: the second run costs nothing."""
+    root, last = _stale_sandbox(tmp_path)
+    _seed_memo(root, "STAL", provider_last=last, cache_last=last,
+               observed_on=REQ)
+
+    plan = R.plan_refresh(root)
+    assert plan["todo"] == []
+    assert plan["planned_calls"] == 0
+    assert plan["tickers_provider_lag_deferred"] == ["STAL"]
+
+
+def test_deferring_never_hides_the_staleness_itself(tmp_path):
+    """The queue shrinks; the cache's real state is still reported in full."""
+    root, last = _stale_sandbox(tmp_path)
+    _seed_memo(root, "STAL", provider_last=last, cache_last=last,
+               observed_on=REQ)
+
+    plan = R.plan_refresh(root)
+    assert plan["n_stale"] == 1                  # still stale, and still said so
+    assert "STAL" in plan["tickers_stale"]
+    assert plan["n_stale_queued"] == 0
+    assert plan["n_provider_lag_deferred"] == 1
+    assert "provider-lagged deferred 1" in R.render_report(
+        plan, R.budget_block(0, 10), None)
+
+
+def test_the_deferral_expires_and_the_name_returns_to_the_queue(tmp_path):
+    """A provider that starts publishing again must be picked up."""
+    root, last = _stale_sandbox(tmp_path)
+    _seed_memo(root, "STAL", provider_last=last, cache_last=last,
+               observed_on=REQ - timedelta(days=R.PROVIDER_LAG_RECHECK_DAYS))
+
+    assert R.plan_refresh(root)["todo"] == ["STAL"]
+
+
+def test_a_cache_that_moved_on_invalidates_the_memo(tmp_path):
+    """The memo describes a series that no longer exists, so it says nothing."""
+    root, _ = _stale_sandbox(tmp_path)
+    _seed_memo(root, "STAL", provider_last="2026-01-02", cache_last="2026-01-02",
+               observed_on=REQ)
+
+    assert R.plan_refresh(root)["todo"] == ["STAL"]
+
+
+def test_recheck_provider_lag_ignores_the_memo(tmp_path):
+    root, last = _stale_sandbox(tmp_path)
+    _seed_memo(root, "STAL", provider_last=last, cache_last=last,
+               observed_on=REQ)
+
+    plan = R.plan_refresh(root, recheck_provider_lag=True)
+    assert plan["todo"] == ["STAL"]
+    assert plan["recheck_provider_lag"] is True
+    assert "IGNORED" in R.render_report(plan, R.budget_block(1, 10), None)
+
+
+def test_a_corrupt_memo_fails_open(tmp_path):
+    """Unreadable memo costs calls, never data."""
+    root, _ = _stale_sandbox(tmp_path)
+    path = root / R.PROVIDER_LAG_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json at all")
+
+    assert R.load_provider_lag(root) == {}
+    assert R.plan_refresh(root)["todo"] == ["STAL"]
+
+
+def test_a_successful_append_clears_the_memo(tmp_path, monkeypatch):
+    """The provider moved, so the reason to skip it is gone."""
+    root, last = _stale_sandbox(tmp_path)
+    _seed_memo(root, "STAL", provider_last=last, cache_last=last,
+               observed_on=REQ - timedelta(days=R.PROVIDER_LAG_RECHECK_DAYS))
+    _stub_provider(monkeypatch, _bars_at(50.0, last, str(REQ)))
+
+    assert R.fetch_stage(_fetch_args(root)) == 0
+    assert _lag_memo(root)["entries"] == {}
+
+
+def test_a_repeat_confirmation_increments_rather_than_resets(tmp_path, monkeypatch):
+    """How long a name has been provider-lagged stays visible."""
+    root, last = _stale_sandbox(tmp_path)
+    _stub_provider(monkeypatch, _bars_at(50.0, last))
+
+    R.fetch_stage(_fetch_args(root))
+    R.fetch_stage(args_for(root, "fetch", execute_fetch=True, max_calls=10,
+                           recheck_provider_lag=True))
+    assert _lag_memo(root)["entries"]["STAL"]["confirmations"] == 2
+
+
+def test_the_memo_lives_in_the_replay_namespace(tmp_path):
+    assert_replay_write_path(R.PROVIDER_LAG_REL)
+
+
+def test_the_memo_is_never_written_by_the_plan_stage(tmp_path):
+    """Planning stays a pure read: it may not create state a fetch is due to."""
+    root = sandbox(tmp_path, {"STAL": make_frame(400, last=REQ - timedelta(days=5))})
+    R.plan_stage(args_for(root))
+    assert not (root / R.PROVIDER_LAG_REL).exists()
