@@ -68,6 +68,7 @@ REPLAY_FILE_PREFIXES: tuple[str, ...] = (
     "cache/research/m1_price_refresh_",
     "cache/research/m1_analyst_actions_",
     "cache/research/m1_shadow_pool_",
+    "cache/research/m1_manual_picks_",
     "logs/historical_replay_",
     "logs/historical_fundamental_replay_",
     "logs/alpha_reconstruction_",
@@ -79,6 +80,7 @@ REPLAY_FILE_PREFIXES: tuple[str, ...] = (
     "logs/m1_price_refresh_",
     "logs/m1_analyst_actions_",
     "logs/m1_shadow_pool_",
+    "logs/m1_manual_picks_",
     # The shadow pool publishes ONE tracked document, named exactly. A file
     # prefix rather than a directory: docs/research/ is otherwise live, and the
     # replay may not write anything else in it.
