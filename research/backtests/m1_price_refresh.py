@@ -271,7 +271,8 @@ def plan_refresh(root: Path, *, now: datetime | None = None,
                  extra_tickers: list[str] | None = None,
                  limit: int | None = None,
                  only_stale: bool = False,
-                 recheck_provider_lag: bool = False) -> dict[str, Any]:
+                 recheck_provider_lag: bool = False,
+                 only_tickers: list[str] | None = None) -> dict[str, Any]:
     """Work out what needs fetching, and what it would cost. No calls made."""
     args_only_stale = _Flag(only_stale)
     required = _required_session(now)
@@ -321,10 +322,16 @@ def plan_refresh(root: Path, *, now: datetime | None = None,
     )
 
     queueable_stale = set(stale) - set(lagged)
+    # A restricted queue is how a small tracked cohort stays current without
+    # paying for the whole universe: every other exclusion still applies, this
+    # only narrows what is left.
+    restrict = {t.strip().upper() for t in (only_tickers or []) if t.strip()}
     if getattr(args_only_stale, "value", False):
         todo = sorted(queueable_stale)
     else:
         todo = sorted(queueable_stale | set(shallow) | set(missing))
+    if restrict:
+        todo = [t for t in todo if t in restrict]
     planned_calls = len(todo)
 
     return {
@@ -353,6 +360,8 @@ def plan_refresh(root: Path, *, now: datetime | None = None,
             "calendar days cannot reach the depth floor by refetching, so it is "
             "not queued"),
         "only_stale": bool(only_stale),
+        "only_tickers": sorted(restrict),
+        "n_only_tickers": len(restrict),
         "n_tickers": planned_calls,
         "planned_calls": planned_calls,
         "calls_per_ticker": 1,
@@ -452,6 +461,9 @@ def render_report(plan: dict[str, Any], budget: dict[str, Any],
     A(f"    provider-lagged deferred {n_lag} "
       f"(provider has no newer bar either; re-checked every "
       f"{PROVIDER_LAG_RECHECK_DAYS} days)")
+    if plan.get("n_only_tickers"):
+        A(f"    queue restricted to {plan['n_only_tickers']} named tickers "
+          "(--only-tickers)")
     if plan.get("recheck_provider_lag"):
         A("    provider-lag memo IGNORED this run (--recheck-provider-lag)")
     if plan.get("only_stale"):
@@ -536,13 +548,30 @@ def _write_artifacts(root: Path, plan: dict[str, Any], budget: dict[str, Any],
     return payload
 
 
+def _only_tickers(args) -> list[str]:
+    """Parse --only-tickers, refusing anything that is not a symbol."""
+    raw = getattr(args, "only_tickers", None)
+    if not raw:
+        return []
+    out = []
+    for part in str(raw).split(","):
+        t = part.strip().upper()
+        if not t:
+            continue
+        if not valid_ticker(t):
+            raise SystemExit(f"refusing --only-tickers value {part.strip()!r}: not a ticker.")
+        out.append(t)
+    return out
+
+
 def plan_stage(args) -> int:
     root = Path(args.root)
     tripwire = LiveArtifactTripwire.snapshot(root)
     plan = plan_refresh(
         root, extra_tickers=_extra(args), limit=args.limit,
         only_stale=bool(getattr(args, "only_stale", False)),
-        recheck_provider_lag=bool(getattr(args, "recheck_provider_lag", False)))
+        recheck_provider_lag=bool(getattr(args, "recheck_provider_lag", False)),
+        only_tickers=_only_tickers(args))
     cap = args.max_calls if args.max_calls is not None else DEFAULT_MAX_CALLS
     budget = budget_block(plan["planned_calls"], cap)
     _write_artifacts(root, plan, budget, None, "plan")
@@ -609,7 +638,8 @@ def fetch_stage(args) -> int:
     plan = plan_refresh(
         root, extra_tickers=_extra(args), limit=args.limit,
         only_stale=bool(getattr(args, "only_stale", False)),
-        recheck_provider_lag=bool(getattr(args, "recheck_provider_lag", False)))
+        recheck_provider_lag=bool(getattr(args, "recheck_provider_lag", False)),
+        only_tickers=_only_tickers(args))
     todo = plan["todo"]
     cap = args.max_calls if args.max_calls is not None else DEFAULT_MAX_CALLS
     budget = budget_block(len(todo), cap)
@@ -808,6 +838,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only-stale", action="store_true",
                    help="queue only names behind the required session — the "
                         "subset a refetch can actually change.")
+    p.add_argument("--only-tickers", default=None,
+                   help="restrict the queue to these symbols (comma-separated). "
+                        "Every other exclusion still applies; this only narrows "
+                        "what is left. Used to keep a tracked cohort current "
+                        "without refreshing the whole universe.")
     p.add_argument("--recheck-provider-lag", action="store_true",
                    help="ignore the provider-lag memo and re-queue every stale "
                         "name, including those a previous fetch proved the "

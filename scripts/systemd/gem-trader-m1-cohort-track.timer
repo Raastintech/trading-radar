@@ -1,0 +1,17 @@
+[Unit]
+Description=gem-trader M1 cohort tracking timer (weekly, Sat 09:00 ET)
+Requires=gem-trader-m1-cohort-track.service
+
+[Timer]
+# Weekly, not daily. The cohort's forward horizons are 20/45/60/90 SESSIONS,
+# so a daily refresh buys nothing a weekly one does not — and the cost is one
+# call per cohort ticker per run (~75), against 3,269 for the whole replay
+# universe the shadow pool would need.
+OnCalendar=Sat 09:00 America/New_York
+
+# If the host was down at fire time, catch up once. The refresh is
+# append-forward-only and the resolver is idempotent, so a late run is safe.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -709,3 +709,49 @@ def test_the_memo_is_never_written_by_the_plan_stage(tmp_path):
     root = sandbox(tmp_path, {"STAL": make_frame(400, last=REQ - timedelta(days=5))})
     R.plan_stage(args_for(root))
     assert not (root / R.PROVIDER_LAG_REL).exists()
+
+
+# ── 10. a tracked cohort stays current without paying for the universe ──────
+#
+# The shadow pool needs the whole replay universe inside the guard's 2-session
+# cache-lag limit, which is a 3,269-call refresh once the required session
+# moves on. A frozen cohort needs only its own 75 names. --only-tickers is what
+# makes the second possible without the first.
+
+
+def test_only_tickers_restricts_the_queue(tmp_path):
+    root = sandbox(tmp_path, {
+        "AAA": make_frame(400, last=REQ - timedelta(days=5)),
+        "BBB": make_frame(400, last=REQ - timedelta(days=5)),
+        "CCC": make_frame(400, last=REQ - timedelta(days=5)),
+    })
+    assert set(R.plan_refresh(root)["todo"]) == {"AAA", "BBB", "CCC"}
+
+    plan = R.plan_refresh(root, only_tickers=["AAA", "CCC"])
+    assert plan["todo"] == ["AAA", "CCC"]
+    assert plan["n_only_tickers"] == 2
+    assert "queue restricted to 2 named tickers" in R.render_report(
+        plan, R.budget_block(2, 10), None)
+
+
+def test_only_tickers_narrows_but_never_widens(tmp_path):
+    """Naming a ticker cannot resurrect one another rule already excluded."""
+    root = sandbox(tmp_path, {
+        "STAL": make_frame(400, last=REQ - timedelta(days=5)),
+        "NEWCO": make_frame(120),                      # young listing: excluded
+    })
+    plan = R.plan_refresh(root, only_tickers=["STAL", "NEWCO"])
+    assert plan["todo"] == ["STAL"]
+
+
+def test_only_tickers_still_honours_the_provider_lag_memo(tmp_path):
+    root, last = _stale_sandbox(tmp_path)
+    _seed_memo(root, "STAL", provider_last=last, cache_last=last, observed_on=REQ)
+    assert R.plan_refresh(root, only_tickers=["STAL"])["todo"] == []
+
+
+@pytest.mark.parametrize("hostile", ["../../etc/passwd", "A/../B", "A B"])
+def test_a_hostile_only_tickers_value_is_refused(hostile):
+    args = args_for(Path("/tmp"), "plan", only_tickers=hostile)
+    with pytest.raises(SystemExit):
+        R._only_tickers(args)

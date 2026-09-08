@@ -105,7 +105,33 @@ horizon. On a plain business-day count (holidays will push these slightly later)
 **~2026-10-02**, the first decisive read at 45d **~2026-11-06**, the second at 60d
 **~2026-11-27**, and 90d **~2027-01-08**.
 
-## 6. Reproducing it
+## 6. Cadence — what runs, and what deliberately does not
+
+A weekly systemd user timer (`gem-trader-m1-cohort-track.timer`, Sat 09:00 ET) refreshes
+**only the cohort's own 75 tickers** and re-resolves. That is ~75 provider calls a week.
+
+**The shadow pool is not on a timer.** It cannot be cheaply: the data guard refuses once
+`cache/replay_prices` is more than 2 sessions stale (`MAX_CACHE_LAG_SESSIONS = 2`), and every
+active name goes stale every session, so each pool run needs a **3,269-call** universe refresh
+— ~14k calls/month weekly, ~68k daily, against a run rate of 88k (Aug) / 108k (Jul). The
+cohort froze its own reference closes, so tracking it needs none of that.
+
+Weekly rather than daily is not a cost compromise: the horizons are 20/45/60/90 **sessions**,
+so a daily refresh measures nothing a weekly one misses.
+
+### The rule cannot drift
+
+Item five of the operating plan — *do not change the rule based on early results* — is
+enforced mechanically, not by discipline:
+
+- the cohort is **write-once**; `freeze` exits 3 rather than overwrite one;
+- the rule, hypothesis and falsification condition are **inside** the frozen cohort, so a
+  later edit to the input file cannot retro-fit them;
+- the decisive horizons (45d, 60d) were fixed before any outcome existed, and 20d was
+  excluded up front as the noisiest;
+- the cohort is git-tracked, so any change to it is a visible diff.
+
+## 7. Reproducing it
 
 ```bash
 # freeze is write-once; it refuses to overwrite a cohort outcomes have been read from
@@ -113,6 +139,8 @@ GEM_TRADER_SKIP_DOTENV=true .venv/bin/python -m research.backtests.m1_manual_pic
 # resolve is cache-only and safe to run any time; immature horizons stay null
 GEM_TRADER_SKIP_DOTENV=true .venv/bin/python -m research.backtests.m1_manual_pick_tracker resolve
 ```
+
+Weekly upkeep runs `scripts/m1_cohort_track.sh 2026-09-04`.
 
 Artifacts: `research/backtests/cohorts/m1_manual_picks_2026-09-04.json` (frozen cohort —
 **git-tracked, not cached**: the commit is what proves the hypothesis predated the outcome),

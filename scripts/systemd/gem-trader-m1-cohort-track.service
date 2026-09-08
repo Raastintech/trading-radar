@@ -1,0 +1,12 @@
+[Unit]
+Description=gem-trader M1 manual-pick cohort tracking (research-only, cohort tickers only)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/gem/trading-production
+Environment=SNIPER_ENV_PATH=/home/gem/secure/trading.env
+ExecStart=/home/gem/trading-production/scripts/m1_cohort_track.sh 2026-09-04
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-m1-cohort-track.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-m1-cohort-track.log
+TimeoutStartSec=20min
