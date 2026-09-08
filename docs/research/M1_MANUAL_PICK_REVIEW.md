@@ -114,5 +114,6 @@ GEM_TRADER_SKIP_DOTENV=true .venv/bin/python -m research.backtests.m1_manual_pic
 GEM_TRADER_SKIP_DOTENV=true .venv/bin/python -m research.backtests.m1_manual_pick_tracker resolve
 ```
 
-Artifacts: `cache/research/m1_manual_picks_2026-09-04.json` (frozen cohort),
+Artifacts: `research/backtests/cohorts/m1_manual_picks_2026-09-04.json` (frozen cohort —
+**git-tracked, not cached**: the commit is what proves the hypothesis predated the outcome),
 `cache/research/m1_manual_picks_resolution_latest.json`, `logs/m1_manual_picks_latest.txt`.

@@ -1,0 +1,455 @@
+{
+ "kind": "M1_MANUAL_PICK_COHORT",
+ "session": "2026-09-04",
+ "frozen_at": "2026-09-08T03:51:53.429537+00:00",
+ "note": "M1 MANUAL PICK TRACKER \u2014 RESEARCH ONLY. A falsification test of HUMAN selection inside the M1 shadow pool, measured against the names NOT picked. Emits no signal, no ranking, no trade recommendation and no live verdict. NOT live forward evidence and NOT backtest evidence for Phase 4B. Must never be pooled with the live forward ledger, program verdicts, HC/EO routing, Alpha Focus, MCP or the dashboard.",
+ "prior": "NO EDGE EXPECTED. M1's ticker-clustered confidence interval is negative at every horizon tested: the basket beats the tape while the typical name inside it does not. Thirteen conviction overlays, an earnings-surprise dataset and a complete analyst-action study all failed to rank names inside M1. This cohort is therefore a FALSIFICATION TEST of human selection, not a shortlist with evidential backing.",
+ "selection_rule": {
+  "R1_tradable": "median 20-session dollar volume >= $20M",
+  "R2_trend_intact": "last close above a RISING MA50 and above a RISING MA200",
+  "R3_not_exhausted": "no more than +25% above MA50",
+  "R4_near_highs": "no worse than -15% from the 52-week high",
+  "R5_no_broken_flag": "no below_ma200 or deep_drawdown_from_52w_high tag",
+  "R6_quality": "quality_pass on the pool's own fundamental screen",
+  "applied": "mechanically, in this order, to all 75 names; 19 passed R1-R5 and 10 survived R6. The 10 were taken whole. No name was added or removed by hand afterwards.",
+  "what_it_deliberately_ignores": "12-1 momentum rank. Sorting inside M1 by momentum is the exact operation the ticker-clustered evidence says carries no information, so the rule uses tradability, trend structure, exhaustion and the fundamental screen instead."
+ },
+ "hypothesis": "Human selection inside M1 adds nothing: the picks will not beat the 65 names not picked, at any horizon.",
+ "falsification": "The hypothesis SURVIVES (selection adds nothing) unless picks beat the not-picked arm on BOTH mean and median at 45d AND 60d. Beating SPY/QQQ is not sufficient \u2014 the pool arm is the control that matters, because beating the tape is M1's basket property and is not evidence about selection.",
+ "decisive_horizons": [
+  45,
+  60
+ ],
+ "known_weaknesses": [
+  "Healthcare is 5 of 10 legs. The rule has no sector cap, so the cohort is materially one sector bet plus five diversifiers.",
+  "CDNA (most extended) and COKE (weakest trend) were retained to keep the rule mechanical. If the cohort fails, check first whether those two caused it.",
+  "The quality screen R6 is the pool's own tag, which is UNKNOWN or no_fundamental_data for 20 of the 75 names \u2014 R6 silently favours names with cached fundamentals.",
+  "One session, ten names. Even a clean win here is a sample of one cohort and cannot promote anything."
+ ],
+ "horizons_sessions": [
+  20,
+  45,
+  60,
+  90
+ ],
+ "benchmarks": [
+  "SPY",
+  "QQQ"
+ ],
+ "picks": [
+  {
+   "ticker": "CORT",
+   "sector": "Healthcare",
+   "thesis": "Strongest sustained trend in the quality_pass set that is not extended: +229% over six months yet only 7.2% above MA50 and 9.7% off the high, so the advance has been absorbed rather than spiked. Both MAs rising, $89M/day.",
+   "invalidation": "loses MA50 and fails to reclaim within two weeks, or the analyst rating_cut proves to be the first of a cluster",
+   "reference_close": 111.62,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ILMN",
+   "sector": "Healthcare",
+   "thesis": "Large-cap turnaround with the cleanest structure in the pool: +43.7% over MA200, +10.1% over MA50, 4.2% off the high, $379M/day. Nothing about it is stretched, which is rare for a name in a 12-1 momentum quintile.",
+   "invalidation": "closes below MA200; a sequencing-market share shock",
+   "reference_close": 218.22,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "KRYS",
+   "sector": "Healthcare",
+   "thesis": "Lowest volatility of any pick (ATR 2.6%) with a steady, non-parabolic climb: +2.4% over MA50, +23.4% over MA200. Commercial-stage, quality_pass. Included as the low-variance leg rather than for upside.",
+   "invalidation": "single-product commercial disappointment; break of MA200",
+   "reference_close": 358.24,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "DELL",
+   "sector": "Technology",
+   "thesis": "AI-infrastructure demand expressed through a quality_pass balance sheet rather than a story stock. At the 52-week high with both MAs rising and $2.4B/day of liquidity. The +19.2% MA50 gap is the risk.",
+   "invalidation": "AI capex digestion headlines; loss of the 52-week-high pivot on volume",
+   "reference_close": 524.0,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "TWLO",
+   "sector": "Technology",
+   "thesis": "The only pick whose recent trend is re-accelerating from a base rather than extending: +20.6% over one month against just +3.1% over three, with rating_raised coverage. Early in a move rather than late in one.",
+   "invalidation": "the 3-month base fails; net revenue retention deteriorates again",
+   "reference_close": 232.98,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "MPC",
+   "sector": "Energy",
+   "thesis": "Refining margin strength with the trend confirmed at the 52-week high, and low realised volatility (ATR 2.6%) despite +30% in a month \u2014 an orderly advance, not a squeeze. $847M/day.",
+   "invalidation": "crack spreads roll over; close below MA50",
+   "reference_close": 388.9,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "TECK",
+   "sector": "Basic Materials",
+   "thesis": "Copper-levered diversified miner, the pool's cleanest non-US-cyclical exposure. +10.1% over MA50, +22% over MA200, ATR 2.5%, 3.5% off the high. Included largely as sector ballast against five healthcare legs.",
+   "invalidation": "China demand shock; copper breaks its range",
+   "reference_close": 69.1,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "LFST",
+   "sector": "Healthcare",
+   "thesis": "Near 52-week highs (-1.2%) with +71.8% over three months and both MAs rising, on $44M/day. The weakest liquidity of the picks and a low absolute share price, so it is sized here as the speculative leg.",
+   "invalidation": "loses MA50; the rating_cut is followed by estimate reductions",
+   "reference_close": 12.73,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "CDNA",
+   "sector": "Healthcare",
+   "thesis": "Passed every rule but is the most extended member (+25.0% over MA50, +103% over MA200, +128.7% in three months). Kept because the rule was pre-registered and I refuse to trim post-hoc, but flagged as the likeliest mean-reversion candidate in the cohort.",
+   "invalidation": "reversion to MA50 would be a 20% drawdown; treat a close below MA50 as thesis-ending",
+   "reference_close": 50.88,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "COKE",
+   "sector": "Consumer Defensive",
+   "thesis": "The weakest trend among the picks: -7.4% over six months and only +1.1% over MA50, qualifying on 12-1 momentum that has since stalled. Kept for the same no-post-hoc-trimming reason, and flagged as the likeliest to prove the rule too loose.",
+   "invalidation": "already close to invalid; a close below MA200 ends it",
+   "reference_close": 189.33,
+   "reference_bar": "2026-09-04"
+  }
+ ],
+ "control_not_picked": [
+  {
+   "ticker": "ANIK",
+   "reference_close": 20.81,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ANNX",
+   "reference_close": 4.87,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ARIS",
+   "reference_close": 20.05,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ATKR",
+   "reference_close": 93.76,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "AVBP",
+   "reference_close": 30.95,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "BE",
+   "reference_close": 252.87,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "BFLY",
+   "reference_close": 7.36,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "CEVA",
+   "reference_close": 26.95,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "CGEM",
+   "reference_close": 22.09,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "CNC",
+   "reference_close": 67.04,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "CRDO",
+   "reference_close": 170.57,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "CYPH",
+   "reference_close": 2.42,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "DNTH",
+   "reference_close": 108.1,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ECPG",
+   "reference_close": 97.3,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "FEIM",
+   "reference_close": 60.67,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "FIGS",
+   "reference_close": 14.42,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "FLNC",
+   "reference_close": 10.35,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "FORM",
+   "reference_close": 103.9,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "FTH",
+   "reference_close": 40.05,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "GOOGL",
+   "reference_close": 338.46,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "HBB",
+   "reference_close": 31.0,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "HSBC",
+   "reference_close": 107.11,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "INTC",
+   "reference_close": 95.8,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "JBHT",
+   "reference_close": 273.77,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "JBL",
+   "reference_close": 310.57,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "KOD",
+   "reference_close": 35.36,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "KODK",
+   "reference_close": 9.29,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "KOPN",
+   "reference_close": 4.28,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "LBRT",
+   "reference_close": 20.59,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "LCUT",
+   "reference_close": 8.87,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "LGND",
+   "reference_close": 285.6,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "LINC",
+   "reference_close": 25.64,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "LQDA",
+   "reference_close": 68.66,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "MEI",
+   "reference_close": 15.69,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "MG",
+   "reference_close": 19.12,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "MTRN",
+   "reference_close": 244.24,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "MYRG",
+   "reference_close": 286.59,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "NKTR",
+   "reference_close": 74.19,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "NUAI",
+   "reference_close": 5.41,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "NUVB",
+   "reference_close": 6.81,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ONDS",
+   "reference_close": 7.62,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "PBF",
+   "reference_close": 74.34,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "PLX",
+   "reference_close": 2.67,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "PRM",
+   "reference_close": 31.76,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "RIG",
+   "reference_close": 5.85,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "RIO",
+   "reference_close": 103.27,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "RLJ",
+   "reference_close": 10.93,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ROG",
+   "reference_close": 127.82,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ROST",
+   "reference_close": 230.69,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "RXT",
+   "reference_close": 3.19,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "SABS",
+   "reference_close": 3.72,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "SANM",
+   "reference_close": 198.47,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "SITM",
+   "reference_close": 612.09,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "SKE",
+   "reference_close": 33.09,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "SRZN",
+   "reference_close": 22.76,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "STOK",
+   "reference_close": 29.81,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "SYRE",
+   "reference_close": 88.98,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "TEO",
+   "reference_close": 13.03,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "TGTX",
+   "reference_close": 55.99,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "TPR",
+   "reference_close": 122.14,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "VRT",
+   "reference_close": 280.53,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "WDC",
+   "reference_close": 467.46,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "XMTR",
+   "reference_close": 92.53,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ZBIO",
+   "reference_close": 32.88,
+   "reference_bar": "2026-09-04"
+  },
+  {
+   "ticker": "ZNTL",
+   "reference_close": 3.99,
+   "reference_bar": "2026-09-04"
+  }
+ ],
+ "n_picks": 10,
+ "n_control": 65,
+ "control_is_the_test": "The picks are judged against the names NOT picked. Beating SPY/QQQ is reported but is not evidence about selection: the pool beats the tape by construction, so an index comparison would credit the selector for M1's basket property.",
+ "write_once": true,
+ "not_live_evidence": true,
+ "not_phase4b": true,
+ "research_only": true
+}

@@ -68,7 +68,10 @@ offline_env()
 PRICES_REL = "cache/replay_prices"
 POOL_ROWS_REL = "cache/research/m1_shadow_pool_forward_rows.jsonl"
 INPUT_REL = "research/backtests/m1_manual_picks_2026_09_04.json"
-COHORT_REL_FMT = "cache/research/m1_manual_picks_{session}.json"
+#: Frozen cohorts are git-tracked, not cached. The commit is what proves the
+#: hypothesis predated the outcome; a file under gitignored cache/ proves
+#: nothing once the machine is rebuilt.
+COHORT_REL_FMT = "research/backtests/cohorts/m1_manual_picks_{session}.json"
 RESOLUTION_REL = "cache/research/m1_manual_picks_resolution_latest.json"
 REPORT_TXT_REL = "logs/m1_manual_picks_latest.txt"
 

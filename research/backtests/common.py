@@ -53,6 +53,12 @@ REPLAY_DIR_PREFIXES: tuple[str, ...] = (
     "cache/research/m1_data_guard_intermediates",
     "cache/research/m1_price_refresh_intermediates",
     "cache/research/m1_analyst_actions_intermediates",
+    # Frozen pre-registered cohorts. Deliberately NOT under cache/: a cohort is
+    # the record that a hypothesis was fixed before its outcome was known, and
+    # cache/ is gitignored, so a cohort kept there proves nothing once the
+    # machine is rebuilt. Git tracking is the timestamp. Write-once at the
+    # module level keeps this directory append-only in practice.
+    "research/backtests/cohorts",
 )
 
 # File-name prefixes the replay owns inside otherwise-live directories.

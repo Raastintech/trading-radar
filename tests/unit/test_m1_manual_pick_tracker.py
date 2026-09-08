@@ -217,6 +217,15 @@ def test_a_mean_only_win_is_not_enough(tmp_path):
 # ── 4. containment ──────────────────────────────────────────────────────────
 
 
+def test_the_cohort_is_git_trackable_not_cached():
+    """The whole point of the location: cache/ is gitignored, so a cohort kept
+    there cannot prove the hypothesis predated the outcome."""
+    rel = T.COHORT_REL_FMT.format(session=REF)
+    assert not rel.startswith("cache/")
+    assert not rel.startswith("data/")
+    assert_replay_write_path(rel)
+
+
 def test_both_artifacts_live_in_the_replay_namespace():
     assert_replay_write_path(T.RESOLUTION_REL)
     assert_replay_write_path(T.REPORT_TXT_REL)
