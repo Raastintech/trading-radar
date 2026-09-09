@@ -141,6 +141,46 @@ MANUAL_BUCKETS = ("Research Now", "Watch", "Reject")
 #: only thing that makes one required, and the guard says so itself.
 REFRESH_OPTIONAL_MAX_CALLS = 150
 
+# ── review-only filter ──────────────────────────────────────────────────────
+#
+# This narrows what a human is asked to read. It is a REVIEW filter and nothing
+# else: it does not touch M1 membership, the 12-1 construction, the drawn pool,
+# or the frozen cohort, and the full pool stays in the artifact underneath it.
+# Excluding a name here is a statement about review time, never about the name.
+
+#: Liquidity bands too thin to be worth manual review time.
+REVIEW_EXCLUDING_LIQUIDITY: tuple[str, ...] = ("thin_under_5M",)
+
+#: Exhaustion/structure flags that disqualify a name from review.
+REVIEW_EXCLUDING_FLAGS: tuple[str, ...] = (
+    "below_ma200", "deep_drawdown_from_52w_high",
+    "extended_far_above_ma50", "high_daily_range",
+)
+
+#: Fundamental-quality tags that disqualify a name from review.
+REVIEW_EXCLUDING_QUALITY: tuple[str, ...] = ("insufficient_filings",)
+
+#: Data-quality warnings that disqualify a name from review.
+REVIEW_EXCLUDING_DATA_WARNINGS: tuple[str, ...] = ("low_price",)
+
+#: An unidentifiable name with no fundamentals is unreviewable — unless it is
+#: liquid enough that the missing annotation is a cache gap, not an obscurity.
+VERY_LIQUID_BAND = "very_liquid_100M_plus"
+UNKNOWN_SECTOR = "UNKNOWN"
+NO_FUNDAMENTALS = "no_fundamental_data"
+
+#: Soft preferences. Recorded as annotations ONLY. They do not exclude, do not
+#: order the section, and are never combined into a number — a preference that
+#: sorted the table would be the conviction tier this module refuses to build.
+REVIEW_PREFERRED_QUALITY: tuple[str, ...] = ("quality_pass",)
+REVIEW_PREFERRED_ANALYST: tuple[str, ...] = (
+    "rating_raised", "rating_changes_both_ways")
+
+#: The packet is cache-only. Anything above this many PLANNED refresh calls is
+#: a maintenance decision the operator makes deliberately in m1_price_refresh,
+#: not something a daily worksheet run should walk past silently.
+MAX_PLANNED_REFRESH_CALLS = 100
+
 
 class PacketRefusal(RuntimeError):
     """The packet cannot be built as asked (bad date, or no pool for it)."""
@@ -361,6 +401,93 @@ def name_rows(pool: Mapping[str, Any], profiles: Mapping[str, dict]
     return sorted(rows, key=lambda r: r["ticker"])
 
 
+def review_exclusions(row: Mapping[str, Any]) -> list[str]:
+    """Why this name is not worth manual review time today. Empty ⇒ reviewable.
+
+    Pure and order-independent. A name can trip several reasons; all are
+    returned, because "excluded for one of five reasons" is less useful to an
+    operator auditing the filter than the full list.
+    """
+    flags = set(row.get("volatility_exhaustion_flags") or [])
+    warnings = set(row.get("data_quality_warnings") or [])
+    quality = row.get("fundamental_quality")
+    band = row.get("liquidity_band")
+    sector = row.get("sector") or UNKNOWN_SECTOR
+
+    reasons: list[str] = []
+    if band in REVIEW_EXCLUDING_LIQUIDITY:
+        reasons.append("thin_liquidity")
+    if "below_ma200" in flags:
+        reasons.append("below_ma200")
+    if "deep_drawdown_from_52w_high" in flags:
+        reasons.append("deep_drawdown")
+    if "extended_far_above_ma50" in flags:
+        reasons.append("extended")
+    if "high_daily_range" in flags:
+        reasons.append("high_daily_range")
+    if quality in REVIEW_EXCLUDING_QUALITY or (warnings & set(REVIEW_EXCLUDING_DATA_WARNINGS)):
+        reasons.append("data_quality")
+    if (sector == UNKNOWN_SECTOR and quality == NO_FUNDAMENTALS
+            and band != VERY_LIQUID_BAND):
+        reasons.append("unknown_no_fundamentals")
+    return reasons
+
+
+def review_preferences(row: Mapping[str, Any]) -> dict[str, bool]:
+    """Soft annotations on a reviewable name. Never ordering, never a score."""
+    return {
+        "quality_pass": row.get("fundamental_quality") in REVIEW_PREFERRED_QUALITY,
+        "analyst_attention_moved": row.get("analyst_attention") in REVIEW_PREFERRED_ANALYST,
+        "company_name_known": bool(row.get("company_name")),
+        "sector_known": (row.get("sector") or UNKNOWN_SECTOR) != UNKNOWN_SECTOR,
+    }
+
+
+def manual_review_block(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Split the pool into reviewable names and excluded ones, with counts.
+
+    The full pool is untouched and still published in ``names``; this is a view
+    over it, so the measurement pool and the review worksheet cannot drift.
+    """
+    candidates: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    counts = {k: 0 for k in (
+        "excluded_thin_liquidity", "excluded_below_ma200", "excluded_deep_drawdown",
+        "excluded_extended", "excluded_high_daily_range", "excluded_data_quality",
+        "excluded_unknown_no_fundamentals")}
+
+    for r in rows:
+        reasons = review_exclusions(r)
+        if reasons:
+            for reason in reasons:
+                counts[f"excluded_{reason}"] += 1
+            excluded.append({"ticker": r["ticker"], "exclusion_reasons": reasons})
+        else:
+            candidates.append({**r, "review_preferences": review_preferences(r)})
+
+    return {
+        "full_pool_count": len(rows),
+        "manual_review_candidate_count": len(candidates),
+        "excluded_distinct_name_count": len(excluded),
+        **counts,
+        "candidates": candidates,
+        "excluded": sorted(excluded, key=lambda e: e["ticker"]),
+        "filter_is_review_only": True,
+        "how_to_read": [
+            "This section narrows review time. It does not narrow M1.",
+            "The full pool is still published above and in the artifact, and "
+            "forward measurement uses that full pool, not this subset.",
+            "Exclusion is about reviewability, not about the name being worse.",
+            "Candidates are alphabetical. Position carries no information.",
+            "Preferences are annotations. They do not order this section and "
+            "are never combined into a number.",
+        ],
+        "exclusion_counts_caveat": (
+            "A name can trip several reasons, so these counts overlap and sum "
+            "to more than excluded_distinct_name_count."),
+    }
+
+
 def summary_block(pool: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
                   ) -> dict[str, Any]:
     """Counts and distributions. Descriptive only — nothing is combined."""
@@ -474,7 +601,10 @@ def build_packet(root: Path, args) -> dict[str, Any]:
         ],
         "refresh": refresh_block(root),
         "pool_summary": summary_block(pool, rows),
+        # The full drawn pool, always. Measurement and audit read this; the
+        # review filter below is a view over it and never replaces it.
         "names": rows,
+        "manual_review": manual_review_block(rows),
         "manual_buckets_available": list(MANUAL_BUCKETS),
         "manual_review_checklist": list(CHECKLIST_QUESTIONS),
         "cohort": cohort_block(root),
@@ -485,35 +615,89 @@ def build_packet(root: Path, args) -> dict[str, Any]:
             "never emits a trade signal, entry, stop, target or size",
             "never emits a live verdict token",
             "never runs a provider call by default",
+            "never lets the review filter change M1 membership or the pool",
         ],
         "provider_calls": 0,
         **provenance_flags(),
     }
     if args.include_chatgpt_brief:
-        payload["chatgpt_brief"] = chatgpt_brief(payload)
+        payload["chatgpt_brief"] = chatgpt_brief(
+            payload, scope=getattr(args, "chatgpt_brief_scope", "candidates"))
     assert_provenance(payload)
     return payload
+
+
+def assert_api_safety(payload: Mapping[str, Any], args) -> None:
+    """Refuse rather than spend. Both limbs are checked on every path.
+
+    The packet is cache-only, so ``provider_calls`` should be 0 for structural
+    reasons; this makes that a checked invariant instead of a property nobody
+    re-verifies. The planned-call ceiling is separate: the packet still spends
+    nothing, but a worksheet run is the wrong place to discover the cache needs
+    thousands of calls, and walking past that silently is how budget leaks.
+    """
+    calls = payload.get("provider_calls") or 0
+    if calls and not getattr(args, "allow_provider_calls", False):
+        raise FetchNotAuthorised(
+            f"the daily packet would make {calls} provider call(s); it is "
+            "cache-only by design. Pass --allow-provider-calls to authorise "
+            "this deliberately. No calls were made.")
+
+    planned = ((payload.get("refresh") or {}).get("planned_calls")) or 0
+    if (planned > MAX_PLANNED_REFRESH_CALLS
+            and not getattr(args, "allow_large_refresh_plan", False)):
+        raise FetchNotAuthorised(
+            f"the cache needs {planned} refresh call(s), above the "
+            f"{MAX_PLANNED_REFRESH_CALLS}-call ceiling for a daily worksheet "
+            "run. Nothing was fetched. Either run m1_price_refresh "
+            "deliberately with its own cap, or pass "
+            "--allow-large-refresh-plan to build the packet on the cache as "
+            "it stands.")
 
 
 # ── rendering ───────────────────────────────────────────────────────────────
 
 
-def chatgpt_brief(p: Mapping[str, Any]) -> str:
-    """Compact paste block for an external assistant."""
+def chatgpt_brief(p: Mapping[str, Any], *, scope: str = "candidates") -> str:
+    """Compact paste block for an external assistant.
+
+    Defaults to the manual-review candidates: pasting 75 names to have most of
+    them thrown back out wastes the reviewer's time on both ends. The full pool
+    stays one flag away, and the exclusion counts travel with the short list so
+    the reader can see what was held back and why.
+    """
     s = p["pool_summary"]
+    mr = p["manual_review"]
+    use_candidates = scope == "candidates"
+    listed = mr["candidates"] if use_candidates else p["names"]
+
     L = [f"M1 source pool — session {p['session']} (unordered, not ranked)",
          f"guard: {p['guard_status']} | may_run: {p['may_run']} | "
          f"pool: {p['pool_size_emitted']} of {p['m1_membership_size']} members | "
-         f"provider calls: {p['provider_calls']}",
-         "sectors: " + ", ".join(f"{k} {v}" for k, v in
-                                 list(s["sector_concentration"].items())[:8]),
-         "warnings: " + ", ".join([
-             f"exhaustion-flagged {s['names_with_any_exhaustion_flag']}",
-             f"data-quality {s['data_quality_warning_count']}",
-             f"scanner-saturation {s['scanner_saturation_warning_count']}"]),
-         "",
-         "NAMES  [sector | liquidity | analyst | quality | flags]"]
-    for r in p["names"]:
+         f"provider calls: {p['provider_calls']}"]
+    if use_candidates:
+        L += [f"listed below: {mr['manual_review_candidate_count']} manual-review "
+              f"candidates of {mr['full_pool_count']} in the pool — the rest were "
+              "held back as not worth review time, not as worse names",
+              "held back: " + ", ".join(
+                  f"{k.replace('excluded_', '')} {mr[k]}" for k in (
+                      "excluded_thin_liquidity", "excluded_below_ma200",
+                      "excluded_deep_drawdown", "excluded_extended",
+                      "excluded_high_daily_range", "excluded_data_quality",
+                      "excluded_unknown_no_fundamentals") if mr[k]) or "nothing",
+              f"({mr['excluded_distinct_name_count']} distinct names; a name can "
+              "trip several reasons)"]
+    else:
+        L.append(f"listed below: the full unfiltered pool ({len(listed)} names)")
+    L += ["sectors: " + ", ".join(f"{k} {v}" for k, v in
+                                  list(s["sector_concentration"].items())[:8]),
+          "warnings: " + ", ".join([
+              f"exhaustion-flagged {s['names_with_any_exhaustion_flag']}",
+              f"data-quality {s['data_quality_warning_count']}",
+              f"scanner-saturation {s['scanner_saturation_warning_count']}"]),
+          "",
+          "NAMES  [sector | liquidity | analyst | quality | flags]"]
+    for r in listed:
         flags = ",".join(r["volatility_exhaustion_flags"]) or "-"
         L.append(f"{r['ticker']:<6} [{r['sector']} | {r['liquidity_band'] or '?'} | "
                  f"{r['analyst_attention'] or '?'} | {r['fundamental_quality'] or '?'} | {flags}]")
@@ -615,13 +799,54 @@ def render_doc(p: Mapping[str, Any]) -> str:
           f"Buckets: {' / '.join(MANUAL_BUCKETS)}", ""]
     L += _md_table(p["names"])
 
-    L += ["", "## 6. Manual review checklist", "",
+    mr = p["manual_review"]
+    L += ["", "## 6. M1 Manual Review Candidates", "",
+          f"**{mr['manual_review_candidate_count']} of {mr['full_pool_count']}** "
+          "pool names are worth manual review time today.", ""]
+    L += [f"- {line}" for line in mr["how_to_read"]]
+    L += ["", "| count | value |", "|---|---|",
+          f"| full_pool_count | {mr['full_pool_count']} |",
+          f"| manual_review_candidate_count | {mr['manual_review_candidate_count']} |",
+          f"| excluded_distinct_name_count | {mr['excluded_distinct_name_count']} |",
+          f"| excluded_thin_liquidity | {mr['excluded_thin_liquidity']} |",
+          f"| excluded_below_ma200 | {mr['excluded_below_ma200']} |",
+          f"| excluded_deep_drawdown | {mr['excluded_deep_drawdown']} |",
+          f"| excluded_extended | {mr['excluded_extended']} |",
+          f"| excluded_high_daily_range | {mr['excluded_high_daily_range']} |",
+          f"| excluded_data_quality | {mr['excluded_data_quality']} |",
+          f"| excluded_unknown_no_fundamentals | {mr['excluded_unknown_no_fundamentals']} |",
+          "", f"*{mr['exclusion_counts_caveat']}*", ""]
+
+    if mr["candidates"]:
+        L += _md_table(mr["candidates"])
+        L += ["", "Preference annotations (not ordering, not a score):", "",
+              "| ticker | quality_pass | analyst moved | company known | sector known |",
+              "|---|---|---|---|---|"]
+        for r in mr["candidates"]:
+            pref = r["review_preferences"]
+            L.append("| {t} | {q} | {a} | {c} | {s} |".format(
+                t=r["ticker"],
+                q="yes" if pref["quality_pass"] else "—",
+                a="yes" if pref["analyst_attention_moved"] else "—",
+                c="yes" if pref["company_name_known"] else "—",
+                s="yes" if pref["sector_known"] else "—"))
+    else:
+        L.append("No name in today's draw passed the review filter. That is a "
+                 "statement about this slice, not about M1.")
+
+    if mr["excluded"]:
+        L += ["", "**Held back** (full pool is still in section 5 and in the "
+                  "artifact):", "",
+              ", ".join(f"{e['ticker']} ({'/'.join(e['exclusion_reasons'])})"
+                        for e in mr["excluded"])]
+
+    L += ["", "## 7. Manual review checklist", "",
           "For every name you seriously like, answer these before doing anything "
           "with it:", ""]
     L += [f"{i}. {q}" for i, q in enumerate(p["manual_review_checklist"], 1)]
 
     c = p["cohort"]
-    L += ["", "## 7. Frozen manual-pick cohort (read-only here)", ""]
+    L += ["", "## 8. Frozen manual-pick cohort (read-only here)", ""]
     if not c.get("present"):
         L.append(c.get("note", "no cohort."))
     else:
@@ -638,7 +863,7 @@ def render_doc(p: Mapping[str, Any]) -> str:
         L += ["", "This packet does not modify the frozen cohort."]
 
     if p.get("chatgpt_brief"):
-        L += ["", "## 8. Paste this into ChatGPT", "", "```text",
+        L += ["", "## 9. Paste this into ChatGPT", "", "```text",
               p["chatgpt_brief"], "```"]
     return "\n".join(L) + "\n"
 
@@ -694,6 +919,11 @@ def render_text(p: Mapping[str, Any]) -> str:
           f"  exhaustion-flagged {s['names_with_any_exhaustion_flag']} | "
           f"data-quality warnings {s['data_quality_warning_count']}",
           "",
+          f"  MANUAL REVIEW CANDIDATES   {p['manual_review']['manual_review_candidate_count']}"
+          f" of {p['manual_review']['full_pool_count']}"
+          f" ({p['manual_review']['excluded_distinct_name_count']} held back;"
+          " full pool kept in the artifact)",
+          "",
           f"  cohort                     {p['cohort'].get('current_status', 'n/a')}",
           "",
           "  Names are alphabetical and unordered. Fill the bucket and notes",
@@ -715,6 +945,7 @@ def packet_stage(args) -> int:
 
     tripwire = LiveArtifactTripwire.snapshot(root)
     payload = build_packet(root, args)
+    assert_api_safety(payload, args)
 
     doc = assert_packet_language(render_doc(payload), where=DOC_REL)
     text = assert_packet_language(render_text(payload), where=REPORT_TXT_REL)
@@ -753,6 +984,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--execute-refresh", action="store_true",
                    help="NOT APPROVED — refuses. Present so the refusal is "
                         "explicit rather than a missing flag.")
+    p.add_argument("--chatgpt-brief-scope", choices=["candidates", "full-pool"],
+                   default="candidates",
+                   help="which names the paste block lists (default: the "
+                        "manual-review candidates). 'full-pool' pastes all of "
+                        "them; the artifact keeps the full pool either way.")
+    p.add_argument("--allow-provider-calls", action="store_true",
+                   help="authorise provider calls from this module. The packet "
+                        "is cache-only, so this exists to make any future "
+                        "spending path an explicit decision rather than a "
+                        "silent one.")
+    p.add_argument("--allow-large-refresh-plan", action="store_true",
+                   help=f"build the packet even when more than "
+                        f"{MAX_PLANNED_REFRESH_CALLS} refresh calls are planned. "
+                        "Still fetches nothing.")
     add_safety_args(p, fetches=False)
     return p
 
