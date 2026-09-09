@@ -128,6 +128,57 @@ robust dataset, 7,577 entries across 784 tickers — returns **MIXED**.
 
 ---
 
+## Reading the metrics honestly
+
+Two traps this system has already walked into. Both produce a number that looks
+like a finding and is not.
+
+### Recall is not comparable across cohorts
+
+**Recall scales with how many names a cohort surfaces.** A cohort that lists more
+names will catch more winners, whatever it does or does not know. So an "X% vs Y%"
+recall comparison is a size difference until proven otherwise.
+
+From `scanner_recall_cohorts_latest.json` (2026-09-09), all five cohorts, same
+window:
+
+| cohort | ticker-days | recall % | precision % |
+|---|---:|---:|---:|
+| random_control | 14,347 | **89.6** | 17.9 |
+| loose_scanner | 14,502 | 84.6 | 16.9 |
+| strict_mirror | 9,872 | 47.6 | 14.2 |
+| scanner_watchlist | 1,454 | 15.0 | 30.3 |
+| rs_baseline | 558 | 5.4 | 30.4 |
+
+**The random control has the highest recall of the five.** Reading
+"scanner_watchlist 15.0% vs rs_baseline 5.4%" as the watchlist doing better is
+reading list length. Precision, and excess return against a same-window control,
+are the numbers that carry information — and a control means *random*, not
+another cohort of a different size.
+
+### Overlapping windows inflate everything
+
+A forward horizon of N sessions measured from consecutive daily registration
+dates gives **~dates ÷ N independent observations**, not one per date.
+Consecutive dates share (N−1)/N of their window, so means, win-rates and
+t-statistics are all inflated by construction.
+
+Worked example, same artifact: 23 registration dates at a 20-session horizon is
+**~1.1 independent windows**. The watchlist appeared to beat random by +2.20pp on
+16 of 23 dates (apparent t ≈ 3.7) — but the wins were one contiguous run of 13
+dates, four dates in a single week carried 54% of the total, and all three
+non-overlapping subsamples came out negative. One late-July episode, counted
+thirteen times.
+
+**Before believing any forward comparison, ask:** how many *non-overlapping*
+windows is this? If the answer is one, it is an anecdote with a decimal point.
+
+The same failure has now been documented three times here — the M1 ticker-clustered
+CI, the LRR result where one month carried 73% of the edge, and this. Assume it is
+present until you have checked.
+
+---
+
 ## Provider spend
 
 Spend is now **enforced**, not just counted (`core/provider_budget.py`):
