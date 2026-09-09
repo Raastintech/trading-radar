@@ -60,6 +60,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from core.provider_budget import (  # noqa: E402
+    PLANNED_CALL_CONFIRM_THRESHOLD,
+    assert_planned_calls_authorised,
+    assert_within_hard_cap,
+)
 from research.backtests.common import (
     FetchNotAuthorised,
     LiveArtifactTripwire,
@@ -101,6 +106,13 @@ FETCH_FROM = "2020-01-01"
 
 DEFAULT_MAX_CALLS = 500
 RATE_PER_MIN = 600  # safety margin under the provider's 750 RPM ceiling
+
+#: Per-run ceiling on top of --max-calls. Until 2026-09-09 ``--max-calls`` was
+#: unbounded, so one flag could authorise a five-figure run against a provider
+#: budget nothing else enforced (3,257 calls went through on 2026-09-09; a
+#: manual study spent 20,260 on 2026-09-05). A universe-wide catch-up is a real
+#: need, so this is a ceiling with a named override rather than a hard stop.
+HARD_MAX_CALLS = 1200
 
 #: Close-price agreement tolerance on overlapping bars, as a fraction. Floating
 #: -point round-trips through parquet and JSON move a close by far less than
@@ -658,6 +670,16 @@ def fetch_stage(args) -> int:
         return 0
 
     enforce_call_cap(len(todo), cap, what="M1 price refresh")
+    # Two ceilings above the per-run --max-calls, both refusing before the first
+    # call: a confirmation threshold for anything non-trivial, and a per-run hard
+    # cap that a universe-wide catch-up has to name explicitly.
+    assert_planned_calls_authorised(
+        len(todo), override=bool(getattr(args, "allow_large_run", False)),
+        where="M1 price refresh", override_flag="--allow-large-run")
+    assert_within_hard_cap(
+        len(todo), hard_cap=HARD_MAX_CALLS,
+        override=bool(getattr(args, "allow_huge_run", False)),
+        where="M1 price refresh", override_flag="--allow-huge-run")
     require_execute_fetch(args, planned_calls=len(todo), what="M1 price refresh")
 
     tripwire = LiveArtifactTripwire.snapshot(root)
@@ -852,6 +874,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "provider disagrees (e.g. a genuine split "
                         "re-adjustment). Off by default: a silent rewrite "
                         "changes what the completed M1 studies measured.")
+    p.add_argument("--allow-large-run", action="store_true",
+                   help=f"authorise a run planning more than "
+                        f"{PLANNED_CALL_CONFIRM_THRESHOLD} provider calls. "
+                        "Without it such a run refuses before the first call.")
+    p.add_argument("--allow-huge-run", action="store_true",
+                   help=f"authorise a run above the per-run hard cap of "
+                        f"{HARD_MAX_CALLS} calls (implies --allow-large-run "
+                        "is also needed). For a deliberate universe-wide "
+                        "catch-up, not for routine maintenance.")
     add_safety_args(p, fetches=True)
     return p
 

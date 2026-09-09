@@ -34,6 +34,9 @@ URL = ("https://financialmodelingprep.com/stable/grades"
 
 
 class _Gate:
+    def budget_check(self, n=1):
+        """Spend gate (2026-09-09). Permissive: this file is about redaction."""
+
     def budget_consume(self, n=1):
         return True
 

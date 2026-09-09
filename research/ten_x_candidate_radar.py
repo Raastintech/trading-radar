@@ -360,6 +360,18 @@ def scan_ten_x(
         "generated_at": now,
         "system_mode": SYSTEM_MODE,
         "research_only": True,
+        # QUARANTINE (2026-09-09 drift audit). This radar emitted 30 names twice
+        # daily with no registered forward hypothesis and nothing that validated
+        # it, so the list looked like a finding it had not earned. It is off the
+        # nightly/premarket schedule and stamped here so no reader or panel can
+        # treat the output as a current candidate list. Nothing was deleted; the
+        # scan still runs on demand. Lifting this needs a registered forward
+        # hypothesis and a consumer, not an edit to this stamp.
+        "quarantine_status": "QUARANTINE_NO_HYPOTHESIS",
+        "is_current_candidate_list": False,
+        "not_current_truth_reason": (
+            "no registered forward hypothesis and no validating consumer; "
+            "on-demand research output only"),
         "universe_size": len(universe),
         "candidates": candidates,
         "candidate_count": len(candidates),

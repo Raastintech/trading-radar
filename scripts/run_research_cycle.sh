@@ -1229,7 +1229,13 @@ cmd_ten_x_candidates() {
     # Phase 4A Task 6 — 10x speculative candidate radar.  Scans for names with
     # large ATH drawdown + turning momentum + theme exposure.  SPECULATIVE —
     # requires manual research.  No trade recommendations.  Cache-only.
-    log "[CACHE] Phase 4A 10x candidate radar (cache-only, speculative)"
+    #
+    # QUARANTINED 2026-09-09: removed from the nightly and premarket cycles by
+    # the drift audit — no registered forward hypothesis, no validating
+    # consumer.  Still runnable on demand (this command), and its output is
+    # stamped QUARANTINE so it is not read as a current candidate list.  To
+    # return it to the schedule it needs a registered forward hypothesis first.
+    log "[CACHE] 10x candidate radar — QUARANTINE / RESEARCH ONLY (on demand)"
     run_or_warn "ten-x candidates" "$PY" research/ten_x_candidate_radar.py "$@"
 }
 
@@ -1647,7 +1653,13 @@ cmd_premarket() {
     cmd_research_coverage
     cmd_research_changes
     cmd_research_forward_tracker
-    cmd_ten_x_candidates
+    # QUARANTINED 2026-09-09 (drift audit). The 10x radar emitted 30 names
+    # twice a day with no registered forward hypothesis and no consumer that
+    # validates it — a list shaped like a finding. It is NOT deleted: run it
+    # on demand with `./scripts/run_research_cycle.sh ten-x-candidates`, and
+    # its existing artifact is preserved. It is only off the schedule, so it
+    # cannot present itself as a current candidate list.
+    # cmd_ten_x_candidates
     cmd_daily_alpha_radar
     # Keep downstream qualification/display lanes aligned with the latest
     # premarket scanner + program-routing artifact. These commands are
@@ -1783,7 +1795,13 @@ cmd_nightly() {
     cmd_research_coverage
     cmd_research_changes
     cmd_research_forward_tracker
-    cmd_ten_x_candidates
+    # QUARANTINED 2026-09-09 (drift audit). The 10x radar emitted 30 names
+    # twice a day with no registered forward hypothesis and no consumer that
+    # validates it — a list shaped like a finding. It is NOT deleted: run it
+    # on demand with `./scripts/run_research_cycle.sh ten-x-candidates`, and
+    # its existing artifact is preserved. It is only off the schedule, so it
+    # cannot present itself as a current candidate list.
+    # cmd_ten_x_candidates
     cmd_daily_alpha_radar
     # Phase 4A.7 — Targeted backfill dry-run plan: identifies tickers with
     # insufficient price history and writes the plan sidecar so the nightly

@@ -196,13 +196,17 @@ def test_topic_velocity_is_volume_weighted_mean(tmp_path):
     assert semi["contributing_ticker_count"] == 2
 
 
-def test_v11_only_ticker_is_included_as_shadow(tmp_path):
+def test_a_v11_only_ticker_is_no_longer_ingested(tmp_path):
+    """V11 was SUPERSEDED on 2026-09-09 (drift audit): no cadence, 12.6 days
+    stale, duplicating the nightly V0 radar. It used to contribute shadow-only
+    tickers; now it contributes nothing, so this radar reads one social lane.
+    The artifact is still written and still read — just not trusted as current.
+    """
     _write(tmp_path, ahr.SOCIAL_ATTENTION_REL, _sa_doc([]))
     _write(tmp_path, ahr.SOCIAL_ATTENTION_V11_REL,
            _sa_doc([_lead("AAA", sample_texts=["$AAA chip"])]))
     res = ahr.build(tmp_path, now=NOW)
-    alert = next(a for a in res["alerts"] if a["ticker"] == "AAA")
-    assert alert["shadow_only"] is True
+    assert not [a for a in res["alerts"] if a["ticker"] == "AAA"]
 
 
 def test_v11_duplicate_ticker_prefers_prod_not_double_counted(tmp_path):
@@ -258,14 +262,19 @@ def test_exhaustion_risk_from_parabolic_price(tmp_path):
     assert alert["operator_label"] == ahr.LABEL_EXHAUSTION_RISK
 
 
-def test_exhaustion_risk_from_v11_shadow_noise_score(tmp_path):
+def test_a_v11_noise_score_no_longer_changes_the_label(tmp_path):
+    """A superseded lane must not move a live label. Before 2026-09-09 a stale
+    V11 noise score could flip a name to EXHAUSTION_RISK; the live V0 lead now
+    decides on its own.
+    """
     prod_lead = _lead("AAA")
     shadow_lead = _lead("AAA", noise_score=85.0)
     _write(tmp_path, ahr.SOCIAL_ATTENTION_REL, _sa_doc([prod_lead]))
     _write(tmp_path, ahr.SOCIAL_ATTENTION_V11_REL, _sa_doc([shadow_lead]))
     res = ahr.build(tmp_path, now=NOW)
     alert = next(a for a in res["alerts"] if a["ticker"] == "AAA")
-    assert alert["operator_label"] == ahr.LABEL_EXHAUSTION_RISK
+    assert alert["operator_label"] != ahr.LABEL_EXHAUSTION_RISK
+    assert alert.get("shadow_only") is not True
 
 
 def test_watch_for_reset_when_extended_and_positive_fit(tmp_path):

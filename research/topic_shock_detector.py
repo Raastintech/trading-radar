@@ -75,6 +75,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from core.quarantined_surfaces import is_current as quarantine_is_current  # noqa: E402
 from research import alpha_heat_radar as ahr  # noqa: E402  (deliberate reuse, see module docstring)
 
 VERSION = "TOPIC_SHOCK_DETECTOR_V0"
@@ -654,7 +655,15 @@ def build(root: Optional[Path] = None, now: Optional[datetime] = None,
 
     arb_raw_doc = ahr._load_json(root / SOCIAL_ARB_RAW_REL)
     sa_doc = ahr._load_json(root / ahr.SOCIAL_ATTENTION_REL)
-    v11_doc = ahr._load_json(root / ahr.SOCIAL_ATTENTION_V11_REL)  # optional — read if present
+    # Social Attention V11 is SUPERSEDED (2026-09-09 drift audit): it has no
+    # cadence, its artifacts went 12.6 days stale while the nightly V0 radar ran,
+    # and two disagreeing social surfaces with no stated winner is worse than
+    # one. The file is preserved and still read here, but it is dropped unless
+    # core.quarantined_surfaces says it may speak as current — so this module
+    # sees exactly one social lane. Wiring V11 to a cadence is the one change
+    # that should lift it, in that module, not here.
+    _v11_raw = ahr._load_json(root / ahr.SOCIAL_ATTENTION_V11_REL)
+    v11_doc = _v11_raw if quarantine_is_current("social_attention_v11", _v11_raw) else None
     arb_final_doc = ahr._load_json(root / ahr.SOCIAL_ARB_REL)
     hc_doc = ahr._load_json(root / ahr.HIGH_CONVICTION_REL)
     eo_doc = ahr._load_json(root / ahr.EMERGING_OUTLIER_REL)

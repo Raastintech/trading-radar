@@ -60,6 +60,7 @@ os.environ.setdefault("LOG_DIR", str(ROOT / "logs"))
 
 import core.config as cfg
 from core.research_mode import SYSTEM_MODE, RESEARCH_ONLY_BANNER
+from core.quarantined_surfaces import is_current as quarantine_is_current
 from research.research_scoring import (
     earliness_detail,
     priority_label,
@@ -623,8 +624,20 @@ def build_daily_radar(sidecars: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str
     # Bucket by priority
     buckets = _bucket_items(enriched)
 
-    # 10x candidates — already labeled by ten_x_candidate_radar
-    ten_x_candidates = (ten_x or {}).get("candidates", [])
+    # 10x candidates — QUARANTINED 2026-09-09 (drift audit).
+    #
+    # The radar is off the nightly/premarket schedule because it had no
+    # registered forward hypothesis and no validating consumer, so anything
+    # still on disk is an on-demand research run, not tonight's reading. Showing
+    # it here would be exactly the confusion the quarantine exists to prevent:
+    # a stale speculative list rendered inside the current board. The sidecar is
+    # still loaded and preserved — it is simply not surfaced. If the radar earns
+    # a forward hypothesis, core.quarantined_surfaces is the one place to lift
+    # this, and these lists repopulate with no change here.
+    if quarantine_is_current("ten_x_candidates", ten_x):
+        ten_x_candidates = (ten_x or {}).get("candidates", [])
+    else:
+        ten_x_candidates = []
     true_10x = [c for c in ten_x_candidates if c.get("label") == TRUE_10X_RESEARCH]
     asymmetric = [c for c in ten_x_candidates if c.get("label") == ASYMMETRIC_RECOVERY_WATCH]
     theme_only = [c for c in ten_x_candidates if c.get("label") == THEME_ONLY]

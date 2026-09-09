@@ -10,11 +10,14 @@ Gatekeeper.put(endpoint, ticker, data) writes to the appropriate store.
 
 All FMP callers go through this — zero API calls for in-TTL data.
 
-Budget model (2026-04-20):
-  Plan limits: 750 RPM, 50,000 calls/month.
-  Budget is tracked monthly (YYYY-MM key) against FMP_MONTHLY_BUDGET.
-  The old daily table (fmp_budget) is preserved for audit history but is no
-  longer the enforcement gate — fmp_budget_monthly is the live gate.
+Budget model (2026-09-09):
+  Plan limits: 750 RPM (rate), no confirmed monthly call ceiling from the plan.
+  Spend is capped by core/provider_budget.py, which enforces a monthly AND a
+  daily ceiling. budget_check() refuses BEFORE a request; budget_consume()
+  books what was actually served. Both fmp_budget (daily) and
+  fmp_budget_monthly are live counters again, not audit-only history.
+  Before 2026-09-09 nothing enforced spend: budget_consume() always returned
+  True and FMP_MONTHLY_BUDGET=0 read as unlimited.
 """
 from __future__ import annotations
 import json
@@ -140,7 +143,7 @@ class Gatekeeper:
             self._conn.commit()
             logger.debug("Migrated fmp_endpoint_log: added resp_bytes column")
 
-    # ── Usage tracking (telemetry only — nothing here blocks a call) ─────────
+    # ── Usage tracking + the spend gate ──────────────────────────────────────
 
     def budget_used_today(self) -> int:
         today = date.today().isoformat()
@@ -157,21 +160,40 @@ class Gatekeeper:
         return row[0] if row else 0
 
     def budget_remaining(self) -> int:
+        """Calls left before the tighter of the monthly/daily ceilings trips.
+
+        Returns a very large number only when the operator has opted out of
+        enforcement with ALLOW_UNLIMITED_PROVIDER_CALLS=true.
         """
-        Returns 0 — monthly cap is not confirmed for this plan.
-        Kept for API compatibility; callers should use budget_used_month() instead.
+        from core.provider_budget import daily_cap, monthly_cap  # noqa: PLC0415
+        mcap, dcap = monthly_cap(), daily_cap()
+        room = []
+        if mcap is not None:
+            room.append(mcap - self.budget_used_month())
+        if dcap is not None:
+            room.append(dcap - self.budget_used_today())
+        if not room:
+            return 2**31 - 1
+        return max(0, min(room))
+
+    def budget_check(self, n: int = 1) -> None:
+        """Raise ProviderBudgetExceeded if spending ``n`` more breaks a ceiling.
+
+        Call this BEFORE the request. ``budget_consume`` books what was actually
+        served; this is what decides whether to serve it at all.
         """
-        return 0
+        from core.provider_budget import check_spend  # noqa: PLC0415
+        check_spend(self.budget_used_month(), self.budget_used_today(), n)
 
     def budget_consume(self, n: int = 1) -> bool:
         """
-        TELEMETRY ONLY — always returns True (never blocks).
+        ACCOUNTING — books calls that were actually served. Always returns True.
 
-        The only hard enforcement is the 750 RPM token bucket in FMPClient._get().
-        No monthly or daily call cap has been confirmed from the plan page
-        (plan shows 750 RPM + 50 GB bandwidth, not a call count ceiling).
+        This is deliberately not the gate: it runs after a response comes back,
+        so refusing here would be refusing something already paid for. The gate
+        is ``budget_check()``, called before the request (see core/provider_budget.py).
 
-        Increments both daily and monthly counters for visibility.
+        Increments both daily and monthly counters.
         """
         month = date.today().strftime("%Y-%m")
         today = date.today().isoformat()
@@ -189,7 +211,7 @@ class Gatekeeper:
                 )
         except Exception as exc:
             logger.debug("budget_consume tracking error (non-blocking): %s", exc)
-        return True   # always allow — rate bucket is the real gate
+        return True   # booking only; budget_check() is the gate
 
     def log_endpoint(self, endpoint: str, saved: int = 0, resp_bytes: int = 0) -> None:
         """

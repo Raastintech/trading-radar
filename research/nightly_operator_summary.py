@@ -173,7 +173,10 @@ def _build_overall_status(sidecars: Dict[str, Any], now: datetime) -> Dict[str, 
         ("Regime Forecast", "forecast"),
         ("Daily Alpha Radar", "alpha_radar"),
         ("Forward Tracker", "forward"),
-        ("Scanner Truth", "scanner_truth"),
+        # "Scanner Truth" was listed here until 2026-09-09. It measures the
+        # council funnel decommissioned 2026-06-13, so its presence or absence
+        # says nothing about whether the LIVE research board ran tonight —
+        # which is the only question this list answers.
     ]:
         if sidecars.get(key):
             components_present.append(name)
@@ -494,49 +497,35 @@ def _build_warnings(
                       else "— cache depth adequate"))
         warnings.append(msg)
 
-    # Scanner recall.  The scanner-truth figure traces the decommissioned
-    # council funnel (DB stages frozen 2026-06-13) and decays toward 0%
-    # mechanically — present it as the legacy autopsy it is, and point at
-    # the prospective cohorts tracker for the live research board. Appended
-    # last (not first) so it doesn't outrank live-board warnings above it —
-    # 2026-07-22 journal audit flagged it as distracting from the live
-    # scanner-recall cohorts signal when it led the list.
-    st = sidecars.get("scanner_truth") or {}
-    if st:
-        recall_pct = st.get("winner_recall_pct")
-        main_fail = st.get("main_failure", "")
-        baseline = st.get("best_simple_baseline_recall_pct")
-        if recall_pct is not None and recall_pct < 5:
-            bl_note = f" (simple-RS baseline: {baseline}%)" if baseline else ""
-            cohorts = _load_json(RESEARCH_DIR / "scanner_recall_cohorts_latest.json") or {}
-            live_note = ""
-            if cohorts:
-                progress = (f" ({cohorts.get('matured_dates')}/"
-                           f"{(cohorts.get('gates') or {}).get('min_matured_dates')} "
-                           "matured dates"
-                           if cohorts.get("matured_dates") is not None
-                           and (cohorts.get("gates") or {}).get(
-                               "min_matured_dates") is not None
-                           else "")
-                watch = (cohorts.get("cohorts") or {}).get(
-                    "scanner_watchlist") or {}
-                rs = (cohorts.get("cohorts") or {}).get("rs_baseline") or {}
-                figures = ("; scanner-watchlist recall "
-                          f"{watch['winner_recall_pct']}% vs RS-baseline "
-                          f"{rs['winner_recall_pct']}% at 20d"
-                          if watch.get("winner_recall_pct") is not None
-                          and rs.get("winner_recall_pct") is not None
-                          else "")
-                progress_close = ")" if progress else ""
-                live_note = (" — live research-board recall accruing via "
-                             f"scanner-recall cohorts: "
-                             f"{cohorts.get('verdict', 'UNKNOWN')}"
-                             f"{progress}{figures}{progress_close}")
-            warnings.append(
-                f"Legacy council-funnel recall {recall_pct}% (autopsy of the pipeline "
-                f"decommissioned 2026-06-13, not the live board) — main miss: "
-                f"{main_fail}{bl_note}{live_note}"
-            )
+    # Scanner recall.  The scanner-truth figure is an AUTOPSY of the council
+    # funnel decommissioned 2026-06-13: pinned near 0% by construction, it could
+    # not move, so publishing it as a nightly warning trained the reader to skip
+    # warnings.  Removed 2026-09-09 (drift audit).  The artifact is preserved on
+    # disk and still readable; it simply no longer speaks here.
+    #
+    # What replaced it is the PROSPECTIVE cohorts tracker, which measures the
+    # live board and can actually move.  Note it is keyed off the cohort data
+    # alone — deliberately independent of the dead sidecar, so removing that
+    # sidecar entirely would change nothing here.
+    cohorts = _load_json(RESEARCH_DIR / "scanner_recall_cohorts_latest.json") or {}
+    if cohorts:
+        watch = (cohorts.get("cohorts") or {}).get("scanner_watchlist") or {}
+        rs = (cohorts.get("cohorts") or {}).get("rs_baseline") or {}
+        gates = cohorts.get("gates") or {}
+        progress = ""
+        if (cohorts.get("matured_dates") is not None
+                and gates.get("min_matured_dates") is not None):
+            progress = (f" ({cohorts['matured_dates']}/"
+                        f"{gates['min_matured_dates']} matured dates)")
+        figures = ""
+        if (watch.get("winner_recall_pct") is not None
+                and rs.get("winner_recall_pct") is not None):
+            figures = ("; scanner-watchlist recall "
+                       f"{watch['winner_recall_pct']}% vs RS-baseline "
+                       f"{rs['winner_recall_pct']}% at 20d")
+        warnings.append(
+            "Live research-board recall accruing via scanner-recall cohorts: "
+            f"{cohorts.get('verdict', 'UNKNOWN')}{progress}{figures}")
 
     return warnings[:8]  # cap at 8
 

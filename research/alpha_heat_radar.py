@@ -61,6 +61,8 @@ from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from core.quarantined_surfaces import is_current as quarantine_is_current
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -625,7 +627,15 @@ def build(root: Optional[Path] = None, now: Optional[datetime] = None) -> Dict[s
     now = now or _utcnow()
 
     sa_doc = _load_json(root / SOCIAL_ATTENTION_REL)
-    v11_doc = _load_json(root / SOCIAL_ATTENTION_V11_REL)
+    # Social Attention V11 is SUPERSEDED (2026-09-09 drift audit): it has no
+    # cadence, its artifacts went 12.6 days stale while the nightly V0 radar ran,
+    # and two disagreeing social surfaces with no stated winner is worse than
+    # one. The file is preserved and still read here, but it is dropped unless
+    # core.quarantined_surfaces says it may speak as current — so this module
+    # sees exactly one social lane. Wiring V11 to a cadence is the one change
+    # that should lift it, in that module, not here.
+    _v11_raw = _load_json(root / SOCIAL_ATTENTION_V11_REL)
+    v11_doc = _v11_raw if quarantine_is_current("social_attention_v11", _v11_raw) else None
     arb_doc = _load_json(root / SOCIAL_ARB_REL)
     hc_doc = _load_json(root / HIGH_CONVICTION_REL)
     eo_doc = _load_json(root / EMERGING_OUTLIER_REL)

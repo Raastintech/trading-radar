@@ -175,10 +175,10 @@ class FMPClient:
     # ── Internal HTTP ─────────────────────────────────────────────────────────
 
     def _get(self, path: str, params: Optional[Dict] = None, budget_cost: int = 1) -> Any:
-        # Hard enforcement: 750 RPM token bucket only.
-        # budget_consume() is telemetry-only (always returns True).
-        # No monthly/daily call cap is enforced — plan page shows 750 RPM + 50 GB
-        # bandwidth, not a call count ceiling.
+        # Two independent limits: budget_check() caps SPEND (monthly + daily
+        # ceilings, core/provider_budget.py) and refuses before the wire; the
+        # token bucket caps RATE (750 RPM). Before 2026-09-09 only the rate
+        # limit existed and spend was unbounded.
         #
         # Accounting rule: the rate bucket gates ATTEMPTS (an attempt is what the
         # provider rate-limits), but the budget counter and the endpoint log both
@@ -189,7 +189,12 @@ class FMPClient:
         # that never reached the wire and left no fmp_endpoint_log row to explain
         # the spend; research/fmp_budget.py sizes every provider run off that
         # counter, so the drift shrank real budget.
-        self._bucket.consume(budget_cost)         # ← the only real gate
+        # Spend gate (2026-09-09): refuses before the request when a monthly or
+        # daily ceiling would be broken. Raises ProviderBudgetExceeded; nothing
+        # is fetched and nothing is charged. Rate and spend are separate limits —
+        # the bucket below still gates attempts per minute.
+        self._gate.budget_check(budget_cost)
+        self._bucket.consume(budget_cost)         # rate gate (750 RPM)
         url = f"{cfg.FMP_BASE_URL}{path}"
         try:
             resp = self._session.get(url, params=params or {}, timeout=15)

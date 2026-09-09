@@ -215,6 +215,17 @@ def _summary(review: Dict) -> Dict:
         # the dead funnel, NOT a measurement of the live research board;
         # live-board recall accrues in scanner_recall_cohorts_latest.json.
         "measured_pipeline": "decommissioned_council_funnel_autopsy",
+        # Explicit self-label (2026-09-09 drift audit) so a reader — human or
+        # panel — cannot mistake this for a live-board reading. Operator
+        # surfaces check it via core.quarantined_surfaces before rendering the
+        # number; the artifact itself is preserved unchanged as history.
+        "measurement_status": "DECOMMISSIONED_AUTOPSY",
+        "is_live_recall": False,
+        "research_only": True,
+        "not_current_truth_reason": (
+            "measures the council funnel decommissioned 2026-06-13; pinned near "
+            "zero by construction. Live-board recall accrues in "
+            "scanner_recall_cohorts_latest.json."),
         "late_detection": ts["by_detection_timing"]["late"],
         "blind_misses": ts["by_detection_timing"]["blind"],
         "n_winners_ge_80pct": h["n_winners_ge_80pct"],

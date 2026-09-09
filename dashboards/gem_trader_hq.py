@@ -46,6 +46,7 @@ from core.evidence_freshness import (
     scan_universe_meta as _ef_universe_meta,
 )
 from core.fmp_client import get_fmp
+from core.quarantined_surfaces import classify as quarantine_classify
 from core.research_assist_bte import build_research_bte
 from core.session import SessionState, get_session_state, next_session_change as _next_session_change
 from core.strategy_registry import (
@@ -408,6 +409,7 @@ def selection_edge_status(
     baseline_pct: Optional[float],
     *,
     floor: float = _EDGE_RECALL_FLOOR_PCT,
+    sidecar: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Pure verdict builder for the persistent SELECTION EDGE banner.
 
@@ -416,8 +418,25 @@ def selection_edge_status(
     never prove edge (that needs a forward gate).  This helper only decides the
     descriptive detail + colour, never a "PROVEN" claim.
 
+    When ``sidecar`` is the scanner-truth payload and it measures the council
+    funnel decommissioned 2026-06-13, the number is suppressed rather than
+    rendered: it is pinned near zero by construction, so showing it red taught
+    the reader to ignore a red banner.  The artifact is untouched on disk.
+
     Returns a dict: verdict, detail, recall_pct, baseline_pct, style, line.
     """
+    verdict = quarantine_classify("scanner_truth_summary", sidecar)
+    if not verdict["is_current"]:
+        return {
+            "verdict": "NOT_MEASURED",
+            "detail": verdict["reason"],
+            "recall_pct": None,
+            "baseline_pct": None,
+            "style": "dim",
+            "line": (f"WATCHLIST QUALITY: NOT MEASURED · {verdict['label']} · "
+                     "research-only"),
+        }
+
     r = None if recall_pct is None else float(recall_pct)
     b = None if baseline_pct is None else float(baseline_pct)
 
@@ -1982,7 +2001,7 @@ class PB:  # PanelBuilder — all static
         truth = data.get("scanner_truth_summary") or {}
         recall = truth.get("winner_recall_pct")
         baseline = truth.get("best_simple_baseline_recall_pct")
-        status = selection_edge_status(recall, baseline)
+        status = selection_edge_status(recall, baseline, sidecar=truth)
 
         t = Text(justify="center")
         t.append(status["line"], style=status["style"])

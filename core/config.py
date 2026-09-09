@@ -57,9 +57,9 @@ FMP_BASE_URL         = _opt("FMP_BASE_URL", "https://financialmodelingprep.com/a
 # This is the ONLY hard enforcement gate — the token bucket in FMPClient enforces it.
 FMP_CALLS_PER_MINUTE = int(_opt("FMP_CALLS_PER_MINUTE", "750"))
 
-# Telemetry-only counters. No confirmed hard call cap on this plan (plan page shows
-# 750 RPM + 50 GB bandwidth, not a monthly call count). These values are recorded
-# in the DB for visibility but never block any call.
+# Provider spend ceilings. Enforced by core/provider_budget.py via
+# Gatekeeper.budget_check(), which refuses BEFORE a request reaches the wire.
+# (Before 2026-09-09 these were telemetry-only and nothing capped spend.)
 #
 # TODO(fmp-premium-renewal): once the Premium plan renews and the monthly call
 # cap is confirmed from the plan dashboard, set FMP_MONTHLY_BUDGET to ~80% of
@@ -67,8 +67,13 @@ FMP_CALLS_PER_MINUTE = int(_opt("FMP_CALLS_PER_MINUTE", "750"))
 # trips before the provider does.  Do NOT change FMP_CALLS_PER_MINUTE (already
 # at the Premium ceiling of 750) and do NOT alter the cache → Alpaca → FMP →
 # yfinance order in the bar loaders — Alpaca-first keeps FMP usage low.
-FMP_MONTHLY_BUDGET   = int(_opt("FMP_MONTHLY_BUDGET", "0"))   # 0 = no cap enforced
-FMP_DAILY_BUDGET     = int(_opt("FMP_DAILY_BUDGET",   "0"))   # 0 = no cap enforced
+# 2026-09-09: these are ENFORCED again. A value of 0 no longer means "unlimited"
+# — core/provider_budget.py reads 0 as "unset" and falls back to its documented
+# default ceiling (120,000/month, 12,000/day). Unlimited is now an explicit,
+# named opt-in: ALLOW_UNLIMITED_PROVIDER_CALLS=true. Set a positive value here to
+# choose your own ceiling.
+FMP_MONTHLY_BUDGET   = int(_opt("FMP_MONTHLY_BUDGET", "0"))   # 0 = use documented default
+FMP_DAILY_BUDGET     = int(_opt("FMP_DAILY_BUDGET",   "0"))   # 0 = use documented default
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 DB_PATH   = Path(_opt("DB_PATH",   str(_ROOT / "db" / "trading.db"))).resolve()

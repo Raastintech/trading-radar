@@ -32,6 +32,12 @@ class _Gate:
     def __init__(self):
         self.budget = 0
         self.logged = []
+        self.checked = 0        # budget_check calls (the spend gate, pre-request)
+
+    def budget_check(self, n=1):
+        """The spend gate added 2026-09-09. Permissive here: this file is about
+        ACCOUNTING (what gets booked), not about the ceiling."""
+        self.checked += n
 
     def budget_consume(self, n=1):
         self.budget += n
