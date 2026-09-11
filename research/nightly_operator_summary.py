@@ -89,7 +89,10 @@ def _load_sidecars() -> Dict[str, Optional[Dict[str, Any]]]:
         "forecast": _load_json(RESEARCH_DIR / "regime_forecast_latest.json"),
         "alpha_radar": _load_json(RESEARCH_DIR / "daily_alpha_radar_latest.json"),
         "forward": _load_json(RESEARCH_DIR / "research_forward_latest.json"),
-        "scanner_truth": _load_json(RESEARCH_DIR / "scanner_truth_summary_latest.json"),
+        # "scanner_truth" was dropped on 2026-09-11 (governor cleanup): it is an
+        # autopsy of the council funnel decommissioned 2026-06-13, it has said
+        # nothing here since 2026-09-09, and loading it ungated made this summary
+        # a reader of a quarantined surface.
         "scanner": _load_json(RESEARCH_DIR / "research_scanner_latest.json"),
         "provider_audit": _load_json(RESEARCH_DIR / "provider_freshness_audit_latest.json"),
         "social": _load_json(RESEARCH_DIR / "social_attention_forward_latest.json"),

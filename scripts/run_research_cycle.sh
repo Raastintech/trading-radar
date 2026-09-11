@@ -1723,18 +1723,21 @@ cmd_nightly() {
     # cadence as the rest of the post-close artifacts.  No provider calls,
     # no DB writes, no enforcement.
     cmd_risk_telemetry
-    # Dashboard-freshness tail: two diagnostic sidecars that previously had no
-    # cadence and silently rotted (scanner-truth was 10d stale, forecast
-    # validation 40d stale, both shown on the dashboard as if current).  Both are
-    # RESEARCH-ONLY / CACHE-ONLY (no providers, no DB writes, no signals) and run
-    # in seconds, so they refresh on the nightly cadence with everything else.
-    #   - scanner_truth_review   → cache/research/scanner_truth_summary_latest.json
-    #                              (RISK TELEMETRY panel "scanner truth" line)
+    # Dashboard-freshness tail: a diagnostic sidecar that previously had no
+    # cadence and silently rotted (forecast validation was 40d stale, shown on
+    # the dashboard as if current).  RESEARCH-ONLY / CACHE-ONLY (no providers,
+    # no DB writes, no signals) and runs in seconds, so it refreshes on the
+    # nightly cadence with everything else.
     #   - validate_regime_forecaster --cache-only
     #                              → regime_forecast_validation_latest.json
     #                              (MARKET FORECAST DETAIL "Validation" block)
-    run_or_warn "scanner truth review" \
-        "$PY" -m research.scanner_truth_review
+    #
+    # scanner_truth_review was removed from this cycle on 2026-09-11 (governor
+    # cleanup): it measures the council funnel decommissioned 2026-06-13, so its
+    # recall figure is pinned near zero by construction and cannot move.  The
+    # module and its artifacts are preserved and still runnable on demand
+    # ("$PY" -m research.scanner_truth_review); core/quarantined_surfaces.py
+    # keeps it out of every operator surface.
     run_or_warn "regime forecast validation" \
         "$PY" -m research.validate_regime_forecaster --cache-only
     # Path B — Recall-Repair Shadow Lane.  Append today's dated board to the
@@ -1752,16 +1755,17 @@ cmd_nightly() {
     # existing cache_meta / fmp_endpoint_log tables to predict tomorrow's
     # premarket load and to verify the pipeline sidecars are fresh.
     cmd_provider_audit
-    # Phase 1G.11 — regenerate the RS/theme triage cohort, then compose the MCP
-    # audit session LAST so both read every sidecar this nightly cycle just
-    # refreshed (forecast/alpha/lens/gatekeeper/risk-telemetry).  Both are
-    # cache-only (the orchestrator never calls providers/MCP/Claude; triage's
-    # only provider touch is the FMP earnings calendar, cached 6 h and already
-    # warmed above).  They feed the dashboard's RS/Theme Triage strip and the
-    # MCP AUDIT SUMMARY panel (incl. the RS/Theme Fwd line).  session=close
-    # (nightly fires post-market); gatekeeper is already fresh from above so
+    # Compose the MCP audit session LAST so it reads every sidecar this nightly
+    # cycle just refreshed (forecast/alpha/lens/gatekeeper/risk-telemetry).  It
+    # is cache-only (the orchestrator never calls providers/MCP/Claude) and
+    # feeds the dashboard's MCP AUDIT SUMMARY panel.  session=close (nightly
+    # fires post-market); gatekeeper is already fresh from above so
     # --refresh-gatekeeper is intentionally omitted.
-    cmd_rs_theme_triage
+    #
+    # cmd_rs_theme_triage was removed from this cycle on 2026-09-11 (governor
+    # cleanup): its own forward validation reached a matured NO_VALUE verdict on
+    # 2026-06-03, so refreshing the cohort nightly bought nothing.  It stays
+    # available on demand: ./scripts/run_research_cycle.sh rs-theme-triage.
     cmd_mcp_audit_session close
     # Phase 4A/4A.2 — refresh the research-scanner watchlist + its dependent
     # sidecars (coverage confidence, change detector, forward-outcome tracker,

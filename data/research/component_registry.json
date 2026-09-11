@@ -17,7 +17,10 @@
     {
       "component_id": "daily_research_digest",
       "name": "Daily Research Digest",
-      "owner_file_or_artifact": ["dashboards/research_command_center/journal_digest.py", "scripts/generate_research_journal_digest.py"],
+      "owner_file_or_artifact": [
+        "dashboards/research_command_center/journal_digest.py",
+        "scripts/generate_research_journal_digest.py"
+      ],
       "kind": "digest",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -31,17 +34,29 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["data/research/journal.jsonl"],
-      "runner_refs": ["cmd_journal_digest"],
-      "line_count_probe": {"source": "journal_digest_note", "max_lines": 60},
+      "artifacts": [
+        "data/research/journal.jsonl"
+      ],
+      "runner_refs": [
+        "cmd_journal_digest"
+      ],
+      "line_count_probe": {
+        "source": "journal_digest_note",
+        "max_lines": 60
+      },
       "purpose": "one nightly note summarising cached research artifacts for the operator",
-      "consumers": ["operator", "journal_audit_reviewer"],
+      "consumers": [
+        "operator",
+        "journal_audit_reviewer"
+      ],
       "notes": "Drift audit 2026-09-09 rated it SUPPORT (degrading): about 187 lines and 19 sections, and every new sidecar gets appended. It recommended a cap near 40 lines; the governor flags anything above 60."
     },
     {
       "component_id": "journal_audit_reviewer",
       "name": "DeepSeek journal audit reviewer",
-      "owner_file_or_artifact": ["research/journal_audit_reviewer.py"],
+      "owner_file_or_artifact": [
+        "research/journal_audit_reviewer.py"
+      ],
       "kind": "audit",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -57,16 +72,25 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/journal_audit_latest.json"],
-      "runner_refs": ["cmd_journal_audit"],
+      "artifacts": [
+        "cache/research/journal_audit_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_journal_audit"
+      ],
       "purpose": "LLM critique of the daily digest with a rule-based fallback; queues templated repair tasks",
-      "consumers": ["feedback_queue", "command center card"],
+      "consumers": [
+        "feedback_queue",
+        "command center card"
+      ],
       "notes": "One LLM call per night on role chat (since 2026-08-25), under the daily LLM call and token caps. It audits the digest text only and is not a system governor (docs/research/LLM_AGENT_OVERLAP_REVIEW_2026_09.md)."
     },
     {
       "component_id": "feedback_queue",
       "name": "Feedback queue",
-      "owner_file_or_artifact": ["research/feedback_queue.py"],
+      "owner_file_or_artifact": [
+        "research/feedback_queue.py"
+      ],
       "kind": "queue",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -80,15 +104,22 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "on_demand",
-      "artifacts": ["logs/research_engine_feedback_queue.jsonl", "data/research/feedback_queue_state.jsonl"],
+      "artifacts": [
+        "logs/research_engine_feedback_queue.jsonl",
+        "data/research/feedback_queue_state.jsonl"
+      ],
       "purpose": "human-driven bookkeeping for audit repair tasks; never executes a task",
-      "consumers": ["operator"],
+      "consumers": [
+        "operator"
+      ],
       "notes": "Append-only queue and state ledger. Useful only if someone triages it; the governor flags it when the last triage is older than the untriaged_days limit."
     },
     {
       "component_id": "nightly_operator_summary",
       "name": "Nightly Operator Summary",
-      "owner_file_or_artifact": ["research/nightly_operator_summary.py"],
+      "owner_file_or_artifact": [
+        "research/nightly_operator_summary.py"
+      ],
       "kind": "report",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -102,16 +133,27 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/nightly_operator_summary_latest.json", "logs/nightly_operator_summary_latest.md"],
-      "runner_refs": ["cmd_nightly_operator_summary"],
+      "artifacts": [
+        "cache/research/nightly_operator_summary_latest.json",
+        "logs/nightly_operator_summary_latest.md"
+      ],
+      "runner_refs": [
+        "cmd_nightly_operator_summary"
+      ],
       "purpose": "short nightly recap; its warnings drive the daily data-quality check",
-      "consumers": ["operator", "daily_research_digest"],
+      "consumers": [
+        "operator",
+        "daily_research_digest"
+      ],
       "notes": "Daily operating note step 3: read for data-quality warnings only."
     },
     {
       "component_id": "daily_alpha_radar",
       "name": "Daily Alpha Radar",
-      "owner_file_or_artifact": ["research/daily_alpha_radar_report.py", "core/alpha_discovery.py"],
+      "owner_file_or_artifact": [
+        "research/daily_alpha_radar_report.py",
+        "core/alpha_discovery.py"
+      ],
       "kind": "surface",
       "status": "CORE",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
@@ -126,27 +168,43 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/daily_alpha_radar_latest.json", "cache/research/alpha_discovery_board_latest.json", "cache/research/alpha_discovery_overlay_latest.json"],
-      "runner_refs": ["cmd_daily_alpha_radar", "cmd_alpha"],
+      "artifacts": [
+        "cache/research/daily_alpha_radar_latest.json",
+        "cache/research/alpha_discovery_board_latest.json",
+        "cache/research/alpha_discovery_overlay_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_daily_alpha_radar",
+        "cmd_alpha"
+      ],
       "candidate_lists": [
-        {"artifact": "cache/research/daily_alpha_radar_latest.json", "path": "priority_tickers.HIGH_PRIORITY_RESEARCH", "daily_review_list": true, "label": "high-priority research bucket"}
+        {
+          "artifact": "cache/research/daily_alpha_radar_latest.json",
+          "path": "priority_tickers.HIGH_PRIORITY_RESEARCH",
+          "daily_review_list": true,
+          "label": "high-priority research bucket"
+        }
       ],
       "forward_hypothesis": "board labels are tracked by the forward evidence tracker (overall verdict MIXED)",
       "purpose": "the one board a human opens daily; review 5-10 names",
-      "consumers": ["operator"],
-      "notes": "Upstream alpha discovery board is a provider step (FMP), nightly and premarket, under the monthly and daily FMP caps."
+      "consumers": [
+        "operator"
+      ],
+      "notes": "Upstream alpha discovery board is a provider step (FMP), nightly and premarket, under the monthly and daily FMP caps. Operator decision 2026-09-11: this is the only daily candidate source."
     },
     {
       "component_id": "research_scanner",
       "name": "Research scanner and watchlist",
-      "owner_file_or_artifact": ["research/research_scanner.py"],
+      "owner_file_or_artifact": [
+        "research/research_scanner.py"
+      ],
       "kind": "surface",
       "status": "CORE",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
       "daily_decision_impact": true,
       "provider_call_risk": "MEDIUM",
       "hard_guard": true,
-      "allowed_to_surface_candidates": true,
+      "allowed_to_surface_candidates": false,
       "allowed_in_daily_digest": true,
       "allowed_in_dashboard": true,
       "requires_human_approval_to_change": true,
@@ -154,20 +212,35 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/research_scanner_latest.json"],
-      "runner_refs": ["cmd_research_scanner"],
+      "artifacts": [
+        "cache/research/research_scanner_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_research_scanner"
+      ],
       "candidate_lists": [
-        {"artifact": "cache/research/research_scanner_latest.json", "path": "watchlist", "daily_review_list": false, "label": "discovery watchlist"}
+        {
+          "artifact": "cache/research/research_scanner_latest.json",
+          "path": "watchlist",
+          "daily_review_list": false,
+          "label": "discovery watchlist"
+        }
       ],
       "forward_hypothesis": "watchlist entries are tracked by the forward evidence tracker and the scanner-recall cohorts",
       "purpose": "live candidate discovery feeding the board (discovery only)",
-      "consumers": ["daily_alpha_radar", "high_conviction_shortlist", "emerging_outlier_watch"],
-      "notes": "Cache-first provider step, nightly and premarket. Drift audit: add an explicit per-run cap. Production gates unchanged."
+      "consumers": [
+        "daily_alpha_radar",
+        "high_conviction_shortlist",
+        "emerging_outlier_watch"
+      ],
+      "notes": "Cache-first provider step, nightly and premarket. Drift audit: add an explicit per-run cap. Production gates unchanged. Operator decision 2026-09-11: discovery input to the Daily Alpha Radar, not an independent candidate list."
     },
     {
       "component_id": "forward_evidence_tracker",
       "name": "Forward evidence tracker",
-      "owner_file_or_artifact": ["research/research_watchlist_forward_tracker.py"],
+      "owner_file_or_artifact": [
+        "research/research_watchlist_forward_tracker.py"
+      ],
       "kind": "tracker",
       "status": "CORE",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
@@ -181,22 +254,42 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/research_forward_latest.json"],
-      "runner_refs": ["cmd_research_forward_tracker"],
-      "evidence_probe": {"artifact": "cache/research/research_forward_latest.json", "path": "overall.verdict"},
+      "artifacts": [
+        "cache/research/research_forward_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_research_forward_tracker"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/research_forward_latest.json",
+        "path": "overall.verdict"
+      },
       "precision_probes": [
-        {"kind": "mean_median_gap", "artifact": "cache/research/research_forward_latest.json", "mean_path": "overall.avg_ret_vs_spy", "median_path": "overall.median_ret_vs_spy", "max_gap_pp": 10, "label": "overall 10d return vs SPY"}
+        {
+          "kind": "mean_median_gap",
+          "artifact": "cache/research/research_forward_latest.json",
+          "mean_path": "overall.avg_ret_vs_spy",
+          "median_path": "overall.median_ret_vs_spy",
+          "max_gap_pp": 10,
+          "label": "overall 10d return vs SPY"
+        }
       ],
       "evidence_path_label": "live forward tracker",
       "forward_hypothesis": "research board labels beat SPY at 10d under the pre-registered verdict ladder",
       "purpose": "the one robust forward dataset; settles arguments",
-      "consumers": ["research_programs", "alpha_root_cause_gate", "daily_research_digest"],
+      "consumers": [
+        "research_programs",
+        "alpha_root_cause_gate",
+        "daily_research_digest"
+      ],
       "notes": "Sample ROBUST, verdict MIXED. 60d horizons barely matured. Keep; it is the measurement everything else leans on."
     },
     {
       "component_id": "research_programs",
       "name": "Research programs (tactical / swing / long-term)",
-      "owner_file_or_artifact": ["research/research_programs.py"],
+      "owner_file_or_artifact": [
+        "research/research_programs.py"
+      ],
       "kind": "tracker",
       "status": "SUPPORT",
       "evidence_level": "FORWARD_IMMATURE",
@@ -210,22 +303,40 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/research_program_validation_latest.json"],
-      "runner_refs": ["cmd_research_programs"],
-      "evidence_probe": {"artifact": "cache/research/research_program_validation_latest.json", "path": "programs.*.verdict"},
+      "artifacts": [
+        "cache/research/research_program_validation_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_research_programs"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/research_program_validation_latest.json",
+        "path": "programs.*.verdict"
+      },
       "precision_probes": [
-        {"kind": "ratio_max", "artifact": "cache/research/research_program_validation_latest.json", "path": "duplication_factor", "max": 2.0, "label": "ledger duplication factor"}
+        {
+          "kind": "ratio_max",
+          "artifact": "cache/research/research_program_validation_latest.json",
+          "path": "duplication_factor",
+          "max": 2.0,
+          "label": "ledger duplication factor"
+        }
       ],
       "evidence_path_label": "research programs",
       "forward_hypothesis": "per-program pre-registered gates on the deduplicated episode ledger",
       "purpose": "judges each program on its own horizon",
-      "consumers": ["daily_research_digest", "journal_audit_reviewer"],
+      "consumers": [
+        "daily_research_digest",
+        "journal_audit_reviewer"
+      ],
       "notes": "All three programs INSUFFICIENT_MATURE_EVIDENCE. Ledger rows duplicate episodes about 4.6x (drift audit): any n-based claim must use deduplicated episodes."
     },
     {
       "component_id": "alpha_root_cause_gate",
       "name": "Alpha root-cause stop/continue gate",
-      "owner_file_or_artifact": ["research/alpha_failure_root_cause_audit.py"],
+      "owner_file_or_artifact": [
+        "research/alpha_failure_root_cause_audit.py"
+      ],
       "kind": "gate",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -239,25 +350,38 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/alpha_failure_root_cause_latest.json"],
-      "runner_refs": ["cmd_alpha_failure_root_cause"],
+      "artifacts": [
+        "cache/research/alpha_failure_root_cause_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_alpha_failure_root_cause"
+      ],
       "decision_date_probes": [
-        {"artifact": "cache/research/alpha_failure_root_cause_latest.json", "path": "dashboard_summary.next_decision_date"}
+        {
+          "artifact": "cache/research/alpha_failure_root_cause_latest.json",
+          "path": "dashboard_summary.next_decision_date"
+        }
       ],
       "purpose": "pre-registered CONTINUE / NARROW / FREEZE / SUNSET gate for the standing alpha-engine claim",
-      "consumers": ["daily_research_digest", "operator"],
+      "consumers": [
+        "daily_research_digest",
+        "operator"
+      ],
       "notes": "Final gate 2026-09-30: SUNSET criteria apply in full. The interim dates 2026-08-17 and 2026-09-07 passed with no recorded decision."
     },
     {
       "component_id": "high_conviction_shortlist",
       "name": "High-Conviction shortlist (HC)",
-      "owner_file_or_artifact": ["research/high_conviction_alpha.py", "research/high_conviction_forward.py"],
+      "owner_file_or_artifact": [
+        "research/high_conviction_alpha.py",
+        "research/high_conviction_forward.py"
+      ],
       "kind": "surface",
       "status": "SUPPORT",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
       "daily_decision_impact": true,
       "provider_call_risk": "NONE",
-      "allowed_to_surface_candidates": true,
+      "allowed_to_surface_candidates": false,
       "allowed_in_daily_digest": true,
       "allowed_in_dashboard": true,
       "requires_human_approval_to_change": true,
@@ -265,31 +389,56 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/high_conviction_alpha_latest.json", "cache/research/high_conviction_forward_latest.json"],
-      "runner_refs": ["cmd_high_conviction_alpha"],
-      "candidate_lists": [
-        {"artifact": "cache/research/high_conviction_alpha_latest.json", "path": "shortlist", "daily_review_list": true, "label": "shortlist"}
+      "artifacts": [
+        "cache/research/high_conviction_alpha_latest.json",
+        "cache/research/high_conviction_forward_latest.json"
       ],
-      "evidence_probe": {"artifact": "cache/research/high_conviction_forward_latest.json", "path": "verdict"},
+      "runner_refs": [
+        "cmd_high_conviction_alpha"
+      ],
+      "candidate_lists": [
+        {
+          "artifact": "cache/research/high_conviction_alpha_latest.json",
+          "path": "shortlist",
+          "daily_review_list": false,
+          "label": "shortlist"
+        }
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/high_conviction_forward_latest.json",
+        "path": "verdict"
+      },
       "precision_probes": [
-        {"kind": "mean_median_gap", "artifact": "cache/research/high_conviction_forward_latest.json", "mean_path": "program_candidate_baseline.10d.vs_spy.mean", "median_path": "program_candidate_baseline.10d.vs_spy.median", "max_gap_pp": 10, "label": "program-candidate baseline 10d excess vs SPY"}
+        {
+          "kind": "mean_median_gap",
+          "artifact": "cache/research/high_conviction_forward_latest.json",
+          "mean_path": "program_candidate_baseline.10d.vs_spy.mean",
+          "median_path": "program_candidate_baseline.10d.vs_spy.median",
+          "max_gap_pp": 10,
+          "label": "program-candidate baseline 10d excess vs SPY"
+        }
       ],
       "evidence_path_label": "HC",
       "forward_hypothesis": "high_conviction_forward: the shortlist beats program candidates at 10d",
       "purpose": "selective quality/growth/value/momentum layer above the program views",
-      "consumers": ["alpha_focus", "daily_research_digest"],
-      "notes": "The forward verdict NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES compares the shortlist mean (+1.87% vs SPY at 10d, n=412) with a baseline mean of +29.44% whose median is -1.7%. The baseline is outlier-contaminated, so the verdict cannot be trusted in either direction. Held at NOT_ENOUGH_EVIDENCE until the baseline uses a robust statistic."
+      "consumers": [
+        "alpha_focus",
+        "daily_research_digest"
+      ],
+      "notes": "The forward verdict NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES compares the shortlist mean (+1.87% vs SPY at 10d, n=412) with a baseline mean of +29.44% whose median is -1.7%. The baseline is outlier-contaminated, so the verdict cannot be trusted in either direction. Held at NOT_ENOUGH_EVIDENCE until the baseline uses a robust statistic. Operator decision 2026-09-11: a label on the board, not an independent candidate list."
     },
     {
       "component_id": "emerging_outlier_watch",
       "name": "Emerging Outlier watch (EO)",
-      "owner_file_or_artifact": ["research/emerging_outlier_watch.py"],
+      "owner_file_or_artifact": [
+        "research/emerging_outlier_watch.py"
+      ],
       "kind": "surface",
       "status": "SUPPORT",
       "evidence_level": "FORWARD_IMMATURE",
       "daily_decision_impact": true,
       "provider_call_risk": "NONE",
-      "allowed_to_surface_candidates": true,
+      "allowed_to_surface_candidates": false,
       "allowed_in_daily_digest": true,
       "allowed_in_dashboard": true,
       "requires_human_approval_to_change": true,
@@ -297,28 +446,46 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/emerging_outlier_watch_latest.json", "cache/research/emerging_outlier_forward_latest.json"],
-      "runner_refs": ["cmd_emerging_outlier"],
-      "candidate_lists": [
-        {"artifact": "cache/research/emerging_outlier_watch_latest.json", "path": "watch", "daily_review_list": false, "label": "watch lane"}
+      "artifacts": [
+        "cache/research/emerging_outlier_watch_latest.json",
+        "cache/research/emerging_outlier_forward_latest.json"
       ],
-      "evidence_probe": {"artifact": "cache/research/emerging_outlier_forward_latest.json", "path": "verdict"},
+      "runner_refs": [
+        "cmd_emerging_outlier"
+      ],
+      "candidate_lists": [
+        {
+          "artifact": "cache/research/emerging_outlier_watch_latest.json",
+          "path": "watch",
+          "daily_review_list": false,
+          "label": "watch lane"
+        }
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/emerging_outlier_forward_latest.json",
+        "path": "verdict"
+      },
       "evidence_path_label": "EO",
       "forward_hypothesis": "emerging_outlier_forward: the watch lane beats SPY on its own pre-registered horizons",
       "purpose": "separate higher-risk lane kept apart from HC",
-      "consumers": ["alpha_focus", "daily_research_digest"],
-      "notes": "Forward verdict NEED_MORE_DATA."
+      "consumers": [
+        "alpha_focus",
+        "daily_research_digest"
+      ],
+      "notes": "Forward verdict NEED_MORE_DATA. Operator decision 2026-09-11: a label on the board, not an independent candidate list."
     },
     {
       "component_id": "alpha_focus",
       "name": "Alpha Focus",
-      "owner_file_or_artifact": ["research/alpha_focus.py"],
+      "owner_file_or_artifact": [
+        "research/alpha_focus.py"
+      ],
       "kind": "surface",
       "status": "SUPPORT",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
       "daily_decision_impact": true,
       "provider_call_risk": "NONE",
-      "allowed_to_surface_candidates": true,
+      "allowed_to_surface_candidates": false,
       "allowed_in_daily_digest": true,
       "allowed_in_dashboard": true,
       "requires_human_approval_to_change": true,
@@ -326,28 +493,42 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/alpha_focus_latest.json"],
-      "runner_refs": ["cmd_alpha_focus"],
+      "artifacts": [
+        "cache/research/alpha_focus_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_alpha_focus"
+      ],
       "candidate_lists": [
-        {"artifact": "cache/research/alpha_focus_latest.json", "path": "review_now", "daily_review_list": true, "label": "review now"}
+        {
+          "artifact": "cache/research/alpha_focus_latest.json",
+          "path": "review_now",
+          "daily_review_list": false,
+          "label": "review now"
+        }
       ],
       "evidence_path_label": "Alpha Focus",
       "forward_hypothesis": null,
       "purpose": "same-day manual prioritisation of the day's candidates",
-      "consumers": ["operator", "daily_research_digest"],
-      "notes": "Prioritisation only (promote_to_signal false). It has no forward hypothesis of its own."
+      "consumers": [
+        "operator",
+        "daily_research_digest"
+      ],
+      "notes": "Prioritisation only (promote_to_signal false). It has no forward hypothesis of its own. Operator decision 2026-09-11: context labels and review ordering only, not an independent candidate list."
     },
     {
       "component_id": "m1_source_pool",
       "name": "M1 source pool",
-      "owner_file_or_artifact": ["research/backtests/m1_shadow_pool.py"],
+      "owner_file_or_artifact": [
+        "research/backtests/m1_shadow_pool.py"
+      ],
       "kind": "surface",
       "status": "CORE",
       "evidence_level": "PROVISIONAL_POOL_LEVEL_ONLY",
       "daily_decision_impact": false,
       "provider_call_risk": "LOW",
       "hard_guard": true,
-      "allowed_to_surface_candidates": true,
+      "allowed_to_surface_candidates": false,
       "allowed_in_daily_digest": false,
       "allowed_in_dashboard": false,
       "requires_human_approval_to_change": true,
@@ -355,21 +536,32 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "manual",
-      "artifacts": ["cache/research/m1_shadow_pool_latest.json"],
+      "artifacts": [
+        "cache/research/m1_shadow_pool_latest.json"
+      ],
       "candidate_lists": [
-        {"artifact": "cache/research/m1_shadow_pool_latest.json", "path": "pool_unordered", "daily_review_list": false, "label": "unordered pool"}
+        {
+          "artifact": "cache/research/m1_shadow_pool_latest.json",
+          "path": "pool_unordered",
+          "daily_review_list": false,
+          "label": "unordered pool"
+        }
       ],
       "evidence_path_label": "M1 source pool",
       "evidence_source": "docs/research/M1_SYSTEM_DECISION_MEMO_2026_09.md",
       "forward_hypothesis": "M1 as an unordered basket beats the same-date universe at 60d; pool level only, per-name selection contradicted by replay",
       "purpose": "second, independent pool for weekly manual review",
-      "consumers": ["m1_daily_review_packet"],
-      "notes": "Provisional pool-level evidence: about +1 to +2pp per 60d vs the same-date universe. Never ordered, never ranked. Zero provider calls by default; depends on the hard-capped M1 price refresh."
+      "consumers": [
+        "m1_daily_review_packet"
+      ],
+      "notes": "Provisional pool-level evidence: about +1 to +2pp per 60d vs the same-date universe. Never ordered, never ranked. Zero provider calls by default; depends on the hard-capped M1 price refresh. Operator decision 2026-09-11: audit record of what was published; the review packet is the operator surface."
     },
     {
       "component_id": "m1_daily_review_packet",
       "name": "M1 daily review packet",
-      "owner_file_or_artifact": ["research/backtests/m1_daily_review_packet.py"],
+      "owner_file_or_artifact": [
+        "research/backtests/m1_daily_review_packet.py"
+      ],
       "kind": "surface",
       "status": "CORE",
       "evidence_level": "PROVISIONAL_POOL_LEVEL_ONLY",
@@ -384,19 +576,30 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "manual",
-      "artifacts": ["cache/research/m1_daily_review_packet_latest.json"],
+      "artifacts": [
+        "cache/research/m1_daily_review_packet_latest.json"
+      ],
       "candidate_lists": [
-        {"artifact": "cache/research/m1_daily_review_packet_latest.json", "path": "manual_review.candidates", "daily_review_list": true, "label": "manual-review candidates"}
+        {
+          "artifact": "cache/research/m1_daily_review_packet_latest.json",
+          "path": "manual_review.candidates",
+          "daily_review_list": false,
+          "label": "manual-review candidates"
+        }
       ],
       "forward_hypothesis": "the frozen M1 manual-pick cohort: human selection inside M1 adds nothing (pre-registered falsification test)",
       "purpose": "alphabetical manual-review worksheet built from the M1 pool",
-      "consumers": ["operator"],
-      "notes": "Named 'daily', but DAILY_OPERATING_NOTE treats it as weekly depth. Zero provider calls; refuses above 100 planned calls."
+      "consumers": [
+        "operator"
+      ],
+      "notes": "Named 'daily', but DAILY_OPERATING_NOTE treats it as weekly depth. Zero provider calls; refuses above 100 planned calls. Operator decision 2026-09-11: weekly depth, never a daily list; the 49 manual-review candidates are a weekly exercise."
     },
     {
       "component_id": "m1_strict_review_filter",
       "name": "M1 strict manual-review filter",
-      "owner_file_or_artifact": ["research/backtests/m1_daily_review_packet.py"],
+      "owner_file_or_artifact": [
+        "research/backtests/m1_daily_review_packet.py"
+      ],
       "kind": "filter",
       "status": "CORE",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
@@ -413,13 +616,19 @@
       "evidence_path_label": "M1 strict manual-review filter",
       "forward_hypothesis": null,
       "purpose": "cuts the M1 review load 75 to 49 at zero call cost (liquidity, trend, drawdown, extension, data-quality exclusions)",
-      "consumers": ["m1_daily_review_packet"],
+      "consumers": [
+        "m1_daily_review_packet"
+      ],
       "notes": "A workload filter, not evidence: no forward test shows the excluded names do worse."
     },
     {
       "component_id": "m1_frozen_cohort_tracker",
       "name": "M1 frozen manual-pick cohort tracker",
-      "owner_file_or_artifact": ["research/backtests/m1_manual_pick_tracker.py", "research/backtests/cohorts/m1_manual_picks_2026-09-04.json", "scripts/m1_cohort_track.sh"],
+      "owner_file_or_artifact": [
+        "research/backtests/m1_manual_pick_tracker.py",
+        "research/backtests/cohorts/m1_manual_picks_2026-09-04.json",
+        "scripts/m1_cohort_track.sh"
+      ],
       "kind": "tracker",
       "status": "CORE",
       "evidence_level": "FORWARD_IMMATURE",
@@ -435,18 +644,28 @@
       "maturity_date": "2026-11-27",
       "expiration_date": null,
       "cadence": "weekly",
-      "artifacts": ["cache/research/m1_manual_picks_resolution_latest.json"],
-      "evidence_probe": {"artifact": "cache/research/m1_manual_picks_resolution_latest.json", "path": "verdict"},
+      "artifacts": [
+        "cache/research/m1_manual_picks_resolution_latest.json"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/m1_manual_picks_resolution_latest.json",
+        "path": "verdict"
+      },
       "evidence_path_label": "M1 frozen cohort",
       "forward_hypothesis": "human selection inside M1 adds nothing: the 10 picks will not beat the 65 not picked (decisive 45d and 60d)",
       "purpose": "pre-registered falsification test of human selection",
-      "consumers": ["operator"],
+      "consumers": [
+        "operator"
+      ],
       "notes": "Write-once, git-tracked cohort; weekly user timer, cohort tickers only. Do not re-run, re-date or re-read before 45d (2026-11-06). 60d read 2026-11-27."
     },
     {
       "component_id": "style_cell_leader_forward_shadow",
       "name": "Style-cell leader forward shadow",
-      "owner_file_or_artifact": ["research/agent_lab/forward_shadow.py", "docs/research/agent_lab/STYLE_CELL_LEADER_FORWARD_SHADOW.md"],
+      "owner_file_or_artifact": [
+        "research/agent_lab/forward_shadow.py",
+        "docs/research/agent_lab/STYLE_CELL_LEADER_FORWARD_SHADOW.md"
+      ],
       "kind": "tracker",
       "status": "RESEARCH_ONLY",
       "research_label": "FORWARD_SHADOW_RESEARCH_ONLY",
@@ -463,18 +682,30 @@
       "maturity_date": "2026-12-04",
       "expiration_date": null,
       "cadence": "manual",
-      "artifacts": ["cache/research/agent_lab/style_cell_leader_forward_latest.json", "data/research/agent_lab/style_cell_leader_forward_ledger.jsonl"],
-      "evidence_probe": {"artifact": "cache/research/agent_lab/style_cell_leader_forward_latest.json", "path": "verdict"},
+      "artifacts": [
+        "cache/research/agent_lab/style_cell_leader_forward_latest.json",
+        "data/research/agent_lab/style_cell_leader_forward_ledger.jsonl"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/agent_lab/style_cell_leader_forward_latest.json",
+        "path": "verdict"
+      },
       "evidence_path_label": "style-cell leader forward shadow",
       "forward_hypothesis": "unordered equal-weight style-cell leader basket; pre-declared floor of 30 matured 60d sessions and 4 non-overlapping windows",
       "purpose": "records unseen forward data for a replay candidate specified after the holdout was read",
-      "consumers": ["operator"],
+      "consumers": [
+        "operator"
+      ],
       "notes": "First 60d session matures about 2026-12-04 (business-day estimate from 2026-09-10); the floor needs 30 matured sessions, so no verdict before 2027. Never pooled with the live forward ledger, programs, M1, HC/EO/Alpha Focus or dashboards."
     },
     {
       "component_id": "social_attention_radar",
       "name": "Social Attention Radar",
-      "owner_file_or_artifact": ["research/social_attention_radar.py", "research/social_attention_forward_validation.py", "scripts/social_attention_nightly.sh"],
+      "owner_file_or_artifact": [
+        "research/social_attention_radar.py",
+        "research/social_attention_forward_validation.py",
+        "scripts/social_attention_nightly.sh"
+      ],
       "kind": "surface",
       "status": "SUPPORT",
       "evidence_level": "FORWARD_IMMATURE",
@@ -489,18 +720,29 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "cron_weekday",
-      "artifacts": ["cache/research/social_attention_radar_latest.json", "cache/research/social_attention_forward_latest.json"],
-      "evidence_probe": {"artifact": "cache/research/social_attention_forward_latest.json", "path": "verdict"},
+      "artifacts": [
+        "cache/research/social_attention_radar_latest.json",
+        "cache/research/social_attention_forward_latest.json"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/social_attention_forward_latest.json",
+        "path": "verdict"
+      },
       "evidence_path_label": "social attention",
       "forward_hypothesis": "social_attention_forward cohort matrix (social-led vs news-led, early vs viral)",
       "purpose": "context on why a name already on the list is getting attention",
-      "consumers": ["daily_research_digest", "command center"],
+      "consumers": [
+        "daily_research_digest",
+        "command center"
+      ],
       "notes": "The one current social lane (user cron, 21:30 UTC Mon-Fri; StockTwits and Google Trends, capped watch universe). Never a source of names."
     },
     {
       "component_id": "social_arb_news_catalyst",
       "name": "Social Arb / News Catalyst Radar",
-      "owner_file_or_artifact": ["research/social_arb_radar.py"],
+      "owner_file_or_artifact": [
+        "research/social_arb_radar.py"
+      ],
       "kind": "surface",
       "status": "SUPPORT",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
@@ -515,18 +757,29 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/social_arb_latest.json"],
-      "runner_refs": ["cmd_social_with_cadence"],
+      "artifacts": [
+        "cache/research/social_arb_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_social_with_cadence"
+      ],
       "evidence_path_label": "social arb / news catalyst",
       "forward_hypothesis": null,
       "purpose": "explains why a name already on the list is moving (news catalysts)",
-      "consumers": ["daily_research_digest", "command center", "TUI"],
+      "consumers": [
+        "daily_research_digest",
+        "command center",
+        "TUI"
+      ],
       "notes": "A news-catalyst radar, not a social lane. News API, FMP and one LLM noise review per run, under the FMP and LLM daily caps. No registered forward hypothesis; never a source of names."
     },
     {
       "component_id": "topic_shock_detector",
       "name": "Topic Shock Detector",
-      "owner_file_or_artifact": ["research/topic_shock_detector.py", "research/topic_shock_review.py"],
+      "owner_file_or_artifact": [
+        "research/topic_shock_detector.py",
+        "research/topic_shock_review.py"
+      ],
       "kind": "surface",
       "status": "RESEARCH_ONLY",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
@@ -536,22 +789,28 @@
       "allowed_in_daily_digest": false,
       "allowed_in_dashboard": false,
       "requires_human_approval_to_change": true,
-      "next_decision_date": null,
+      "next_decision_date": "2026-10-23",
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/topic_shock_detector_latest.json"],
-      "runner_refs": ["cmd_topic_shock"],
+      "artifacts": [
+        "cache/research/topic_shock_detector_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_topic_shock"
+      ],
       "evidence_path_label": "topic shock",
       "forward_hypothesis": null,
       "purpose": "shadow-mode topic discovery; accumulates phrase history",
       "consumers": [],
-      "notes": "Drift audit: nothing downstream reads it. Runs nightly in shadow mode, cache-only."
+      "notes": "Drift audit: nothing downstream reads it. Runs nightly in shadow mode, cache-only. Operator decision 2026-09-11: context only. Reviewed with the governor on 2026-10-23: wire a consumer and a forward hypothesis, or retire it."
     },
     {
       "component_id": "alpha_heat_radar",
       "name": "Alpha Heat Radar",
-      "owner_file_or_artifact": ["research/alpha_heat_radar.py"],
+      "owner_file_or_artifact": [
+        "research/alpha_heat_radar.py"
+      ],
       "kind": "library",
       "status": "RESEARCH_ONLY",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
@@ -566,13 +825,17 @@
       "expiration_date": null,
       "cadence": "none",
       "purpose": "helper library imported by the Topic Shock Detector (topic rules, alpha-fit, noise flags)",
-      "consumers": ["topic_shock_detector"],
+      "consumers": [
+        "topic_shock_detector"
+      ],
       "notes": "No runner command, artifact or timer. It is a library, not a radar, and should not be listed as one."
     },
     {
       "component_id": "scanner_recall_cohorts",
       "name": "Live scanner-recall cohorts",
-      "owner_file_or_artifact": ["research/scanner_recall_cohorts.py"],
+      "owner_file_or_artifact": [
+        "research/scanner_recall_cohorts.py"
+      ],
       "kind": "tracker",
       "status": "RESEARCH_ONLY",
       "evidence_level": "FAILED_GATES",
@@ -586,19 +849,31 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/scanner_recall_cohorts_latest.json"],
-      "runner_refs": ["cmd_scanner_recall_cohorts"],
-      "evidence_probe": {"artifact": "cache/research/scanner_recall_cohorts_latest.json", "path": "verdict"},
+      "artifacts": [
+        "cache/research/scanner_recall_cohorts_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_scanner_recall_cohorts"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/scanner_recall_cohorts_latest.json",
+        "path": "verdict"
+      },
       "evidence_path_label": "live scanner recall (looser-scanner hypothesis)",
       "forward_hypothesis": "a looser scanner surfaces more eventual winners than the strict scanner and random",
       "purpose": "prospective recall measurement of the live board",
-      "consumers": ["nightly_operator_summary"],
+      "consumers": [
+        "nightly_operator_summary"
+      ],
       "notes": "LOOSE_NOT_BETTER: coverage met, recall / excess / beats-random gates fail. Recall is not comparable across cohorts (it scales with list size). Keep measuring; production gates unchanged."
     },
     {
       "component_id": "rs_theme_triage",
       "name": "RS/theme lens triage",
-      "owner_file_or_artifact": ["research/rs_theme_lens_triage.py", "research/rs_theme_forward_validation.py"],
+      "owner_file_or_artifact": [
+        "research/rs_theme_lens_triage.py",
+        "research/rs_theme_forward_validation.py"
+      ],
       "kind": "report",
       "status": "RESEARCH_ONLY",
       "evidence_level": "FAILED_GATES",
@@ -611,19 +886,35 @@
       "next_decision_date": null,
       "maturity_date": null,
       "expiration_date": null,
-      "cadence": "nightly",
-      "artifacts": ["cache/research/rs_theme_lens_triage_latest.json", {"path": "cache/research/rs_theme_forward_validation_latest.json", "cadence": "none"}],
-      "runner_refs": ["cmd_rs_theme_triage"],
-      "evidence_probe": {"artifact": "cache/research/rs_theme_forward_validation_latest.json", "path": "verdict"},
+      "cadence": "on_demand",
+      "artifacts": [
+        "cache/research/rs_theme_lens_triage_latest.json",
+        {
+          "path": "cache/research/rs_theme_forward_validation_latest.json",
+          "cadence": "none"
+        }
+      ],
+      "runner_refs": [
+        "cmd_rs_theme_triage"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/rs_theme_forward_validation_latest.json",
+        "path": "verdict"
+      },
       "forward_hypothesis": "LENS_READY routing beats random and blocked names forward",
       "purpose": "routes RS/theme early leaders past score gates for lens review",
-      "consumers": ["TUI one-liner"],
-      "notes": "Phase 1G.11 recorded a matured NO_VALUE verdict on 2026-06-03 (LENS_READY +0.77% vs random +1.21%, 5d, n=20). The forward sidecar has not been regenerated since 2026-06-07 and reads PROMISING_BUT_UNPROVEN, so the two records conflict. Triage still runs nightly."
+      "consumers": [
+        "TUI one-liner"
+      ],
+      "notes": "Phase 1G.11 recorded a matured NO_VALUE verdict on 2026-06-03 (LENS_READY +0.77% vs random +1.21%, 5d, n=20). The forward sidecar has not been regenerated since 2026-06-07 and reads PROMISING_BUT_UNPROVEN, so the two records conflict. Triage still runs nightly. Daily triage retired 2026-09-11 by operator decision; runnable on demand via the rs-theme-triage subcommand."
     },
     {
       "component_id": "recall_repair_shadow_lane",
       "name": "Recall-repair shadow lane",
-      "owner_file_or_artifact": ["research/recall_repair_shadow_lane.py", "research/recall_repair_shadow_forward.py"],
+      "owner_file_or_artifact": [
+        "research/recall_repair_shadow_lane.py",
+        "research/recall_repair_shadow_forward.py"
+      ],
       "kind": "tracker",
       "status": "RESEARCH_ONLY",
       "evidence_level": "FORWARD_IMMATURE",
@@ -637,18 +928,32 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "nightly",
-      "artifacts": ["cache/research/recall_repair_shadow_lane_latest.json", "cache/research/recall_repair_shadow_forward_latest.json"],
-      "runner_refs": ["research.recall_repair_shadow_lane", "research.recall_repair_shadow_forward"],
-      "evidence_probe": {"artifact": "cache/research/recall_repair_shadow_forward_latest.json", "path": "verdict"},
+      "artifacts": [
+        "cache/research/recall_repair_shadow_lane_latest.json",
+        "cache/research/recall_repair_shadow_forward_latest.json"
+      ],
+      "runner_refs": [
+        "research.recall_repair_shadow_lane",
+        "research.recall_repair_shadow_forward"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/recall_repair_shadow_forward_latest.json",
+        "path": "verdict"
+      },
       "forward_hypothesis": "sector RS + 20/60 momentum + theme lane recalls more eventual winners than the funnel (forward gate ladder)",
       "purpose": "research-only recall lane accumulating forward outcomes",
-      "consumers": ["TUI banner"],
+      "consumers": [
+        "TUI banner"
+      ],
       "notes": "Drift audit suggested moving it to a weekly cadence."
     },
     {
       "component_id": "historical_replay_harness",
       "name": "Historical replay harness",
-      "owner_file_or_artifact": ["research/backtests/", "research/sleeves/"],
+      "owner_file_or_artifact": [
+        "research/backtests/",
+        "research/sleeves/"
+      ],
       "kind": "archive",
       "status": "RESEARCH_ONLY",
       "evidence_level": "REPLAY_CONTRADICTED",
@@ -664,13 +969,17 @@
       "expiration_date": null,
       "cadence": "none",
       "purpose": "strategy lab, LRR, core-satellite and failure-miner replays; verdicts recorded and preserved for audit",
-      "consumers": ["audit"],
+      "consumers": [
+        "audit"
+      ],
       "notes": "About 30 sidecars frozen since mid-June; their value is that they say no and are dated. Core-Satellite is the one provisional exception and has its own forward shadow ledger. Never consult for candidate selection. Provider risk is HIGH: the manual fetch scripts here default to 8,500-11,500 calls per run (historical_replay_price_backfill, historical_replay_fundamental_fetch) and the M1 analyst-actions study to 3,800, guarded only by the global daily FMP cap, with no planned-call gate."
     },
     {
       "component_id": "scanner_truth_autopsy",
       "name": "Scanner Truth Review (decommissioned council-funnel autopsy)",
-      "owner_file_or_artifact": ["research/scanner_truth_review.py"],
+      "owner_file_or_artifact": [
+        "research/scanner_truth_review.py"
+      ],
       "kind": "report",
       "status": "DECOMMISSIONED",
       "evidence_level": "FAILED_GATES",
@@ -683,22 +992,35 @@
       "next_decision_date": null,
       "maturity_date": null,
       "expiration_date": null,
-      "cadence": "nightly",
-      "artifacts": ["cache/research/scanner_truth_summary_latest.json", "cache/research/scanner_truth_review_latest.json"],
-      "runner_refs": ["research.scanner_truth_review"],
-      "evidence_probe": {"artifact": "cache/research/scanner_truth_summary_latest.json", "path": "measurement_status"},
+      "cadence": "on_demand",
+      "artifacts": [
+        "cache/research/scanner_truth_summary_latest.json",
+        "cache/research/scanner_truth_review_latest.json"
+      ],
+      "runner_refs": [
+        "research.scanner_truth_review"
+      ],
+      "evidence_probe": {
+        "artifact": "cache/research/scanner_truth_summary_latest.json",
+        "path": "measurement_status"
+      },
       "evidence_path_label": "old scanner (decommissioned council funnel)",
-      "display_aliases": ["scanner truth", "council funnel recall"],
+      "display_aliases": [
+        "scanner truth",
+        "council funnel recall"
+      ],
       "purpose": "autopsy of the council funnel decommissioned 2026-06-13",
       "consumers": [],
-      "notes": "Publishes winner_recall_pct near 0% by construction; it cannot move. core/quarantined_surfaces.py classifies it DECOMMISSIONED_AUTOPSY. Files preserved as history."
+      "notes": "Publishes winner_recall_pct near 0% by construction; it cannot move. core/quarantined_surfaces.py classifies it DECOMMISSIONED_AUTOPSY. Files preserved as history. Removed from the nightly cycle 2026-09-11 (governor cleanup); runnable on demand."
     },
     {
       "component_id": "ten_x_candidate_radar",
       "name": "10x candidate radar",
-      "owner_file_or_artifact": ["research/ten_x_candidate_radar.py"],
+      "owner_file_or_artifact": [
+        "research/ten_x_candidate_radar.py"
+      ],
       "kind": "surface",
-      "status": "QUARANTINE",
+      "status": "DECOMMISSIONED",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
       "daily_decision_impact": false,
       "provider_call_risk": "NONE",
@@ -710,22 +1032,37 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "on_demand",
-      "artifacts": ["cache/research/ten_x_candidates_latest.json"],
-      "runner_refs": ["cmd_ten_x_candidates"],
-      "candidate_lists": [
-        {"artifact": "cache/research/ten_x_candidates_latest.json", "path": "candidates", "daily_review_list": false, "label": "speculative list"}
+      "artifacts": [
+        "cache/research/ten_x_candidates_latest.json"
       ],
-      "display_aliases": ["10x candidate", "TRUE_10X_RESEARCH"],
+      "runner_refs": [
+        "cmd_ten_x_candidates"
+      ],
+      "candidate_lists": [
+        {
+          "artifact": "cache/research/ten_x_candidates_latest.json",
+          "path": "candidates",
+          "daily_review_list": false,
+          "label": "speculative list"
+        }
+      ],
+      "display_aliases": [
+        "10x candidate",
+        "TRUE_10X_RESEARCH"
+      ],
       "purpose": "speculative asymmetric-recovery list",
       "consumers": [],
-      "notes": "No registered forward hypothesis and no validating consumer. Off the nightly schedule since 2026-09-09; runnable on demand. core/quarantined_surfaces.py classifies it QUARANTINE_NO_HYPOTHESIS."
+      "notes": "No registered forward hypothesis and no validating consumer. Off the nightly schedule since 2026-09-09; runnable on demand. core/quarantined_surfaces.py classifies it QUARANTINE_NO_HYPOTHESIS. Retired 2026-09-11 by operator decision: no forward hypothesis was ever registered. Files and artifacts preserved; runnable on demand."
     },
     {
       "component_id": "social_attention_v11",
       "name": "Social Attention V11 (superseded)",
-      "owner_file_or_artifact": ["research/social_attention_radar_v11.py", "research/social_attention_v11_forward_validation.py"],
+      "owner_file_or_artifact": [
+        "research/social_attention_radar_v11.py",
+        "research/social_attention_v11_forward_validation.py"
+      ],
       "kind": "surface",
-      "status": "QUARANTINE",
+      "status": "DECOMMISSIONED",
       "evidence_level": "NOT_ENOUGH_EVIDENCE",
       "daily_decision_impact": false,
       "provider_call_risk": "NONE",
@@ -737,19 +1074,35 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "none",
-      "artifacts": ["cache/research/social_attention_v11_latest.json", "cache/research/social_attention_v11_forward_latest.json", "cache/research/top_market_attention_latest.json", "cache/research/social_attention_v11_source_weights_latest.json", "cache/research/social_attention_v11_watch_universe_latest.json"],
-      "candidate_lists": [
-        {"artifact": "cache/research/top_market_attention_latest.json", "path": "rows", "daily_review_list": false, "label": "top market attention"}
+      "artifacts": [
+        "cache/research/social_attention_v11_latest.json",
+        "cache/research/social_attention_v11_forward_latest.json",
+        "cache/research/top_market_attention_latest.json",
+        "cache/research/social_attention_v11_source_weights_latest.json",
+        "cache/research/social_attention_v11_watch_universe_latest.json"
       ],
-      "display_aliases": ["Social Attention V11", "Top Market Attention"],
+      "candidate_lists": [
+        {
+          "artifact": "cache/research/top_market_attention_latest.json",
+          "path": "rows",
+          "daily_review_list": false,
+          "label": "top market attention"
+        }
+      ],
+      "display_aliases": [
+        "Social Attention V11",
+        "Top Market Attention"
+      ],
       "purpose": "successor social radar that was never wired to a cadence",
       "consumers": [],
-      "notes": "Superseded by the nightly Social Attention Radar; about two weeks stale with no cadence. core/quarantined_surfaces.py classifies it SUPERSEDED_STALE."
+      "notes": "Superseded by the nightly Social Attention Radar; about two weeks stale with no cadence. core/quarantined_surfaces.py classifies it SUPERSEDED_STALE. Retired 2026-09-11 by operator decision: superseded by the nightly Social Attention Radar. Files and artifacts preserved."
     },
     {
       "component_id": "options_chain_collector",
       "name": "Options chain snapshot collector",
-      "owner_file_or_artifact": ["research/options_chain_snapshot_collector.py"],
+      "owner_file_or_artifact": [
+        "research/options_chain_snapshot_collector.py"
+      ],
       "kind": "collector",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -764,16 +1117,26 @@
       "maturity_date": null,
       "expiration_date": null,
       "cadence": "weekday",
-      "artifacts": ["cache/research/options_chain_snapshot_collector_latest.json"],
-      "runner_refs": ["cmd_options_chain_snapshot"],
+      "artifacts": [
+        "cache/research/options_chain_snapshot_collector_latest.json"
+      ],
+      "runner_refs": [
+        "cmd_options_chain_snapshot"
+      ],
       "purpose": "point-in-time Tradier chain history toward IV-rank work (data collection only)",
-      "consumers": ["future IV-rank research"],
+      "consumers": [
+        "future IV-rank research"
+      ],
       "notes": "User timer 15:45 ET Mon-Fri, about 90 Tradier calls a day, per-run budget guard. IV-rank history reaches the 60-day partial floor around late September 2026."
     },
     {
       "component_id": "provider_budget_gatekeeper",
       "name": "API budget / provider gatekeeper",
-      "owner_file_or_artifact": ["core/provider_budget.py", "core/data_gatekeeper.py", "core/llm_clients/usage.py"],
+      "owner_file_or_artifact": [
+        "core/provider_budget.py",
+        "core/data_gatekeeper.py",
+        "core/llm_clients/usage.py"
+      ],
       "kind": "infrastructure",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -789,13 +1152,18 @@
       "expiration_date": null,
       "cadence": "continuous",
       "purpose": "refuses FMP spend above monthly and daily caps before the request; caps LLM calls and tokens per day",
-      "consumers": ["every provider caller"],
+      "consumers": [
+        "every provider caller"
+      ],
       "notes": "Enforced since 2026-09-09 (36da6b7). FMP_MONTHLY_BUDGET=0 falls back to the documented default; unlimited needs ALLOW_UNLIMITED_PROVIDER_CALLS=true."
     },
     {
       "component_id": "dashboards_command_center",
       "name": "Dashboards / command center",
-      "owner_file_or_artifact": ["dashboards/research_command_center/", "dashboards/gem_trader_hq.py"],
+      "owner_file_or_artifact": [
+        "dashboards/research_command_center/",
+        "dashboards/gem_trader_hq.py"
+      ],
       "kind": "display",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -811,13 +1179,20 @@
       "expiration_date": null,
       "cadence": "continuous",
       "purpose": "cache-only read surfaces for the operator",
-      "consumers": ["operator"],
+      "consumers": [
+        "operator"
+      ],
       "notes": "Cache-only. The TUI analyzer panel makes operator-triggered LLM calls under its own daily cap. No dashboard work until reports stabilise (operator guidance)."
     },
     {
       "component_id": "scheduled_jobs",
       "name": "Cron / systemd timers",
-      "owner_file_or_artifact": ["scripts/run_research_cycle.sh", "scripts/nightly_refresh.py", "/etc/systemd/system/gem-trader-*", "~/.config/systemd/user/gem-trader-*"],
+      "owner_file_or_artifact": [
+        "scripts/run_research_cycle.sh",
+        "scripts/nightly_refresh.py",
+        "/etc/systemd/system/gem-trader-*",
+        "~/.config/systemd/user/gem-trader-*"
+      ],
       "kind": "scheduler",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -833,13 +1208,19 @@
       "expiration_date": null,
       "cadence": "continuous",
       "purpose": "runs the premarket, midday, nightly and weekly research cycles",
-      "consumers": ["every scheduled component"],
+      "consumers": [
+        "every scheduled component"
+      ],
       "notes": "Nightly and premarket provider steps spend FMP automatically, under the enforced caps. Premarket repeats the 1,100-call universe price refresh (drift audit recommendation 5). Timers are never changed by the governor."
     },
     {
       "component_id": "research_governor",
       "name": "Research Governor v0",
-      "owner_file_or_artifact": ["research/research_governor.py", "data/research/component_registry.json", "docs/ops/RESEARCH_GOVERNOR_RUNBOOK.md"],
+      "owner_file_or_artifact": [
+        "research/research_governor.py",
+        "data/research/component_registry.json",
+        "docs/ops/RESEARCH_GOVERNOR_RUNBOOK.md"
+      ],
       "kind": "audit",
       "status": "SUPPORT",
       "evidence_level": "OPERATIONAL_CONTROL_ONLY",
@@ -853,22 +1234,62 @@
       "maturity_date": null,
       "expiration_date": "2026-10-23",
       "cadence": "on_demand",
-      "artifacts": ["cache/research/research_governor_latest.json"],
+      "artifacts": [
+        "cache/research/research_governor_latest.json"
+      ],
       "purpose": "deterministic, audit-only review of every registered component",
-      "consumers": ["operator"],
+      "consumers": [
+        "operator"
+      ],
       "notes": "If it has not helped drive a human decision by 2026-10-23, review it for retirement."
     }
   ],
   "build_proposals": [
-    {"proposal_id": "new_candidate_surface", "name": "New radar, lens, overlay, detector or shortlist", "decision": "DO_NOT_BUILD", "reason": "Several surfaces already answer 'which names should I look at' (drift audit 2026-09-09)."},
-    {"proposal_id": "m1_per_name_ranker", "name": "Per-name M1 ranker or conviction layer", "decision": "DO_NOT_BUILD", "reason": "Five independent attempts failed; the ticker-clustered CI is negative at every horizon."},
-    {"proposal_id": "new_nightly_step", "name": "New nightly step", "decision": "DO_NOT_BUILD", "reason": "The nightly cycle is about 49 steps and should shrink."},
-    {"proposal_id": "dashboard_work", "name": "New dashboard panel", "decision": "DO_NOT_BUILD", "reason": "Operator guidance: CLI and JSON sidecars first; wire a dashboard only after a report stabilises."},
-    {"proposal_id": "promising_token_routing", "name": "Route or select on a PROMISING_* verdict", "decision": "DO_NOT_BUILD", "reason": "No PROMISING_* token becomes a routing or selection rule before its own pre-registered maturity floor."},
-    {"proposal_id": "llm_alpha_research_agent", "name": "LLM alpha research agent (recursive self-improvement loop)", "decision": "DO_NOT_BUILD", "reason": "docs/ROADMAP_PHASES.md: not before the 45d and 60d forward windows mature (M1 cohort reads 2026-11-06 and 2026-11-27) and the production-change checklist is met."}
+    {
+      "proposal_id": "new_candidate_surface",
+      "name": "New radar, lens, overlay, detector or shortlist",
+      "decision": "DO_NOT_BUILD",
+      "reason": "Several surfaces already answer 'which names should I look at' (drift audit 2026-09-09)."
+    },
+    {
+      "proposal_id": "m1_per_name_ranker",
+      "name": "Per-name M1 ranker or conviction layer",
+      "decision": "DO_NOT_BUILD",
+      "reason": "Five independent attempts failed; the ticker-clustered CI is negative at every horizon."
+    },
+    {
+      "proposal_id": "new_nightly_step",
+      "name": "New nightly step",
+      "decision": "DO_NOT_BUILD",
+      "reason": "The nightly cycle is about 49 steps and should shrink."
+    },
+    {
+      "proposal_id": "dashboard_work",
+      "name": "New dashboard panel",
+      "decision": "DO_NOT_BUILD",
+      "reason": "Operator guidance: CLI and JSON sidecars first; wire a dashboard only after a report stabilises."
+    },
+    {
+      "proposal_id": "promising_token_routing",
+      "name": "Route or select on a PROMISING_* verdict",
+      "decision": "DO_NOT_BUILD",
+      "reason": "No PROMISING_* token becomes a routing or selection rule before its own pre-registered maturity floor."
+    },
+    {
+      "proposal_id": "llm_alpha_research_agent",
+      "name": "LLM alpha research agent (recursive self-improvement loop)",
+      "decision": "DO_NOT_BUILD",
+      "reason": "docs/ROADMAP_PHASES.md: not before the 45d and 60d forward windows mature (M1 cohort reads 2026-11-06 and 2026-11-27) and the production-change checklist is met."
+    }
   ],
   "known_test_debt": [
-    {"test": "tests/unit/test_m1_price_refresh.py", "failing": 7, "issue": "date rot: fixtures are judged against the real clock (young-listing and stale windows)", "first_recorded": "2026-09-09", "recorded_in": "commit 36da6b7"}
+    {
+      "test": "tests/unit/test_m1_price_refresh.py",
+      "failing": 7,
+      "issue": "date rot: fixtures are judged against the real clock (young-listing and stale windows)",
+      "first_recorded": "2026-09-09",
+      "recorded_in": "commit 36da6b7"
+    }
   ],
   "generated_docs": [
     "docs/research/DAILY_ALPHA_RADAR_REPORT.md",
@@ -881,22 +1302,55 @@
     "docs/research/SOCIAL_ATTENTION_FORWARD_RESULTS.md"
   ],
   "reader_surfaces": [
-    {"path": "dashboards/research_command_center/journal_digest.py", "kind": "digest"},
-    {"path": "research/nightly_operator_summary.py", "kind": "digest"},
-    {"path": "research/daily_alpha_radar_report.py", "kind": "digest"},
-    {"path": "dashboards/research_command_center/data_adapter.py", "kind": "dashboard"},
-    {"path": "dashboards/research_command_center/static/index.html", "kind": "dashboard"},
-    {"path": "dashboards/gem_trader_hq.py", "kind": "dashboard"}
+    {
+      "path": "dashboards/research_command_center/journal_digest.py",
+      "kind": "digest"
+    },
+    {
+      "path": "research/nightly_operator_summary.py",
+      "kind": "digest"
+    },
+    {
+      "path": "research/daily_alpha_radar_report.py",
+      "kind": "digest"
+    },
+    {
+      "path": "dashboards/research_command_center/data_adapter.py",
+      "kind": "dashboard"
+    },
+    {
+      "path": "dashboards/research_command_center/static/index.html",
+      "kind": "dashboard"
+    },
+    {
+      "path": "dashboards/gem_trader_hq.py",
+      "kind": "dashboard"
+    }
   ],
   "label_scan_sources": [
-    {"component_id": "daily_research_digest", "source": "journal_digest_note"},
-    {"component_id": "nightly_operator_summary", "path": "logs/nightly_operator_summary_latest.md"},
-    {"component_id": "alpha_root_cause_gate", "path": "cache/research/alpha_failure_root_cause_latest.json", "json_path": "stop_continue_framework.current_rationale"}
+    {
+      "component_id": "daily_research_digest",
+      "source": "journal_digest_note"
+    },
+    {
+      "component_id": "nightly_operator_summary",
+      "path": "logs/nightly_operator_summary_latest.md"
+    },
+    {
+      "component_id": "alpha_root_cause_gate",
+      "path": "cache/research/alpha_failure_root_cause_latest.json",
+      "json_path": "stop_continue_framework.current_rationale"
+    }
   ],
-  "digest_source": {"journal": "data/research/journal.jsonl"},
+  "digest_source": {
+    "journal": "data/research/journal.jsonl"
+  },
   "scheduler": {
     "runner": "scripts/run_research_cycle.sh",
-    "unit_dirs": ["/etc/systemd/system", "~/.config/systemd/user"],
+    "unit_dirs": [
+      "/etc/systemd/system",
+      "~/.config/systemd/user"
+    ],
     "unit_glob": "gem-trader*.timer",
     "cron_note": "The user crontab (scripts/social_attention_nightly.sh, 21:30 UTC Mon-Fri) is not read, because that needs `crontab -l`; it is declared under social_attention_radar."
   },
@@ -906,8 +1360,13 @@
     "provider_budget_module": "core/provider_budget.py",
     "gatekeeper_module": "core/data_gatekeeper.py",
     "llm_usage_module": "core/llm_clients/usage.py",
-    "scan_dirs": ["research", "scripts"]
+    "scan_dirs": [
+      "research",
+      "scripts"
+    ]
   },
-  "surface_scan_dirs": ["cache/research"],
+  "surface_scan_dirs": [
+    "cache/research"
+  ],
   "ignored_artifacts": []
 }

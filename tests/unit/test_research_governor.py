@@ -181,8 +181,17 @@ def test_real_registry_is_valid_and_honest():
     assert all(c["requires_human_approval_to_change"] is True for c in by.values())
     assert not [c for c in by.values() if c["evidence_level"] == "VALIDATED_EDGE"]
     assert by["scanner_truth_autopsy"]["status"] in ("DECOMMISSIONED", "RESEARCH_ONLY")
-    assert by["ten_x_candidate_radar"]["status"] in ("QUARANTINE", "DISABLED")
-    assert by["social_attention_v11"]["status"] in ("QUARANTINE", "DECOMMISSIONED")
+    retired = ("QUARANTINE", "DISABLED", "DECOMMISSIONED")
+    assert by["ten_x_candidate_radar"]["status"] in retired
+    assert by["social_attention_v11"]["status"] in retired
+    # Operator decision 2026-09-11: exactly one daily candidate source.
+    surfacing = [c["component_id"] for c in registry["components"]
+                 if c["allowed_to_surface_candidates"]]
+    assert surfacing == ["daily_alpha_radar", "m1_daily_review_packet"]
+    daily_lists = [c["component_id"] for c in registry["components"]
+                   for entry in c.get("candidate_lists") or []
+                   if entry.get("daily_review_list")]
+    assert daily_lists == ["daily_alpha_radar"]
     assert by["m1_source_pool"]["evidence_level"] == "PROVISIONAL_POOL_LEVEL_ONLY"
     assert by["m1_frozen_cohort_tracker"]["evidence_level"] == "FORWARD_IMMATURE"
     style = by["style_cell_leader_forward_shadow"]

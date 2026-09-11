@@ -94,6 +94,22 @@ def test_scanner_truth_is_not_counted_as_a_live_component():
     assert '("Scanner Truth", "scanner_truth")' not in block
 
 
+def test_the_scanner_truth_autopsy_is_off_the_nightly_schedule():
+    """Removed from the nightly cycle 2026-09-11: it measures a pipeline
+    decommissioned in June, so the number cannot move."""
+    src = (ROOT / "scripts/run_research_cycle.sh").read_text(encoding="utf-8")
+    active = [ln for ln in src.splitlines()
+              if ln.strip() == '"$PY" -m research.scanner_truth_review']
+    assert not active, "the decommissioned autopsy is still run by a scheduled cycle"
+    assert "research.scanner_truth_review" in src, "it must stay runnable on demand"
+
+
+def test_the_operator_summary_no_longer_loads_the_dead_sidecar():
+    src = (ROOT / "research/nightly_operator_summary.py").read_text(encoding="utf-8")
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "scanner_truth_summary_latest.json" not in code
+
+
 def test_the_producer_self_labels_the_artifact():
     src = (ROOT / "research/scanner_truth_review.py").read_text(encoding="utf-8")
     assert '"measurement_status": "DECOMMISSIONED_AUTOPSY"' in src
