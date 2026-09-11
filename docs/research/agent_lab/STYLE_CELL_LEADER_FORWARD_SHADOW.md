@@ -1,6 +1,6 @@
 # `style_cell_leader_pool` — forward shadow ledger
 
-*Generated 2026-09-10T19:00:17Z. Zero provider calls.*
+*Generated 2026-09-11T17:27:05Z. Zero provider calls.*
 
 > **FORWARD_SHADOW_RESEARCH_ONLY.** This page records what a basket would
 > have contained on past sessions and what happened next. It is **not** live
@@ -25,84 +25,34 @@ it could not be called validated: the object was specified after the 2025
 holdout had been read. Only unseen data can advance it. This ledger records
 that data and deliberately does not judge it.
 
-## No accepted forward sessions yet
-
-**There are zero accepted OK forward observations in this ledger.** The
-evidence record has not started.
-
-2026-09-09 was worked as a **debug and validation day**, not as the first
-observation. It was used to exercise the cache-merge rules, the coverage
-gates, and the append-only invalidation path, and every pool it produced has
-been retracted — the last of them discarded by operator decision before any
-horizon matured, so nothing was thrown away that had become evidence.
-
-The first clean accepted session is **pending**. Until one is recorded, every
-forward statistic on this page is empty by construction rather than by
-coincidence.
-
-### Retracted rows, in order
-
-| row | original status | pool | reason |
-|---|---|--:|---|
-| `POOL_SNAPSHOT\|live_plus_replay_cache` | OK | 100 | cache merge spliced a pre-reverse-split segment from cache/prices_deep onto the post-split series, manufacturing a +1726% session for WOLF and contaminating 12-1 momentum for the affected names; the overlap-only splice check could not see the segment contributed outside the overlap. Superseded by a revision recorded after merged-series integrity validation and a corrected cache priority order. |
-| `POOL_SNAPSHOT\|live_plus_replay_cache\|r1` | REFUSED_INSUFFICIENT_LIVE_CACHE_COVERAGE | 0 | recorded while the merge fallback preferred the highest-priority cache over the freshest clean one, which cost 2,017 symbols their most recent bar and pushed freshness below the gate; superseded by revision 2. |
-| `POOL_SNAPSHOT\|live_plus_replay_cache\|r2` | OK | 100 | operator_discarded_debug_run_before_first_evidence_maturity |
-
-Nothing above was deleted. Each row is still readable in the ledger with
-its original status, and each retraction carries its own reason. Published
-statistics skip them.
-
 ## Session status
 
 | | |
 |---|---|
-| price source | `live_cache` |
-| latest session | 2026-09-09 |
-| status | **REFUSED_INSUFFICIENT_LIVE_CACHE_COVERAGE** |
-| universe size | 0 |
-| pool size | 0 |
-| liquid candidates | 1965 |
-| fresh share | 48.35% (floor 80%) |
-| depth coverage of fresh | 99.68% (floor 95%) |
-| sessions in ledger | 1 (0 with a pool, 1 refused) |
-| **accepted forward sessions** | **0** |
+| price source | `live_plus_replay_cache` |
+| latest session | 2026-09-10 |
+| status | **OK** |
+| universe size | 1855 |
+| pool size | 100 |
+| liquid candidates | 2224 |
+| fresh share | 84.98% (floor 80%) |
+| depth coverage of fresh | 98.15% (floor 95%) |
+| sessions in ledger | 1 (1 with a pool, 0 refused) |
+| **accepted forward sessions** | **1** |
 | retracted rows | 3 |
-| unresolved at 60d | 0 |
+| unresolved at 60d | 1 |
 
 ### Cache merge
 
 Where a ticker exists in more than one cache the series are merged, with the maintained cache winning on any shared date. Preferring the *deepest* file instead would silently drop the newest bar, which is the entry price this ledger records.
 
-* merged from more than one cache: **404**
-* only one cache held it: **5,479**
-* **7** refused a splice — the caches disagreed by more than 2% on overlapping dates, which is an unadjusted corporate action in one of them. Those names fall back to a single cache and drop out of the universe if that leaves them short of 252 bars, rather than being spliced into a price gap that never happened.
-
-### Why this session was refused
-
-**REFUSED_INSUFFICIENT_LIVE_CACHE_COVERAGE** — only 48.3% of 1965 liquid candidates have a bar within 5 days of 2026-09-09 (floor 80%) — the session would be computed on a fraction of the universe
-
-A pool computed on a thin or stale cache is a look-alike, and a forward
-ledger of a look-alike is worse than no ledger. The refusal is recorded
-in the ledger so a gap can never be mistaken for a session that was
-simply not run.
-
-**What would unblock it.** The gate that fails is freshness, not depth —
-99.68% of the names that *are* current carry the
-252 bars the method needs. The live cache simply is not being kept
-current across this universe. Two options, neither taken here:
-
-1. A maintained daily refresh of the liquid universe. Size it with
-   `forward_shadow.py plan-refresh`; this module refuses above
-   100 planned calls and never fetches itself — it hands off to
-   the existing `research/refresh_universe_prices.py`.
-2. Run against `--source live_plus_replay_cache`, which clears both gates
-   today. That cache is maintained by a research backfill script rather
-   than a timer, so a ledger built on it inherits whatever staleness the
-   script has drifted into. It is a way to start measuring, not a fix.
+* merged from more than one cache: **5,023**
+* only one cache held it: **1,808**
+* **307** refused a splice — the caches disagreed by more than 2% on overlapping dates, which is an unadjusted corporate action in one of them. Those names fall back to a single cache and drop out of the universe if that leaves them short of 252 bars, rather than being spliced into a price gap that never happened.
 
 ## Forward outcomes
 
-No accepted session exists yet, so no horizon can mature. Nothing to report.
+No horizon has matured yet. Nothing to report.
 
 ## Maturity
 
