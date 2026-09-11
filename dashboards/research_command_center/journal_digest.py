@@ -22,6 +22,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from dashboards.research_command_center.data_adapter import (
     ArtifactStore,
@@ -766,6 +767,34 @@ def _forward_incomplete_warnings(inputs: Dict[str, Any]) -> List[str]:
     return warnings
 
 
+# Deliverable declaration read by the journal audit (queue-quieting).  The
+# audit's "Improve forward-evidence tracking" P0 re-queued on 50 nights
+# because it keyed on the MIXED / Phase-4B-BLOCKED verdict — a maturity
+# state no code change clears — while the stats it asks for already existed
+# (ead73d0).  The line is emitted only when the forward sidecar actually
+# carries the stats, so if they stop being produced the line disappears
+# and the audit action fires again.
+FORWARD_STATS_DECLARATION = "see forward-evidence tracker report"
+_FORWARD_STATS_FIELDS = ("hit_rate_vs_spy", "median_ret_pct", "mean_ret_pct",
+                         "mean_mae_pct")
+
+
+def _forward_stats_declaration(inputs: Dict[str, Any]) -> Optional[str]:
+    split = (inputs.get("forward") or {}).get("priority_split") or {}
+
+    def _has_stats(group: str, horizon: str) -> bool:
+        row = ((split.get(group) or {}).get("horizons") or {}).get(horizon)
+        return all(k in (row or {}) for k in _FORWARD_STATS_FIELDS)
+
+    horizons = [h for h in ("5d", "10d", "20d")
+                if _has_stats("high_priority", h) and _has_stats("watch_only", h)]
+    if not horizons:
+        return None
+    return ("- Forward stats by review priority (high-priority vs watch-only): "
+            "hit rate vs SPY, median and mean return, max adverse excursion "
+            f"at {'/'.join(horizons)} — {FORWARD_STATS_DECLARATION}")
+
+
 def _section_forward(inputs: Dict[str, Any]) -> List[str]:
     status = inputs["status"]
     truth = inputs["truth"] or {}
@@ -805,6 +834,9 @@ def _section_forward(inputs: Dict[str, Any]) -> List[str]:
         f"({phase4b.get('reason') or 'n/a'})",
         f"- Post-fix evidence: {post_fix}",
     ]
+    declaration = _forward_stats_declaration(inputs)
+    if declaration:
+        lines.append(declaration)
     for warning in _forward_incomplete_warnings(inputs):
         lines.append(f"- {warning}")
     lines += _maturity_eta_lines(inputs)
@@ -905,6 +937,36 @@ def _section_research_operating_policy(inputs: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _et_today() -> str:
+    """Session date the nightly belongs to.  It runs ~20:30 ET (after
+    midnight UTC); the root-cause audit picks its next decision date on the
+    same ET calendar."""
+    return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+
+
+def _decision_date_line(dash: Dict[str, Any], inputs: Dict[str, Any]) -> str:
+    rec = dash.get("current_recommendation") or "n/a"
+    nxt = dash.get("next_decision_date")
+    gate = dash.get("next_decision_gate")
+    today = str(inputs.get("as_of_date") or _et_today())
+    if nxt and str(nxt) < today:
+        # Sidecars written before 2026-09-11 always named the FIRST date,
+        # even weeks after it passed.  Never present a passed date as current.
+        return ("- Next decision date: not available — the root-cause sidecar "
+                f"still names {nxt}, which has passed; rerun "
+                "./scripts/run_research_cycle.sh alpha-failure-root-cause "
+                f"(current recommendation: {rec}).")
+    if nxt:
+        return (f"- Next decision date: {nxt}"
+                + (f" ({gate})" if gate else "")
+                + f"; current recommendation: {rec}.")
+    if "next_decision_date" in dash:
+        return (f"- Next decision date: none remaining — "
+                f"{gate or 'every registered decision date has passed'} "
+                f"(current recommendation: {rec}).")
+    return f"- Next decision date: n/a (current recommendation: {rec})."
+
+
 def _section_alpha_root_cause(inputs: Dict[str, Any]) -> List[str]:
     rc = inputs.get("alpha_root_cause") or {}
     lines = ["## Alpha Root-Cause"]
@@ -918,9 +980,7 @@ def _section_alpha_root_cause(inputs: Dict[str, Any]) -> List[str]:
     lines.append(f"- Top likely failure cause: {dash.get('top_likely_failure_cause') or 'n/a'}.")
     lines.append(f"- Best surviving cohort: {dash.get('best_surviving_cohort') or 'n/a'}.")
     lines.append(f"- Worst harmful cohort: {dash.get('worst_harmful_cohort') or 'n/a'}.")
-    lines.append(
-        f"- Next decision date: {dash.get('next_decision_date') or 'n/a'} "
-        f"(current recommendation: {dash.get('current_recommendation') or 'n/a'}).")
+    lines.append(_decision_date_line(dash, inputs))
     lines.append(
         "- Diagnostic only — no scanner, scoring, routing, gate, threshold, "
         "factor-weight, High-Conviction, Emerging Outlier, or program-verdict change.")

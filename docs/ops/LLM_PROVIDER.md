@@ -88,7 +88,7 @@ Anthropic.
 
 Per-service model overrides (optional; empty = provider role default):
 
-- `JOURNAL_AUDIT_LLM_MODEL` — journal audit (role: reasoner)
+- `JOURNAL_AUDIT_LLM_MODEL` — journal audit (role: chat)
 - `SOCIAL_ARB_LLM_MODEL` — social-arb review (role: chat)
 - `LLM_DAILY_BUDGET` — dashboard analyzer call cap (legacy alias `CLAUDE_DAILY_BUDGET`)
 
@@ -96,8 +96,20 @@ Per-service model overrides (optional; empty = provider role default):
 
 | Role | Used for |
 |------|----------|
-| `chat` | summaries, candidate memos, noise-filter reviews, dashboard analysis, gatekeeper prose |
-| `reasoner` | reasoning-heavy critique (journal digest audit) |
+| `chat` | summaries, candidate memos, noise-filter reviews, dashboard analysis, gatekeeper prose, journal digest audit (since 2026-08-25) |
+| `reasoner` | reasoning-heavy critique — **no runtime caller since 2026-08-25** (see below) |
+
+**Journal audit role change (2026-08-25, commit 8352a7e).** The journal
+digest audit moved from `reasoner` to `chat`. On the reasoner role the
+model spent its whole output budget on hidden chain-of-thought, so replies
+hit the completion cap and the audit fell back. The call now resolves
+through the chat chain (`DEEPSEEK_CHAT_MODEL` → `DEEPSEEK_MODEL` →
+provider default). The usage ledger records `deepseek-v4-pro` for
+journal-audit calls through 2026-08-25 00:44 UTC and `deepseek-v4-flash` /
+`deepseek-flash` since. The role is the constant `LLM_ROLE` in
+`research/journal_audit_reviewer.py`, and
+`tests/unit/test_journal_audit_reviewer.py` fails if this document names a
+different role for the journal audit.
 
 Callers request a **role**, never a hard-coded model name; the role→model
 mapping comes from the env chain above.
@@ -127,7 +139,7 @@ specialized parse path (raw-reply dump to
 
 | Call site | Function | Purpose | Input | Output artifact | Nightly? | Dashboard? | Mutates? |
 |-----------|----------|---------|-------|-----------------|----------|------------|----------|
-| `research/journal_audit_reviewer.py` | `_llm_audit` (role: reasoner) | audit the daily digest, flag flaws/contradictions/missing evidence | digest text + deterministic signals | `cache/research/journal_audit_latest.json`, feedback queue, history JSONL | yes (nightly tail) | no (queue is CLI-reviewed) | **no** — sanitizer re-enforces invariants; deterministic fallback on any failure |
+| `research/journal_audit_reviewer.py` | `_llm_audit` (role: chat) | audit the daily digest, flag flaws/contradictions/missing evidence | digest text + deterministic signals | `cache/research/journal_audit_latest.json`, feedback queue, history JSONL | yes (nightly tail) | no (queue is CLI-reviewed) | **no** — sanitizer re-enforces invariants; deterministic fallback on any failure |
 | `research/social_arb_radar.py` | `llm_review` (role: chat) | conservative KEEP/DROP/NOISE noise filter over deterministically scored candidates | candidate JSON + regime context | `cache/research/social_arb_latest.json` (+ text render) | yes (social nightly cron) | read-only sidecar | **no** — reviews only annotate/drop; scores untouched; empty review dict on failure |
 | `core/executive_gatekeeper.py` | `_try_llm_summary` (role: chat) | plain-English restatement of the deterministic gatekeeper verdict | finalized `GatekeeperResult` | display annotation inside gatekeeper artifact | yes (gatekeeper-refresh) | cached panel | **no** — verdict is final before the call; `None` on any failure |
 | `dashboards/gem_trader_hq.py` | `LLMAnalyzer.analyze` (role: chat) | per-ticker research framing panel (Mode 2) | cached bars + indicators + calendar | in-memory panel cache only | no | yes (operator-triggered) | **no** — display only; stub card on failure |

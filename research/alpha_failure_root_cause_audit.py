@@ -29,6 +29,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 _ROOT_FOR_IMPORTS = Path(__file__).resolve().parents[1]
 if str(_ROOT_FOR_IMPORTS) not in sys.path:
@@ -74,6 +75,40 @@ RANDOM_CONTROL_SEED = 20260725
 RANDOM_CONTROL_PER_DATE = 8
 
 DECISION_DATES = ("2026-08-17", "2026-09-07", "2026-09-30")
+# Decision dates are calendar dates of the US session the nightly belongs
+# to.  The nightly runs ~20:30 ET, after midnight UTC, so a UTC date would
+# mark each decision date PASSED on the evening it falls due.
+DECISION_TZ = ZoneInfo("America/New_York")
+FINAL_GATE_LABEL = "final gate — SUNSET criteria apply in full"
+INTERIM_GATE_LABEL = "interim checkpoint — CONTINUE/NARROW/FREEZE"
+NO_DATES_REMAINING_LABEL = ("every registered decision date has passed — "
+                            "no scheduled gate remains")
+
+
+def decision_as_of_date(now: datetime) -> str:
+    """The session date a run at ``now`` belongs to (ET calendar date)."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return now.astimezone(DECISION_TZ).date().isoformat()
+
+
+def select_next_decision_date(today: str,
+                              dates: Sequence[str] = DECISION_DATES) -> Optional[str]:
+    """First registered decision date on or after ``today`` (ISO dates).
+
+    A decision date stays current through its own day and is PASSED only
+    afterwards.  Returns None once every date has passed — never a passed
+    date (until 2026-09-11 this always returned the FIRST date, so the digest
+    printed 2026-08-17 as "next" weeks after it passed).
+    """
+    upcoming = sorted(d for d in dates if d >= today)
+    return upcoming[0] if upcoming else None
+
+
+def decision_gate_label(date: Optional[str]) -> str:
+    if date is None:
+        return NO_DATES_REMAINING_LABEL
+    return FINAL_GATE_LABEL if date == DECISION_DATES[-1] else INTERIM_GATE_LABEL
 
 RS_MOMENTUM_CATEGORIES = {"rs_momentum_leader"}
 
@@ -828,8 +863,11 @@ def _evaluate_stop_continue(cohort_report: Dict[str, Any], ablation: Dict[str, A
 
 
 def build_stop_continue_framework(cohort_report: Dict[str, Any], ablation: Dict[str, Any],
-                                   repeat_audit: Dict[str, Any]) -> Dict[str, Any]:
+                                   repeat_audit: Dict[str, Any],
+                                   today: Optional[str] = None) -> Dict[str, Any]:
     current = _evaluate_stop_continue(cohort_report, ablation, repeat_audit)
+    today = today or decision_as_of_date(_utcnow())
+    next_date = select_next_decision_date(today)
     gate_definitions = {
         "CONTINUE": "Any non-broad cohort reaches ROBUST sample (>=100 matured 10d) with positive "
                     "mean return and win rate >= 50%.",
@@ -846,6 +884,8 @@ def build_stop_continue_framework(cohort_report: Dict[str, Any], ablation: Dict[
     for date in DECISION_DATES:
         decision_dates.append({
             "date": date,
+            "status": ("PASSED" if date < today
+                       else "NEXT" if date == next_date else "UPCOMING"),
             "gate": gate_definitions,
             "current_read_if_evaluated_today": current["recommendation"],
             "note": (
@@ -855,6 +895,10 @@ def build_stop_continue_framework(cohort_report: Dict[str, Any], ablation: Dict[
         })
     return {
         "gate_definitions": gate_definitions,
+        "decision_as_of_date": today,
+        "next_decision_date": next_date,
+        "next_decision_gate": decision_gate_label(next_date),
+        "passed_decision_dates": [d for d in DECISION_DATES if d < today],
         "decision_dates": decision_dates,
         "current_recommendation": current["recommendation"],
         "current_rationale": current["rationale"],
@@ -1005,7 +1049,8 @@ def build_report(root: Optional[Path] = None, now: Optional[datetime] = None) ->
     ablation = build_factor_ablation(root, history)
     baseline = build_baseline_comparison(root, cohort_report, history, spy_closes, close_cache)
     repeat_audit = build_repeat_candidate_audit(history)
-    stop_continue = build_stop_continue_framework(cohort_report, ablation, repeat_audit)
+    stop_continue = build_stop_continue_framework(
+        cohort_report, ablation, repeat_audit, today=decision_as_of_date(now))
     root_cause = _root_cause_findings(signal_family, entry_timing, regime, ablation, baseline, repeat_audit)
     explicit_findings = _explicit_findings(cohort_report, baseline, ablation, repeat_audit, signal_family)
 
@@ -1030,7 +1075,9 @@ def build_report(root: Optional[Path] = None, now: Optional[datetime] = None) ->
         "worst_harmful_cohort": (
             _cohort_headline_text(worst_drag) if worst_drag else "n/a"
         ),
-        "next_decision_date": DECISION_DATES[0],
+        "next_decision_date": stop_continue.get("next_decision_date"),
+        "next_decision_gate": stop_continue.get("next_decision_gate"),
+        "passed_decision_dates": stop_continue.get("passed_decision_dates"),
         "current_recommendation": stop_continue.get("current_recommendation"),
     }
 
@@ -1116,7 +1163,8 @@ def render_text(report: Dict[str, Any]) -> str:
         f"Top likely failure cause: {dash.get('top_likely_failure_cause')}",
         f"Best surviving cohort: {dash.get('best_surviving_cohort')}",
         f"Worst harmful cohort: {dash.get('worst_harmful_cohort')}",
-        f"Next decision date: {dash.get('next_decision_date')}",
+        f"Next decision date: {dash.get('next_decision_date') or 'none remaining'}"
+        f" ({dash.get('next_decision_gate') or 'n/a'})",
         f"Current recommendation: {dash.get('current_recommendation')}",
         "",
         f"Promote to signal: {report.get('promote_to_signal')}",
@@ -1184,11 +1232,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
         "",
         "## Stop/Continue Decision Dates",
         "",
-        "| Date | Gate read today |",
-        "|---|---|",
+        "| Date | Status | Gate read today |",
+        "|---|---|---|",
     ]
     for d in sc.get("decision_dates") or []:
-        lines.append(f"| {d['date']} | {d['current_read_if_evaluated_today']} |")
+        lines.append(f"| {d['date']} | {d.get('status') or 'n/a'} | "
+                     f"{d['current_read_if_evaluated_today']} |")
     lines += ["", "## Caveats", ""]
     lines.extend(f"- {c}" for c in report.get("caveats") or [])
     return "\n".join(lines) + "\n"

@@ -285,3 +285,44 @@ def test_workflow_never_changes_scanner_gates_or_scores(root, capsys):
                if before.get(p) != after.get(p)}
     # resolve touches exactly one file: the append-only state ledger
     assert changed == {root / fq.STATE_REL}
+
+
+# 9. an ADDRESSED task is confirmable once it stops being queued -------------
+
+
+def _point_latest_audit_at(root: Path, digest: str) -> None:
+    sidecar = root / fq.AUDIT_SIDECAR_REL
+    audit = json.loads(sidecar.read_text(encoding="utf-8"))
+    audit["digest_sha256"] = digest
+    sidecar.write_text(json.dumps(audit), encoding="utf-8")
+
+
+def test_addressed_task_confirmable_once_no_longer_requeued(root):
+    """The two 2026-07-10 P0 deliverables sat "unconfirmed" for two months:
+    their area kept a flaw the task could not clear (forward evidence
+    waiting to mature).  Once the latest audit stops queueing the task
+    itself, the review must offer it for confirmation — and still write
+    nothing on its own."""
+    p1 = _task_by_text(fq.load_queue_tasks(root), P1_TASK)
+    fq.append_state_entry(p1["task_id"], "ADDRESSED", root=root,
+                          commit="ead73d0")
+
+    # the latest audit (digest B) still queues it -> not yet confirmed
+    review = fq.build_review(root)
+    assert [t["task"] for t in review["addressed_unconfirmed"]] == [P1_TASK]
+
+    # a newer audit no longer queues it; forward_evidence is still flagged
+    _point_latest_audit_at(root, "c" * 64)
+    before = (root / fq.STATE_REL).read_bytes()
+    review = fq.build_review(root)
+    p1 = _task_by_text(review["tasks"], P1_TASK)
+    assert p1["requeued_by_latest_audit"] is False
+    assert p1["still_in_latest_audit"] is True  # area flaw still present
+    assert review["addressed_unconfirmed"] == []
+    assert P1_TASK in [t["task"] for t in review["audit_resolved_candidates"]]
+    assert (root / fq.STATE_REL).read_bytes() == before  # no auto-close
+    assert fq.load_state(root)[p1["task_id"]]["status"] == "ADDRESSED"
+
+    # an OPEN task whose area is still flagged is not offered as resolved
+    assert P0_TASK not in [
+        t["task"] for t in review["audit_resolved_candidates"]]

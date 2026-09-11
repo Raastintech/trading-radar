@@ -368,3 +368,105 @@ def test_no_scanner_scoring_routing_filter_logic_changed_by_root_cause_module():
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "alpha_failure_root_cause" not in text
+
+
+# ── decision-date selection (2026-09-11: passed dates were shown as "next") ──
+
+
+@pytest.mark.parametrize("today, expected", [
+    ("2026-08-10", "2026-08-17"),
+    ("2026-08-17", "2026-08-17"),  # current through its own day
+    ("2026-08-18", "2026-09-07"),
+    ("2026-09-11", "2026-09-30"),
+    ("2026-09-30", "2026-09-30"),
+    ("2026-10-01", None),          # never falls back to a passed date
+])
+def test_next_decision_date_skips_passed_dates(today, expected):
+    assert rca.select_next_decision_date(today) == expected
+
+
+def test_decision_dates_follow_the_et_session_not_utc():
+    from datetime import datetime, timezone
+    # the nightly for the 2026-09-30 session runs 00:40 UTC on 10-01
+    nightly = datetime(2026, 10, 1, 0, 40, tzinfo=timezone.utc)
+    assert rca.decision_as_of_date(nightly) == "2026-09-30"
+    assert rca.select_next_decision_date(
+        rca.decision_as_of_date(nightly)) == "2026-09-30"
+
+
+def test_report_names_the_next_valid_date_and_the_sunset_gate(tmp_path):
+    from datetime import datetime, timezone
+    _fixture(tmp_path)
+    report = rca.build_report(
+        tmp_path, now=datetime(2026, 9, 11, 0, 41, tzinfo=timezone.utc))
+
+    dash = report["dashboard_summary"]
+    assert dash["next_decision_date"] == "2026-09-30"
+    assert "SUNSET" in dash["next_decision_gate"]
+    assert dash["passed_decision_dates"] == ["2026-08-17", "2026-09-07"]
+    statuses = {d["date"]: d["status"]
+                for d in report["stop_continue_framework"]["decision_dates"]}
+    assert statuses == {"2026-08-17": "PASSED", "2026-09-07": "PASSED",
+                        "2026-09-30": "NEXT"}
+
+    text = rca.render_text(report)
+    assert "Next decision date: 2026-09-30" in text
+    assert "Next decision date: 2026-08-17" not in text
+    assert "| 2026-08-17 | PASSED |" in rca.render_markdown(report)
+
+
+def test_report_after_the_final_gate_names_no_date(tmp_path):
+    from datetime import datetime, timezone
+    _fixture(tmp_path)
+    report = rca.build_report(
+        tmp_path, now=datetime(2026, 10, 2, 1, 0, tzinfo=timezone.utc))
+    dash = report["dashboard_summary"]
+    assert dash["next_decision_date"] is None
+    assert dash["next_decision_gate"] == rca.NO_DATES_REMAINING_LABEL
+    assert dash["passed_decision_dates"] == list(rca.DECISION_DATES)
+
+
+def _decision_line(inputs) -> str:
+    return next(line for line in jd._section_alpha_root_cause(inputs)
+                if "Next decision date" in line)
+
+
+def test_digest_never_shows_a_passed_decision_date_as_current():
+    # a sidecar written before the fix still names the first date
+    line = _decision_line({
+        "as_of_date": "2026-09-11",
+        "alpha_root_cause": {"dashboard_summary": {
+            "next_decision_date": "2026-08-17",
+            "current_recommendation": "CONTINUE"}}})
+    assert not line.startswith("- Next decision date: 2026-08-17")
+    assert "has passed" in line
+
+
+def test_digest_shows_the_final_sunset_gate():
+    line = _decision_line({
+        "as_of_date": "2026-09-11",
+        "alpha_root_cause": {"dashboard_summary": {
+            "next_decision_date": "2026-09-30",
+            "next_decision_gate": rca.FINAL_GATE_LABEL,
+            "current_recommendation": "CONTINUE"}}})
+    assert line.startswith("- Next decision date: 2026-09-30")
+    assert "SUNSET" in line
+
+
+def test_digest_reports_when_no_decision_date_remains():
+    line = _decision_line({
+        "as_of_date": "2026-10-02",
+        "alpha_root_cause": {"dashboard_summary": {
+            "next_decision_date": None,
+            "next_decision_gate": rca.NO_DATES_REMAINING_LABEL,
+            "current_recommendation": "CONTINUE"}}})
+    assert "none remaining" in line
+
+
+def test_decision_labels_carry_no_trade_or_rank_language():
+    import re
+    lang = re.compile(r"\bbuy\b|\bsell\b|top pick|price target|"
+                      r"\brank(s|ed|ing)?\b|position size", re.IGNORECASE)
+    for label in (rca.FINAL_GATE_LABEL, rca.INTERIM_GATE_LABEL,
+                  rca.NO_DATES_REMAINING_LABEL):
+        assert not lang.search(label)

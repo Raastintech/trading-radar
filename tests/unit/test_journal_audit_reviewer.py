@@ -1259,3 +1259,172 @@ def test_llm_failure_propagates_when_fail_open_disabled(monkeypatch):
     monkeypatch.setattr(jar, "_llm_audit", boom)
     with pytest.raises(RuntimeError, match="provider down"):
         jar.audit_daily_digest(make_digest())
+
+
+# ── 2026-09-11: addressed P0 tasks must not re-queue every night ─────────────
+#
+# 8d01d462a3bb (forward_evidence) re-queued on 50 nights and 2e43d991d887
+# (scanner_recall) on 35, both after being ADDRESSED on 2026-07-10.  The
+# forward task keyed on the MIXED / Phase-4B-BLOCKED verdict (a maturity
+# state); the recall task keyed on any LLM recall flaw once its digest
+# declaration line was dropped.
+
+from dashboards.research_command_center import journal_digest as jd  # noqa: E402
+
+LIVE_RECALL_LINE = (
+    "- Warning: Live research-board recall accruing via scanner-recall "
+    "cohorts: LOOSE_NOT_BETTER (25/15 matured dates); scanner-watchlist "
+    "recall 15.0% vs RS-baseline 5.4% at 20d")
+
+FORWARD_TASK_PREFIX = "Improve forward-evidence tracking"
+RECALL_TASK_PREFIX = "Build scanner recall diagnostics"
+
+
+def _forward_inputs(drop_field: str = "") -> dict:
+    row = {"n": 10, "mean_ret_pct": 1.0, "median_ret_pct": 0.5,
+           "hit_rate_vs_spy": 0.5, "mean_mae_pct": -3.0}
+    row.pop(drop_field, None)
+    return {"forward": {"priority_split": {
+        g: {"horizons": {h: dict(row) for h in ("5d", "10d", "20d")}}
+        for g in ("high_priority", "watch_only")}}}
+
+
+def _declared_digest(**kwargs) -> str:
+    """A digest in today's live shape: MIXED + Phase 4B BLOCKED, the live
+    recall-cohorts line, and the forward-stats declaration."""
+    declaration = jd._forward_stats_declaration(_forward_inputs())
+    return make_digest(verdict="MIXED", recall_line=LIVE_RECALL_LINE,
+                       **kwargs) + declaration + "\n"
+
+
+def _llm_recall_flaw(severity: str):
+    return lambda text: {
+        "research_verdict": "RESEARCH_ONLY",
+        "alpha_discovery_quality": "MIXED",
+        "engine_health": "OPERATIONAL_WITH_BLOCKERS",
+        "promote_to_signal": False, "one_line_summary": "s",
+        "what_is_working": [], "recommended_claude_code_tasks": [],
+        "flaws_detected": [{
+            "severity": severity, "area": "scanner_recall",
+            "issue": "recall context", "why_it_matters": "w",
+            "suggested_fix": "f"}],
+        "next_system_actions": [], "audit_source": "llm", "model": "test",
+    }
+
+
+def _task_texts(audit) -> list:
+    return [a["task"] for a in audit["next_system_actions"]]
+
+
+def test_digest_forward_declaration_is_what_the_audit_reads():
+    line = jd._forward_stats_declaration(_forward_inputs())
+    assert line and "5d/10d/20d" in line
+    assert jar.extract_digest_signals(line)["forward_stats_referenced"]
+    # stats missing from the sidecar -> no declaration -> task can fire
+    assert jd._forward_stats_declaration(
+        _forward_inputs(drop_field="mean_mae_pct")) is None
+    assert jd._forward_stats_declaration({"forward": {}}) is None
+
+
+def test_forward_task_not_requeued_when_stats_exist_and_evidence_immature():
+    audit = jar.audit_daily_digest(_declared_digest(), use_llm=False)
+    assert not [t for t in _task_texts(audit)
+                if t.startswith(FORWARD_TASK_PREFIX)]
+    wait = [w for w in audit["wait_for_maturity"]
+            if w["area"] == "forward_evidence"]
+    assert wait and wait[0]["status"] == "WAIT_FOR_MATURITY"
+    assert wait[0]["queued"] is False
+    assert "MIXED" in wait[0]["condition"]
+    # the blocker itself stays visible
+    assert audit["research_verdict"] == "RESEARCH_ONLY"
+
+
+def test_forward_task_still_fires_when_stats_are_not_declared():
+    audit = jar.audit_daily_digest(
+        make_digest(verdict="MIXED", recall_line=LIVE_RECALL_LINE),
+        use_llm=False)
+    assert [t for t in _task_texts(audit)
+            if t.startswith(FORWARD_TASK_PREFIX)]
+
+
+def test_live_recall_cohorts_line_declares_the_recall_deliverable(monkeypatch):
+    monkeypatch.setattr(jar, "_llm_audit", _llm_recall_flaw("HIGH"))
+    audit = jar.audit_daily_digest(_declared_digest())
+    assert not [t for t in _task_texts(audit)
+                if t.startswith(RECALL_TASK_PREFIX)]
+
+
+def test_low_llm_recall_flaw_alone_does_not_raise_a_p0(monkeypatch):
+    monkeypatch.setattr(jar, "_llm_audit", _llm_recall_flaw("LOW"))
+    audit = jar.audit_daily_digest(make_digest(verdict="MIXED"))
+    assert not [t for t in _task_texts(audit)
+                if t.startswith(RECALL_TASK_PREFIX)]
+    # a serious recall flaw without any declaration still raises it
+    monkeypatch.setattr(jar, "_llm_audit", _llm_recall_flaw("HIGH"))
+    audit = jar.audit_daily_digest(make_digest(verdict="MIXED"))
+    assert [t for t in _task_texts(audit)
+            if t.startswith(RECALL_TASK_PREFIX)]
+
+
+def _queued_p0(root: Path) -> list:
+    path = root / jar.FEEDBACK_QUEUE_REL
+    if not path.exists():
+        return []
+    return [json.loads(l) for l in path.read_text().splitlines()
+            if l.strip() and json.loads(l).get("priority") == "P0"]
+
+
+def test_addressed_tasks_do_not_reopen_on_consecutive_nights(monkeypatch,
+                                                            tmp_path):
+    monkeypatch.setattr(jar, "_llm_audit", _llm_recall_flaw("LOW"))
+    for night in ("2026-09-12", "2026-09-13"):
+        jar.run_audit(_declared_digest() + f"- Night: {night}\n",
+                      root=tmp_path)
+    assert _queued_p0(tmp_path) == []
+
+    # control: the same nights without the declarations re-queue the P0
+    # forward task every night — the loop this fix closes
+    control = tmp_path / "control"
+    for night in ("2026-09-12", "2026-09-13"):
+        jar.run_audit(make_digest(verdict="MIXED") + f"- Night: {night}\n",
+                      root=control)
+    forward = [e for e in _queued_p0(control)
+               if e["task"].startswith(FORWARD_TASK_PREFIX)]
+    assert len(forward) == 2
+
+
+def test_llm_provider_doc_names_the_role_the_audit_uses(monkeypatch,
+                                                        tmp_path):
+    captured = {}
+
+    class _Capture(_FakeLLMClient):
+        def complete(self, prompt, **kwargs):
+            captured.update(kwargs)
+            return super().complete(prompt, **kwargs)
+
+    monkeypatch.setattr(jar, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(jar, "_get_llm_client", lambda: _Capture(
+        '{"research_verdict": "RESEARCH_ONLY"}'))
+    jar._llm_audit("digest text")
+    assert captured["role"] == jar.LLM_ROLE
+
+    doc = (Path(jar.__file__).resolve().parents[1]
+           / "docs" / "ops" / "LLM_PROVIDER.md").read_text(encoding="utf-8")
+    lines = doc.splitlines()
+    inventory = next(l for l in lines
+                     if l.startswith("| `research/journal_audit_reviewer.py`"))
+    override = next(l for l in lines
+                    if l.startswith("- `JOURNAL_AUDIT_LLM_MODEL`"))
+    assert f"(role: {jar.LLM_ROLE})" in inventory
+    assert f"(role: {jar.LLM_ROLE})" in override
+
+
+def test_loop_closing_text_has_no_trade_or_rank_language():
+    lang = re.compile(r"\bbuy\b|\bsell\b|top pick|price target|"
+                      r"\brank(s|ed|ing)?\b|position size|"
+                      r"trade recommendation", re.IGNORECASE)
+    audit = jar.audit_daily_digest(_declared_digest(), use_llm=False)
+    for text in (json.dumps(audit["wait_for_maturity"]),
+                 jd._forward_stats_declaration(_forward_inputs()),
+                 jd.FORWARD_STATS_DECLARATION):
+        assert not lang.search(text), text

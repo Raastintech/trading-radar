@@ -287,16 +287,26 @@ def build_review(root: Optional[Path] = None) -> Dict[str, Any]:
         task["follow_up_needed"] = bool((ledger or {}).get(
             "follow_up_needed", False))
         if audit is None:
+            task["requeued_by_latest_audit"] = None
             task["still_in_latest_audit"] = None
             task["audit_resolved_hint"] = False
             continue
         requeued = bool(latest_digest
                         and latest_digest in task["source_digests"])
         area_flagged = task["area"] in flagged_areas
+        task["requeued_by_latest_audit"] = requeued
         task["still_in_latest_audit"] = requeued or area_flagged
+        # An ADDRESSED task is confirmed when the latest audit stops
+        # queueing the task itself — not when its whole area goes quiet.
+        # An area can stay flagged for a reason the task cannot clear
+        # (forward evidence waiting to mature), and keying on the area kept
+        # the two 2026-07-10 P0 deliverables "unconfirmed" indefinitely.
+        confirmed_addressed = (task["status"] == "ADDRESSED"
+                               and bool(task["commit"]) and not requeued)
         task["audit_resolved_hint"] = (
             task["area"] in resolved_areas
-            or (not requeued and not area_flagged))
+            or (not requeued and not area_flagged)
+            or confirmed_addressed)
 
     open_like = [t for t in tasks if t["status"] in ("OPEN", "IN_PROGRESS")]
     top_p0_p1 = [t for t in open_like if t["priority"] in ("P0", "P1")][:5]
@@ -307,7 +317,7 @@ def build_review(root: Optional[Path] = None) -> Dict[str, Any]:
     addressed_unconfirmed = [
         t for t in tasks
         if t["status"] == "ADDRESSED" and t.get("commit")
-        and t["still_in_latest_audit"]]
+        and t.get("requeued_by_latest_audit")]
     recommended_next = open_like[0] if open_like else None
 
     counts = {"total_tasks": len(tasks)}
@@ -396,7 +406,7 @@ def render_review(review: Dict[str, Any], *, verbose: bool = False) -> str:
     else:
         lines.append("  (none)")
 
-    lines.append("\n3. APPEAR RESOLVED BY LATEST AUDIT "
+    lines.append("\n3. APPEAR RESOLVED BY LATEST AUDIT — no longer queued "
                  "(confirm with: resolve <id> --status resolved_by_audit)")
     if review["audit_resolved_candidates"]:
         for t in review["audit_resolved_candidates"]:

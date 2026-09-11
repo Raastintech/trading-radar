@@ -202,3 +202,26 @@ def test_no_ranking_or_trade_language_in_the_layer():
     for token in ("buy ", "sell ", "price target", "position size",
                   "conviction tier", "top pick", "validated_edge"):
         assert token not in src, f"{token!r} leaked into the quarantine layer"
+
+
+# ── 5. the digest and command center read no quarantined sidecar ────────────
+
+QUARANTINED_SIDECAR_STEMS = sorted(
+    set(QS.QUARANTINED_BY_NAME) | {"scanner_truth_summary"})
+
+
+@pytest.mark.parametrize("rel", [
+    "dashboards/research_command_center/journal_digest.py",
+    "dashboards/research_command_center/data_adapter.py",
+    "dashboards/research_command_center/static/index.html",
+])
+def test_digest_and_command_center_read_no_quarantined_sidecar(rel):
+    """Checked 2026-09-11: neither the daily digest nor the command center
+    loads any sidecar this layer marks non-current, so neither needs to
+    consult it.  Pin that: a future reader added to one of these files
+    must go through QS.classify before rendering the value as current."""
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    for stem in QUARANTINED_SIDECAR_STEMS:
+        assert stem not in src, (
+            f"{rel} reads quarantined sidecar {stem!r} — gate it through "
+            "core.quarantined_surfaces")

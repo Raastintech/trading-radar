@@ -56,9 +56,14 @@ FEEDBACK_QUEUE_REL = Path("logs") / "research_engine_feedback_queue.jsonl"
 JOURNAL_JSONL_REL = Path("data") / "research" / "journal.jsonl"
 AUDIT_HISTORY_REL = Path("data") / "research" / "journal_audit_history.jsonl"
 
+# Provider role for the audit call.  "chat" since 2026-08-25 (commit
+# 8352a7e — see the max-tokens history below): on the reasoner role the
+# model spent its whole output budget on hidden chain-of-thought.
+# docs/ops/LLM_PROVIDER.md must name this same role (pinned by a test).
+LLM_ROLE = "chat"
 # Optional explicit model override for the active provider; empty means
-# "use the provider's reasoner-role default" (deepseek-reasoner for the
-# default DeepSeek provider).  The pre-migration
+# "use the provider's default model for LLM_ROLE" (the DEEPSEEK_CHAT_MODEL
+# chain for the default DeepSeek provider).  The pre-migration
 # JOURNAL_AUDIT_ANTHROPIC_MODEL var is honoured only when the provider is
 # the explicitly re-enabled Anthropic fallback.
 MODEL_ENV_VAR = "JOURNAL_AUDIT_LLM_MODEL"
@@ -514,8 +519,19 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         # the declaration disappears and the action re-fires.
         "options_coverage_report_referenced":
             "options-coverage report" in lower,
-        "recall_diagnostics_referenced":
-            "scanner-recall diagnostics report" in lower,
+        # Recall: the original "scanner-recall diagnostics report" line left
+        # the digest in 97967cc.  The live deliverable is now the
+        # prospective cohorts tracker (263fbf7), which the digest states as
+        # "... via scanner-recall cohorts: <verdict>".  Without this the P0
+        # build task re-queued on 35 nights after it had been addressed.
+        "recall_diagnostics_referenced": (
+            "scanner-recall diagnostics report" in lower
+            or "via scanner-recall cohorts" in lower),
+        # Forward: the tracker's per-priority hit-rate / median / MAE stats
+        # (ead73d0).  The digest declares them only when the forward
+        # sidecar actually carries them.
+        "forward_stats_referenced":
+            "see forward-evidence tracker report" in lower,
         "red_flags_line_present": "red flags in review order:" in lower,
         "quarantine_report_referenced":
             "see quarantine-cause report" in lower,
@@ -1143,9 +1159,15 @@ def build_next_system_actions(
     # from a genuinely live-board recall mention, so no extra
     # legacy-vs-live branching is needed at this call site.
     recall = signals.get("scanner_recall_pct")
+    # Only a HIGH/CRITICAL recall flaw can raise this P0.  A LOW context
+    # note from the LLM ("recall 15% vs 5.4% baseline, LOOSE_NOT_BETTER")
+    # is not a reason to rebuild diagnostics that already exist.
+    serious_flaw_areas = {
+        f.get("area") for f in flaws
+        if SEVERITY_RANK.get(f.get("severity"), 0) >= SEVERITY_RANK["HIGH"]}
     recall_low = (recall is not None
                   and recall < SCANNER_RECALL_FLOOR_PCT) \
-        or "scanner_recall" in flaw_areas
+        or "scanner_recall" in serious_flaw_areas
     # Suppressed when the digest declares the recall-diagnostics report
     # exists — the deliverable this action asks for is already built;
     # low recall itself stays visible as a HIGH flaw.
@@ -1179,10 +1201,16 @@ def build_next_system_actions(
             "forward returns; any filter-change proposal cites that cohort "
             "forward evidence."))
 
-    # P0 — forward-evidence tracking depth
-    if signals.get("forward_negative") or signals.get("forward_immature") \
-            or signals.get("phase4b_blocked") \
-            or "forward_evidence" in flaw_areas:
+    # P0 — forward-evidence tracking depth.  Suppressed when the digest
+    # declares the tracker stats exist.  The verdict / Phase-4B conditions
+    # are maturity states no code change clears, so keying on them alone
+    # re-queued this finished task every night (50 nights to 2026-09-11).
+    # The immature state is recorded as WAIT_FOR_MATURITY instead
+    # (build_wait_for_maturity), and the forward flaw stays visible.
+    if (signals.get("forward_negative") or signals.get("forward_immature")
+            or signals.get("phase4b_blocked")
+            or "forward_evidence" in flaw_areas) \
+            and not signals.get("forward_stats_referenced"):
         verdict = signals.get("tracker_verdict") or "immature"
         actions.append(_action(
             "P0", "forward_evidence",
@@ -1363,6 +1391,8 @@ def declared_covered_areas(signals: Dict[str, Any]) -> set:
         covered.add("options_overlay")
     if signals.get("recall_diagnostics_referenced"):
         covered.add("scanner_recall")
+    if signals.get("forward_stats_referenced"):
+        covered.add("forward_evidence")
     if signals.get("red_flags_line_present"):
         covered.add("fundamental_overlay")
     if signals.get("quarantine_report_referenced") \
@@ -1371,6 +1401,33 @@ def declared_covered_areas(signals: Dict[str, Any]) -> set:
             and not signals.get("missing_artifacts"):
         covered.add("data_quality")
     return covered
+
+
+def build_wait_for_maturity(signals: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Blockers that no code change can clear.
+
+    Recorded in the audit sidecar so a reader can see why no repair task is
+    queued for them.  They are never written to the feedback queue: a task
+    keyed on a maturity state re-queues every night until the sample
+    matures (the 2026-07-10 forward-evidence P0 did so 50 times).
+    """
+    waits: List[Dict[str, Any]] = []
+    if (signals.get("forward_immature") or signals.get("phase4b_blocked")) \
+            and not signals.get("forward_negative"):
+        condition = []
+        if signals.get("tracker_verdict"):
+            condition.append(f"tracker verdict {signals['tracker_verdict']}")
+        if signals.get("phase4b_blocked"):
+            condition.append("Phase 4B BLOCKED")
+        waits.append({
+            "area": "forward_evidence",
+            "status": "WAIT_FOR_MATURITY",
+            "condition": "; ".join(condition) or "forward evidence immature",
+            "clears_when": ("the forward sample matures and the tracker "
+                            "verdict changes — no code change clears this"),
+            "queued": False,
+        })
+    return waits
 
 
 def merge_system_actions(
@@ -1771,10 +1828,10 @@ def _llm_fail_open() -> bool:
 
 
 def _llm_audit(digest_text: str) -> Dict[str, Any]:
-    """Single completion via the configured provider (default: DeepSeek
-    ``deepseek-reasoner`` — this is the reasoning-heavy audit path).
-    Raises on any problem — the caller converts every failure into the
-    deterministic fallback."""
+    """Single completion via the configured provider on role ``LLM_ROLE``
+    ("chat" since 2026-08-25 — default DeepSeek chat model; the reasoner
+    role was truncating, commit 8352a7e).  Raises on any problem — the
+    caller converts every failure into the deterministic fallback."""
     client = _get_llm_client()
     if client is None:
         raise RuntimeError(
@@ -1792,7 +1849,7 @@ def _llm_audit(digest_text: str) -> Dict[str, Any]:
     resp = client.complete(
         _USER_PROMPT_TEMPLATE.format(context=context, digest=digest_text),
         system=_SYSTEM_PROMPT,
-        role="chat",
+        role=LLM_ROLE,
         model=model_override,
         max_tokens=LLM_MAX_TOKENS,
         timeout=LLM_TIMEOUT_SECONDS,
@@ -2062,6 +2119,8 @@ def sanitize_audit(audit: Dict[str, Any],
         build_next_system_actions(signals, clean["flaws_detected"]),
         clean["next_system_actions"],
         suppressed_areas=declared_covered_areas(signals))
+    # Blockers no code change clears — visible here, never queued.
+    clean["wait_for_maturity"] = build_wait_for_maturity(signals)
     return clean
 
 
