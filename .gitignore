@@ -64,3 +64,7 @@ reports/
 # The script and its tests are tracked; its daily output is not, because a
 # worksheet rebuilt every run would put a diff in every commit.
 docs/research/M1_DAILY_REVIEW_PACKET.md
+
+# Generated Research Governor outputs
+docs/research/RESEARCH_GOVERNOR_REPORT_latest.md
+cache/research/research_governor_latest.json
