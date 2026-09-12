@@ -1601,6 +1601,20 @@ def render_markdown(report: Dict[str, Any]) -> str:
     L: List[str] = []
     add = L.append
     counts = report["action_counts"]
+    components_by_id = {c["component_id"]: c for c in report["components"]}
+
+    def current_label(*component_ids: str) -> str:
+        labels = []
+        for cid in component_ids:
+            component = components_by_id.get(cid)
+            if not component:
+                continue
+            label = f"{component.get('status')} / {component.get('evidence_level')}"
+            if component.get("research_label"):
+                label += f" ({component['research_label']})"
+            labels.append(label)
+        return "; ".join(labels) or "not registered"
+
     add("# Research Governor Report")
     add("")
     add(f"*Generated {report['generated_at']} for session {report['session_date']}. "
@@ -1636,7 +1650,65 @@ def render_markdown(report: Dict[str, Any]) -> str:
             f"{flags} | {c.get('cadence') or '—'} | "
             f"{(c.get('freshness') or {}).get('state', '—')} | {c.get('action')} |")
     add("")
-    add("## 3. Evidence table")
+    add("## 3. How evidence is used")
+    add("")
+    add("Evidence is asymmetric. Backtests are useful for killing bad ideas and choosing "
+        "provisional candidates, but they are not enough for validated live alpha.")
+    add("")
+    add("- **Backtest / replay evidence** can justify a human decision to reject, demote, "
+        "quarantine or mark a method provisional. It cannot validate a live edge when the "
+        "method was discovered after inspecting history.")
+    add("- **Historical holdout evidence** is stronger than in-sample fit only while the "
+        "holdout is untouched and the method was frozen first. Once a method is specified "
+        "after that holdout was inspected, the holdout can reject it or support a "
+        "provisional candidate, but cannot validate a live edge.")
+    add("- **Forward-shadow evidence** starts after the method and evaluation rules are "
+        "frozen. It is required before any method can be promoted beyond research-only; "
+        "immature shadow evidence supports waiting, not promotion.")
+    add("- **Mature live evidence** is unseen forward evidence that has reached its "
+        "predeclared horizons, sample floors and controls without a rule change. It can "
+        "support a human review for VALIDATED_EDGE, but maturity never grants that label "
+        "automatically.")
+    add("")
+    if report["apparatus_answer"]["validated_edges"] == 0:
+        add("**No component is VALIDATED_EDGE today.**")
+    else:
+        add(f"**VALIDATED_EDGE components today: "
+            f"{report['apparatus_answer']['validated_edges']}.**")
+    add("")
+    add("| component | historical/backtest evidence | forward evidence | current label | "
+        "what backtest is allowed to decide | what still requires forward maturity |")
+    add("|---|---|---|---|---|---|")
+    add("| M1 source pool / frozen selector cohort | Replay found only a provisional "
+        "unordered-pool effect; per-name selectors and overlays failed. The frozen cohort "
+        "was selected after that prior research. | Write-once cohort; decisive 45d and 60d "
+        "reads are not mature. | "
+        f"{_md(current_label('m1_source_pool', 'm1_frozen_cohort_tracker'))} | Reject failed "
+        "selectors and overlays; keep the pool or cohort provisional. | The M1 frozen "
+        "cohort needs 45d/60d because the cohort was selected after prior research. |")
+    add("| Style-cell leader pool | Sandbox replay and historical holdout selected a "
+        "provisional candidate, but the whole-pool method was specified after the holdout "
+        "was read. | Isolated forward shadow; its primary horizon and declared floor use "
+        "matured 60d outcomes. | "
+        f"{_md(current_label('style_cell_leader_forward_shadow'))} | Reject it, demote it or "
+        "keep it as a provisional research candidate. | The style-cell leader pool needs "
+        "60d forward maturity because the method was discovered in the sandbox lab. |")
+    add("| Old scanner (decommissioned council funnel) | Price-only replay contradicted "
+        "the old selection path across the tested horizons. | No additional forward wait is "
+        "needed to preserve its demotion. | "
+        f"{_md(current_label('scanner_truth_autopsy'))} | Reject, demote or quarantine the "
+        "contradicted method and remove its daily influence. | Nothing for demotion: the "
+        "old scanner does not need more forward waiting because replay already contradicted "
+        "it. Any replacement needs its own forward evidence. |")
+    add("| Live forward tracker / research programs | Historical work may reject paths or "
+        "nominate provisional ones; it cannot validate the current live edge. | Current "
+        "forward verdicts remain mixed or immature; qualifying long-horizon gates have not "
+        "matured. | "
+        f"{_md(current_label('forward_evidence_tracker', 'research_programs'))} | Kill a bad "
+        "path or keep a candidate provisional. | Predeclared horizons, independent samples "
+        "and controls must mature before a VALIDATED_EDGE review. |")
+    add("")
+    add("### Artifact / registry consistency")
     add("")
     add("| Path | Registry level | Artifact verdict | Observed level | Agreement | Artifact age |")
     add("|---|---|---|---|---|---|")
@@ -1646,8 +1718,10 @@ def render_markdown(report: Dict[str, Any]) -> str:
         add(f"| {_md(e['path_label'])} | {e['registry_evidence_level']} | {_md(verdicts)} | "
             f"{e['observed_evidence_level']} | {e['agreement']} | {age} |")
     add("")
-    add("No path has a validated forward edge unless a row above reads VALIDATED_EDGE "
-        "with AGREES.")
+    add("This diagnostic table checks whether local artifacts agree with the registry. It "
+        "does not erase replay or holdout findings, and agreement alone does not establish "
+        "a live edge. No path has a validated forward edge unless a row above reads "
+        "VALIDATED_EDGE with AGREES.")
     add("")
     add("## 4. API / cost risk table")
     add("")

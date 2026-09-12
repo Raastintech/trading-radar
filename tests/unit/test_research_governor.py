@@ -33,6 +33,7 @@ NOW = datetime(2026, 9, 12, 1, 0, tzinfo=timezone.utc)  # ET session 2026-09-11
 
 TRADE_LANGUAGE = re.compile(r"\b(buy|sell|hold|top[- ]picks?|price[- ]targets?)\b",
                             re.IGNORECASE)
+RANK_LANGUAGE = re.compile(r"\b(rank|ranked|ranking|rankings)\b", re.IGNORECASE)
 
 RUNNER = """#!/usr/bin/env bash
 cmd_nightly() {
@@ -429,6 +430,19 @@ def test_markdown_has_no_trade_language(tmp_path):
     root = _busy_root(tmp_path)
     rg.main(["--root", str(root), "--quiet"])
     text = (root / rg.DEFAULT_OUTPUT_MD_REL).read_text()
+    assert "## 3. How evidence is used" in text
+    evidence_section = text.split("## 3. How evidence is used", 1)[1].split(
+        "## 4. API / cost risk table", 1
+    )[0]
+    assert not RANK_LANGUAGE.search(evidence_section)
+    assert ("| component | historical/backtest evidence | forward evidence | current label | "
+            "what backtest is allowed to decide | what still requires forward maturity |"
+            in text)
+    assert "The M1 frozen cohort needs 45d/60d" in text
+    assert "The style-cell leader pool needs 60d forward maturity" in text
+    assert ("the old scanner does not need more forward waiting because replay already "
+            "contradicted it" in text)
+    assert "No component is VALIDATED_EDGE today." in text
     assert "## 10. Final answer" in text
     assert not TRADE_LANGUAGE.search(text)
 
