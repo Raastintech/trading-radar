@@ -2025,6 +2025,11 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--start", default=REPLAY_WINDOW_START)
         s.add_argument("--end", default=REPLAY_WINDOW_END)
         s.add_argument("--execute-fetch", action="store_true")
+        s.add_argument("--allow-large-run", action="store_true",
+                       help="authorise a run planning more than the "
+                            "confirmation threshold of provider calls; "
+                            "without it such a run refuses before the first "
+                            "call, even with --execute-fetch")
         s.add_argument("--max-calls", type=int, default=None)
         s.add_argument("--limit", type=int, default=0)
         s.add_argument("--workers", type=int, default=3)

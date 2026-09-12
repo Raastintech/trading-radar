@@ -549,15 +549,53 @@ def add_safety_args(parser, *, fetches: bool = False) -> None:
         default=str(ROOT),
         help="Repo root (tests point this at a sandbox).",
     )
+    if fetches:
+        parser.add_argument(
+            "--allow-large-run",
+            action="store_true",
+            help="Authorise a run planning more than the confirmation "
+                 "threshold of provider calls. Without it such a run refuses "
+                 "before the first call, even with --execute-fetch.",
+        )
 
 
 def require_execute_fetch(args, *, planned_calls: int, what: str) -> None:
-    """Refuse to touch a provider unless the operator passed --execute-fetch."""
+    """Refuse to touch a provider unless the run is authorised for its size.
+
+    Two gates, both before the first call:
+
+    1. ``--execute-fetch`` authorises provider calls at all.
+    2. ``--allow-large-run`` authorises the *size* of the run. ``--execute-fetch``
+       is binary, so on its own it waves through a 100-call plan and an
+       11,500-call plan identically — which is the shape of the 2026-09-05 day
+       that spent 20,260 calls. Anything above
+       ``core.provider_budget.PLANNED_CALL_CONFIRM_THRESHOLD`` now has to be
+       named deliberately.
+
+    The size gate is raised as :class:`FetchNotAuthorised` so ``run_cli`` still
+    turns it into a clean exit 3 with "No calls were made", rather than a
+    traceback.
+    """
     if not getattr(args, "execute_fetch", False):
         raise FetchNotAuthorised(
             f"{what}: {planned_calls:,} provider calls planned. "
             "Re-run with --execute-fetch to authorise. No calls were made."
         )
+    # Imported here so this module stays importable with no credentials and no
+    # provider client anywhere in the import graph.
+    from core.provider_budget import (  # noqa: PLC0415
+        PlannedCallsNotAuthorised,
+        assert_planned_calls_authorised,
+    )
+    try:
+        assert_planned_calls_authorised(
+            planned_calls,
+            override=bool(getattr(args, "allow_large_run", False)),
+            where=what,
+            override_flag="--allow-large-run",
+        )
+    except PlannedCallsNotAuthorised as exc:
+        raise FetchNotAuthorised(f"{exc} No calls were made.") from exc
 
 
 def run_cli(fn, args) -> int:

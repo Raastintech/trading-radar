@@ -204,11 +204,39 @@ def test_require_execute_fetch_blocks_by_default():
         C.require_execute_fetch(A(), planned_calls=1000, what="test")
 
 
-def test_require_execute_fetch_allows_when_authorised():
+def test_require_execute_fetch_allows_a_small_authorised_run():
     class A:
         execute_fetch = True
 
-    C.require_execute_fetch(A(), planned_calls=1000, what="test")  # no raise
+    C.require_execute_fetch(A(), planned_calls=10, what="test")  # no raise
+
+
+def test_execute_fetch_alone_no_longer_authorises_a_large_run():
+    """--execute-fetch is binary: on its own it waved through a 100-call plan
+    and an 11,500-call plan identically. Size must be named separately."""
+    class A:
+        execute_fetch = True
+        allow_large_run = False
+
+    with pytest.raises(C.FetchNotAuthorised) as exc:
+        C.require_execute_fetch(A(), planned_calls=1000, what="test")
+    assert "--allow-large-run" in str(exc.value)
+    assert "No calls were made" in str(exc.value)
+
+
+def test_a_large_run_passes_once_its_size_is_named():
+    class A:
+        execute_fetch = True
+        allow_large_run = True
+
+    C.require_execute_fetch(A(), planned_calls=11_500, what="test")  # no raise
+
+
+def test_every_fetching_stage_exposes_the_size_override():
+    for mod, argv in ((HRUB, ["harvest"]), (HRPB, ["fetch"]), (HRFF, [])):
+        args = mod.build_parser().parse_args(argv)
+        assert hasattr(args, "allow_large_run"), mod.__name__
+        assert args.allow_large_run is False, f"{mod.__name__} defaults to large runs"
 
 
 def test_call_cap_aborts_before_the_first_call():

@@ -959,7 +959,7 @@
       "evidence_level": "REPLAY_CONTRADICTED",
       "daily_decision_impact": false,
       "provider_call_risk": "HIGH",
-      "hard_guard": false,
+      "hard_guard": true,
       "allowed_to_surface_candidates": false,
       "allowed_in_daily_digest": false,
       "allowed_in_dashboard": false,
@@ -972,7 +972,7 @@
       "consumers": [
         "audit"
       ],
-      "notes": "About 30 sidecars frozen since mid-June; their value is that they say no and are dated. Core-Satellite is the one provisional exception and has its own forward shadow ledger. Never consult for candidate selection. Provider risk is HIGH: the manual fetch scripts here default to 8,500-11,500 calls per run (historical_replay_price_backfill, historical_replay_fundamental_fetch) and the M1 analyst-actions study to 3,800, guarded only by the global daily FMP cap, with no planned-call gate."
+      "notes": "About 30 sidecars frozen since mid-June; their value is that they say no and are dated. Core-Satellite is the one provisional exception and has its own forward shadow ledger. Never consult for candidate selection. Provider risk is HIGH: the manual fetch scripts here default to 8,500-11,500 calls per run (historical_replay_price_backfill, historical_replay_fundamental_fetch) and the M1 analyst-actions study to 3,800, guarded only by the global daily FMP cap, with no planned-call gate. Gated 2026-09-11: research/backtests/common.py require_execute_fetch now applies the planned-call confirmation threshold, so any stage planning more than 100 calls refuses unless --allow-large-run is named, even with --execute-fetch."
     },
     {
       "component_id": "scanner_truth_autopsy",

@@ -1208,8 +1208,14 @@ def _big_spend_modules(run: _Run) -> List[Dict[str, Any]]:
                     out.append({
                         "module": str(py.relative_to(run.root)) if run.root in py.parents else str(py),
                         "constant": name, "calls": n,
-                        "planned_call_gate": ("assert_planned_calls_authorised" in text
-                                              or "assert_within_hard_cap" in text)})
+                        # require_execute_fetch counts: since 2026-09-11 the
+                        # shared replay helper carries the planned-call gate,
+                        # so a stage calling it is size-gated too.
+                        "planned_call_gate": any(
+                            marker in text for marker in
+                            ("assert_planned_calls_authorised",
+                             "assert_within_hard_cap",
+                             "require_execute_fetch"))})
     return out
 
 

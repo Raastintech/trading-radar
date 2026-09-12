@@ -874,10 +874,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "provider disagrees (e.g. a genuine split "
                         "re-adjustment). Off by default: a silent rewrite "
                         "changes what the completed M1 studies measured.")
-    p.add_argument("--allow-large-run", action="store_true",
-                   help=f"authorise a run planning more than "
-                        f"{PLANNED_CALL_CONFIRM_THRESHOLD} provider calls. "
-                        "Without it such a run refuses before the first call.")
+    # --allow-large-run comes from add_safety_args(fetches=True) above: the
+    # shared helper owns the planned-call confirmation gate since 2026-09-11.
     p.add_argument("--allow-huge-run", action="store_true",
                    help=f"authorise a run above the per-run hard cap of "
                         f"{HARD_MAX_CALLS} calls (implies --allow-large-run "

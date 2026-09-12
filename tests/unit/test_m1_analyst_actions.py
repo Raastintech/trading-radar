@@ -104,7 +104,8 @@ def test_hard_cap_is_the_approved_one():
 
 
 def _args(root: Path, **kw) -> argparse.Namespace:
-    base = dict(root=str(root), execute_fetch=False, max_calls=None, limit=0,
+    base = dict(root=str(root), execute_fetch=False, allow_large_run=False,
+                max_calls=None, limit=0,
                 workers=1, retries=0, backoff=0.0, only_failed=False,
                 rebuild_tickers=False, bootstrap=50, seed=31,
                 start="2022-01-01", end="2025-12-31")
@@ -138,7 +139,17 @@ def test_fetch_refuses_over_the_cap(tmp_path):
 def test_fetch_cannot_exceed_the_hard_cap_even_if_asked(tmp_path):
     _write_tickers(tmp_path, M.HARD_CALL_CAP + 1)
     with pytest.raises(FetchNotAuthorised):
-        M.fetch_stage(_args(tmp_path, execute_fetch=True, max_calls=10_000))
+        # allow_large_run clears the size gate, so this still exercises the
+        # hard cap itself rather than refusing one gate earlier.
+        M.fetch_stage(_args(tmp_path, execute_fetch=True, allow_large_run=True,
+                            max_calls=10_000))
+
+
+def test_a_large_fetch_refuses_until_its_size_is_named(tmp_path):
+    _write_tickers(tmp_path, 500)
+    with pytest.raises(FetchNotAuthorised) as exc:
+        M.fetch_stage(_args(tmp_path, execute_fetch=True))
+    assert "--allow-large-run" in str(exc.value)
 
 
 def test_run_cli_turns_a_refused_fetch_into_a_clean_exit(tmp_path):
