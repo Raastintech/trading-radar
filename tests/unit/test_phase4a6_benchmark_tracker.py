@@ -24,6 +24,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
+import research.research_watchlist_forward_tracker as rwft
 from research.research_watchlist_forward_tracker import (
     BENCHMARK_SCHEMA_VERSION,
     HORIZONS,
@@ -115,12 +116,26 @@ class TestLoadClosesWithDates:
         return path
 
     def test_loads_dates_from_index(self, tmp_path):
-        dates = ["2026-01-01", "2026-01-02", "2026-01-03"]
+        dates = ["2026-01-01", "2026-01-02", "2026-01-05"]  # Thu, Fri, Mon
         closes = [100.0, 101.0, 102.0]
         self._write_parquet_index_dates(tmp_path, "TEST", dates, closes)
         with patch("research.research_watchlist_forward_tracker.PRICE_DIR", tmp_path):
             result = _load_closes_with_dates("TEST")
-        assert result == [("2026-01-01", 100.0), ("2026-01-02", 101.0), ("2026-01-03", 102.0)]
+        assert result == [("2026-01-01", 100.0), ("2026-01-02", 101.0), ("2026-01-05", 102.0)]
+
+    def test_weekend_bars_are_dropped(self, tmp_path):
+        """A weekend bar in a daily equity series belongs to another
+        instrument (cache/prices/PI.parquet carried $0.09 weekend bars from a
+        24/7 symbol). Keeping it corrupts twice: a wrong entry price, and a
+        shifted horizon, because forward returns are counted in bars."""
+        dates = ["2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"]
+        closes = [101.0, 0.09, 0.09, 102.0]  # Fri, Sat, Sun, Mon
+        self._write_parquet_index_dates(tmp_path, "SPLICED", dates, closes)
+        with patch("research.research_watchlist_forward_tracker.PRICE_DIR", tmp_path):
+            result = _load_closes_with_dates("SPLICED")
+        assert result == [("2026-01-02", 101.0), ("2026-01-05", 102.0)]
+        assert rwft.NON_SESSION_BARS_DROPPED["SPLICED"] == ["2026-01-03",
+                                                           "2026-01-04"]
 
     def test_loads_dates_from_column(self, tmp_path):
         dates = ["2026-01-01", "2026-01-02"]
@@ -136,7 +151,7 @@ class TestLoadClosesWithDates:
         assert result == []
 
     def test_result_is_sorted_ascending(self, tmp_path):
-        dates = ["2026-01-03", "2026-01-01", "2026-01-02"]
+        dates = ["2026-01-05", "2026-01-01", "2026-01-02"]  # Mon, Thu, Fri
         closes = [103.0, 101.0, 102.0]
         self._write_parquet_index_dates(tmp_path, "UNSORTED", dates, closes)
         with patch("research.research_watchlist_forward_tracker.PRICE_DIR", tmp_path):

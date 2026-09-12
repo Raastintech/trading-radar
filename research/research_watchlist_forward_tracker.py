@@ -153,6 +153,17 @@ def _sample_status(n_matured: int) -> str:
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+from research.forward_stat_safety import (  # noqa: E402
+    drop_non_session_bars,
+    per_entity_stats,
+    robust_stats,
+    split_price_artifacts,
+)
+
+#: Weekend bars dropped during this run, by ticker — reported, never silent.
+NON_SESSION_BARS_DROPPED: Dict[str, List[str]] = {}
+
+
 logger = logging.getLogger("research_watchlist_forward_tracker")
 
 
@@ -180,7 +191,15 @@ def _read_parquet_closes(path: Path) -> List[Tuple[str, float]]:
         else:
             dates = df.index.astype(str).str[:10]
         pairs = list(zip(dates, df[close_col].astype(float)))
-        return sorted(pairs, key=lambda x: x[0])
+        # A US equity daily series cannot have a weekend bar. When one is
+        # present it belongs to another instrument (cache/prices/PI.parquet
+        # carried four $0.09 weekend bars from a 24/7 symbol), and it
+        # corrupts twice: it supplies a wrong entry price, and it shifts
+        # every horizon, because forward returns are counted in bars.
+        kept, dropped = drop_non_session_bars(sorted(pairs, key=lambda x: x[0]))
+        if dropped:
+            NON_SESSION_BARS_DROPPED[path.stem.upper()] = [d for d, _ in dropped]
+        return kept
     except Exception:
         return []
 
@@ -364,6 +383,10 @@ def _load_history() -> Dict[str, Dict[str, Any]]:
 
 
 def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[str, Any]:
+    # A return too large to be a price move is a broken bar, and a broken
+    # entry price discredits the whole row, not one horizon of it. These are
+    # quarantined from every statistic below and listed in the output.
+    entries, price_artifacts = split_price_artifacts(entries, HORIZONS)
     matured = [e for e in entries if e.get("ret_10d") is not None]
     matured_5d = [e for e in entries if e.get("ret_5d") is not None]
     n = len(matured)
@@ -391,6 +414,10 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
             "matured_by_horizon": matured_by_horizon,
             "sample_basis": "unique_tickers",
             "sample_status": status,
+            "price_artifacts_excluded": len(price_artifacts),
+            "price_artifacts": price_artifacts[:10],
+            "robust": {},
+            "per_ticker": {},
             "verdict": "NEED_MORE_DATA",
             "win_rate_10d": None,
             "mean_ret_10d": None,
@@ -445,6 +472,20 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
     avg_vs_sec, med_vs_sec, wr_vs_sec, n_sec = _bench_stats("ret_10d_vs_sector")
     avg_vs_iwm, med_vs_iwm, wr_vs_iwm, n_iwm = _bench_stats("ret_10d_vs_iwm")
 
+    # Published beside the row-weighted figures, never instead of them:
+    # `robust` says what the typical row did once a skewed tail is pulled
+    # in, `per_ticker` says what the typical *name* did, which is the
+    # sample any claim about the surface actually rests on.
+    robust = {
+        "ret_10d": robust_stats([e["ret_10d"] for e in matured]),
+        "vs_spy": robust_stats([e["ret_10d_vs_spy"] for e in matured
+                                if e.get("ret_10d_vs_spy") is not None]),
+    }
+    per_ticker = {
+        "ret_10d": per_entity_stats(matured, "ret_10d"),
+        "vs_spy": per_entity_stats(matured, "ret_10d_vs_spy"),
+    }
+
     return {
         "bucket": bucket_name,
         "total_entries": len(entries),
@@ -455,6 +496,10 @@ def _compute_verdicts(entries: List[Dict[str, Any]], bucket_name: str) -> Dict[s
         "matured_by_horizon": matured_by_horizon,
         "sample_basis": "unique_tickers",
         "sample_status": status,
+        "price_artifacts_excluded": len(price_artifacts),
+        "price_artifacts": price_artifacts[:10],
+        "robust": robust,
+        "per_ticker": per_ticker,
         "verdict": verdict,
         "win_rate_10d": pos_rate,
         "mean_ret_10d": mean_10d,
@@ -1418,6 +1463,15 @@ def run_forward_tracker(execute_repair_backfill: bool = False,
         "system_mode": SYSTEM_MODE,
         "research_only": True,
         "total_history_entries": len(history),
+        "price_cache_hygiene": {
+            "non_session_bars_dropped": {
+                t: len(dates) for t, dates in
+                sorted(NON_SESSION_BARS_DROPPED.items())},
+            "tickers_affected": len(NON_SESSION_BARS_DROPPED),
+            "note": "Weekend bars in a daily equity series belong to another "
+                    "instrument. They are ignored when resolving forward "
+                    "returns; the parquet itself still needs a refetch.",
+        },
         "new_entries_today": len(new_entries),
         "updated_entries_today": resolved_count,
         "overall": overall_verdict,

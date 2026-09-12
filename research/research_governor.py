@@ -127,6 +127,11 @@ VERDICT_TO_EVIDENCE = {
     "PROMISING_BUT_UNPROVEN": _FI, "PROMISING_RESEARCH_SURFACE": _FI,
     "FORWARD_SHADOW_RESEARCH_ONLY": _FI, "IMMATURE": _FI,
     "MIXED": _NEE, "UNKNOWN": _NEE,
+    # A positive comparative read is still only a comparison: the shortlist
+    # beat a baseline on one regime window, which is not evidence of edge
+    # until its own pre-registered maturity is met.  Mapped explicitly so
+    # this is a decision rather than an unmapped default.
+    "SHORTLIST_IMPROVES_OUTCOMES": _NEE,
     "NO_VALUE": _FG, "NO_FORWARD_EDGE": _FG, "FAIL": _FG, "FAILED": _FG,
     "LOOSE_NOT_BETTER": _FG, "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES": _FG,
     "NO_EVIDENCE_OF_EDGE": _FG, "DECOMMISSIONED_AUTOPSY": _FG,

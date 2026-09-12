@@ -518,3 +518,45 @@ def test_large_uncapped_run_is_fix_next_for_its_owner(tmp_path):
     assert d["action"] == "FIX_NEXT"
     assert "big_fetch.py" in d["reason"]
     assert "gated_fetch" not in d["reason"] and "small_fetch" not in d["reason"]
+
+
+def test_a_comparative_shortlist_verdict_is_not_read_as_evidence(tmp_path):
+    """SHORTLIST_IMPROVES_OUTCOMES says one surface beat a baseline on the
+    window measured so far. Mapped conservatively on purpose: a registry
+    level of NOT_ENOUGH_EVIDENCE agrees with it, and nothing about it
+    promotes the surface."""
+    artifact = "cache/research/hc_forward_latest.json"
+    root = make_root(tmp_path, [
+        comp("hc", kind="surface", evidence_level="NOT_ENOUGH_EVIDENCE",
+             evidence_probe={"artifact": artifact, "path": "verdict"}),
+    ])
+    write_json(root, artifact, {"verdict": "SHORTLIST_IMPROVES_OUTCOMES"})
+    report = build(root)
+
+    row = next(e for e in report["evidence"] if e["component_id"] == "hc")
+    assert row["observed_evidence_level"] == "NOT_ENOUGH_EVIDENCE"
+    assert row["agreement"] == "AGREES"
+    assert not [w for w in report["drift_warnings"]
+                if w["category"] == "registry_evidence_mismatch"]
+
+
+def test_episode_independence_probe_fires_on_a_real_ratio(tmp_path):
+    """The re-pointed programs probe: episodes per unique ticker, not ledger
+    rows per episode. A ledger that re-appends a name nightly is expected;
+    the same name entering under many labels is what overstates evidence."""
+    artifact = "cache/research/programs_latest.json"
+    probe = [{"kind": "ratio_max", "artifact": artifact,
+              "path": "episodes_per_unique_ticker", "max": 2.0,
+              "label": "episodes per unique ticker"}]
+    root = make_root(tmp_path, [comp("programs", kind="tracker",
+                                     precision_probes=probe)])
+    write_json(root, artifact, {"duplication_factor": 4.68,
+                                "episodes_per_unique_ticker": 1.88})
+    assert decision(build(root), "programs")["action"] != "FIX_NEXT"
+
+    write_json(root, artifact, {"duplication_factor": 4.68,
+                                "episodes_per_unique_ticker": 3.1})
+    report = build(root)
+    assert decision(report, "programs")["action"] == "FIX_NEXT"
+    assert [w for w in report["drift_warnings"]
+            if w["category"] == "fake_precision"]

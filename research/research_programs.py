@@ -575,6 +575,17 @@ def build_program_validation(root: Optional[Path] = None) -> Dict[str, Any]:
         "ledger_rows": len(rows),
         "deduped_episodes": len(episodes),
         "duplication_factor": round(len(rows) / max(len(episodes), 1), 2),
+        # The ledger re-appends a name every night it is on the board, so
+        # rows-per-episode is high by construction and says nothing about
+        # this report, whose every statistic and gate reads episodes.  What
+        # does matter is how independent those episodes are: a ticker that
+        # enters under several labels still contributes several of them.
+        "unique_tickers": len({e.get("ticker") for e in episodes}),
+        "episodes_per_unique_ticker": round(
+            len(episodes) / max(len({e.get("ticker") for e in episodes}), 1), 2),
+        "statistics_basis": "deduped episodes (first appearance per "
+                            "ticker+label); ledger rows are never counted "
+                            "as evidence",
         "unrouted_labels": unrouted,
         "gates": {
             "program_min_episodes": PROGRAM_MIN_EPISODES,
@@ -598,7 +609,9 @@ def render_text(report: Dict[str, Any]) -> str:
              f"  generated: {report['generated_at'][:16]} | ledger rows "
              f"{report['ledger_rows']} -> episodes "
              f"{report['deduped_episodes']} "
-             f"(x{report['duplication_factor']} duplication)"]
+             f"(x{report['duplication_factor']} duplication) | "
+             f"{report['unique_tickers']} unique tickers "
+             f"(x{report['episodes_per_unique_ticker']} episodes per name)"]
     if report["unrouted_labels"]:
         lines.append(f"  UNROUTED LABELS: {report['unrouted_labels']}")
     for pid, p in report["programs"].items():

@@ -282,7 +282,7 @@
         "alpha_root_cause_gate",
         "daily_research_digest"
       ],
-      "notes": "Sample ROBUST, verdict MIXED. 60d horizons barely matured. Keep; it is the measurement everything else leans on."
+      "notes": "Sample ROBUST, verdict MIXED. 60d horizons barely matured. Keep; it is the measurement everything else leans on. Batch E (2026-09-12): weekend bars are dropped when resolving forward returns (they belong to another instrument and also shift bar-counted horizons), returns too large to be a price move are quarantined from every statistic and listed in price_artifacts, and each bucket now publishes a robust view (median / winsorized headline) and a per-ticker view (807 names behind 6,214 matured rows). History rows are never rewritten."
     },
     {
       "component_id": "research_programs",
@@ -317,9 +317,9 @@
         {
           "kind": "ratio_max",
           "artifact": "cache/research/research_program_validation_latest.json",
-          "path": "duplication_factor",
+          "path": "episodes_per_unique_ticker",
           "max": 2.0,
-          "label": "ledger duplication factor"
+          "label": "episodes per unique ticker"
         }
       ],
       "evidence_path_label": "research programs",
@@ -329,7 +329,7 @@
         "daily_research_digest",
         "journal_audit_reviewer"
       ],
-      "notes": "All three programs INSUFFICIENT_MATURE_EVIDENCE. Ledger rows duplicate episodes about 4.6x (drift audit): any n-based claim must use deduplicated episodes."
+      "notes": "All three programs INSUFFICIENT_MATURE_EVIDENCE. Ledger rows duplicate episodes about 4.6x (drift audit): any n-based claim must use deduplicated episodes. Precision probe re-pointed 2026-09-12: it read duplication_factor (ledger rows per episode, 4.68), which is high by construction because the ledger re-appends a name every night it is on the board, and which this report never counts as evidence — every statistic and gate here reads deduped episodes. The probe now reads episodes_per_unique_ticker (1.88), which measures what is actually at risk: a ticker entering under several labels contributes several 'independent' episodes. Both numbers stay published."
     },
     {
       "component_id": "alpha_root_cause_gate",
@@ -425,7 +425,7 @@
         "alpha_focus",
         "daily_research_digest"
       ],
-      "notes": "The forward verdict NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES compares the shortlist mean (+1.87% vs SPY at 10d, n=412) with a baseline mean of +29.44% whose median is -1.7%. The baseline is outlier-contaminated, so the verdict cannot be trusted in either direction. Held at NOT_ENOUGH_EVIDENCE until the baseline uses a robust statistic. Operator decision 2026-09-11: a label on the board, not an independent candidate list."
+      "notes": "The forward verdict is a comparison against the program-candidate baseline. Until 2026-09-12 that baseline was outlier-contaminated (mean +29.44% against a median of -1.7%) by a single broken price row — PI 2026-08-15, a weekend bar from a 24/7 symbol spliced into the equity series, +189,857% at 10d — and the verdict read NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES because a real +1.7% lost to it. Batch E quarantines such rows and compares both sides on the outlier-guarded headline: the baseline is now -1.67% and the verdict reads SHORTLIST_IMPROVES_OUTCOMES. That is a corrected comparison, NOT evidence of edge: 423 matured episodes are only 87 distinct names in one regime window, so the level stays NOT_ENOUGH_EVIDENCE until the pre-registered maturity is met. Operator decision 2026-09-11: a label on the board, not an independent candidate list."
     },
     {
       "component_id": "emerging_outlier_watch",

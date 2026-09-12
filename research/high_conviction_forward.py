@@ -35,6 +35,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from research.high_conviction_alpha import VERSION, SHORTLIST_CLASSES  # noqa: E402
+from research.forward_stat_safety import (  # noqa: E402
+    drop_non_session_bars,
+    per_entity_stats,
+    robust_stats,
+    split_price_artifacts,
+)
 
 HISTORY_REL = (Path("data") / "research"
                / "high_conviction_history.jsonl")
@@ -90,7 +96,11 @@ def _load_closes(sym: str, root: Path) -> List[Tuple[str, float]]:
         dates = (df[date_col].astype(str).str[:10] if date_col
                  else df.index.astype(str).str[:10])
         pairs = list(zip(dates, df[close_col].astype(float)))
-        return sorted(pairs, key=lambda x: x[0])
+        # A weekend bar in a daily equity series is another instrument's row:
+        # it supplies a wrong entry price and shifts every bar-counted
+        # horizon. Same guard as the forward tracker.
+        kept, _ = drop_non_session_bars(sorted(pairs, key=lambda x: x[0]))
+        return kept
     except Exception:
         return []
 
@@ -205,15 +215,14 @@ def _resolve_entry(entry: Dict[str, Any], root: Path,
 
 
 def _stats(entries: List[Dict[str, Any]], field: str) -> Dict[str, Any]:
-    vals = [e[field] for e in entries if e.get(field) is not None]
-    if not vals:
-        return {"n": 0, "mean": None, "median": None, "win_rate": None}
-    return {
-        "n": len(vals),
-        "mean": round(sum(vals) / len(vals), 2),
-        "median": round(statistics.median(vals), 2),
-        "win_rate": round(100.0 * sum(1 for v in vals if v > 0) / len(vals), 1),
-    }
+    """Row-weighted stats, plus the robust companions.
+
+    ``mean`` stays the plain mean so existing readers keep working;
+    ``headline_mean`` is the number a claim should quote, and it falls back
+    to the winsorized mean when mean and median disagree.
+    """
+    return robust_stats([e[field] for e in entries
+                         if e.get(field) is not None])
 
 
 def _cohort_summary(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -243,10 +252,19 @@ def _program_baseline(root: Path) -> Optional[Dict[str, Any]]:
             continue
     if not rows:
         return None
+    # The baseline decides a published verdict, so a broken price bar in it
+    # is not a rounding detail: one PI row (a weekend crypto bar spliced
+    # into an equity series, +189,857% at 10d) carried the whole 6,216-row
+    # mean from -1.7% to +28.9%.
+    rows, artifacts = split_price_artifacts(rows, HORIZONS)
     return {
         "n_episodes": len(rows),
+        "price_artifacts_excluded": len(artifacts),
+        "price_artifacts": artifacts[:10],
         "10d": {"raw": _stats(rows, "ret_10d"),
-                "vs_spy": _stats(rows, "ret_10d_vs_spy")},
+                "vs_spy": _stats(rows, "ret_10d_vs_spy"),
+                "vs_spy_per_ticker": per_entity_stats(
+                    rows, "ret_10d_vs_spy")},
     }
 
 
@@ -297,29 +315,48 @@ def build_forward(root: Optional[Path] = None,
 
     # verdict: needs enough matured 10d shortlist episodes AND a positive
     # excess vs SPY that beats the program-candidate baseline.
-    n_matured = cohorts["full_shortlist"]["10d"]["vs_spy"]["n"]
+    shortlist_10d = cohorts["full_shortlist"]["10d"]["vs_spy"]
+    n_matured = shortlist_10d["n"]
+    shortlist_per_ticker = per_entity_stats(resolved, "ret_10d_vs_spy")
     verdict, reason = V_NEED_MORE_DATA, (
         f"only {n_matured} matured 10d shortlist episodes "
         f"(need ≥{MIN_MATURED_FOR_VERDICT})")
     if n_matured >= MIN_MATURED_FOR_VERDICT:
-        sl_excess = cohorts["full_shortlist"]["10d"]["vs_spy"]["mean"]
-        base_excess = (baseline or {}).get("10d", {}).get(
-            "vs_spy", {}).get("mean") if baseline else None
+        # Both sides are compared on the outlier-guarded headline, so the
+        # comparison is like for like and no single broken bar can decide
+        # it. The plain means stay in the payload beside them.
+        sl_excess = shortlist_10d["headline_mean"]
+        base_block = ((baseline or {}).get("10d", {}).get("vs_spy")
+                      if baseline else None) or {}
+        base_excess = base_block.get("headline_mean")
+        names = (f"{shortlist_per_ticker['n']} distinct names behind "
+                 f"{n_matured} matured episodes")
         if sl_excess is not None and sl_excess > 0 and (
                 base_excess is None or sl_excess > base_excess):
             verdict, reason = V_IMPROVES, (
                 f"shortlist 10d excess vs SPY {sl_excess:+.2f}% beats "
-                f"program baseline {base_excess}")
+                f"program baseline {base_excess}% — {names}; one regime "
+                "window, research-only and not validated")
         else:
             verdict, reason = V_NO_IMPROVEMENT, (
-                f"shortlist 10d excess vs SPY {sl_excess} does not beat "
-                f"baseline {base_excess}")
+                f"shortlist 10d excess vs SPY {sl_excess}% does not beat "
+                f"baseline {base_excess}% — {names}")
 
     return {
         **base, "present": True,
         "n_history_rows": len(history),
         "n_distinct_dates": len(by_date),
         "cohorts": cohorts,
+        "shortlist_per_ticker_10d_vs_spy": shortlist_per_ticker,
+        "statistics_basis": {
+            "comparison_statistic": "headline_mean (winsorized when mean "
+                                    "and median disagree by >10pp)",
+            "price_artifacts": "returns too large to be a price move are "
+                               "excluded from both sides and listed",
+            "overlap": "row-weighted figures repeat a name once per "
+                       "appearance; the per-ticker block counts each name "
+                       "once",
+        },
         "program_candidate_baseline": baseline,
         "verdict": verdict,
         "verdict_reason": reason,
