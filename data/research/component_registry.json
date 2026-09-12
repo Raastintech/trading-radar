@@ -1282,15 +1282,7 @@
       "reason": "docs/ROADMAP_PHASES.md: not before the 45d and 60d forward windows mature (M1 cohort reads 2026-11-06 and 2026-11-27) and the production-change checklist is met."
     }
   ],
-  "known_test_debt": [
-    {
-      "test": "tests/unit/test_m1_price_refresh.py",
-      "failing": 7,
-      "issue": "date rot: fixtures are judged against the real clock (young-listing and stale windows)",
-      "first_recorded": "2026-09-09",
-      "recorded_in": "commit 36da6b7"
-    }
-  ],
+  "known_test_debt": [],
   "generated_docs": [
     "docs/research/DAILY_ALPHA_RADAR_REPORT.md",
     "docs/research/NIGHTLY_OPERATOR_SUMMARY.md",

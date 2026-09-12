@@ -27,6 +27,27 @@ from research.backtests.common import (
 from tests.unit.test_m1_data_guard import REQ, make_frame
 
 
+@pytest.fixture(autouse=True)
+def pin_required_session(monkeypatch):
+    """Pin the session these fixtures are built around.
+
+    ``make_frame`` ends its bars on a fixed date and ``REQ`` is that same fixed
+    date, but ``plan_refresh`` asks ``required_market_session()`` for today when
+    no clock is passed. Every staleness, young-listing and provider-lag
+    assertion in this file therefore drifted as the real calendar advanced: a
+    frame ending on REQ became "stale", a 120-bar listing aged past the
+    400-calendar-day young-listing window, and the recheck dates moved.
+
+    Pinning the clock is the whole fix — no threshold, rule or assertion is
+    relaxed, and the module under test is unchanged. ``_required_session`` is
+    the single date source the plan consults: ``scan_cache`` reads bar dates
+    from the parquet files, and ``is_stale`` / ``is_active`` /
+    ``_is_young_listing`` / ``build_provider_lag_entry`` all take the date
+    explicitly from it.
+    """
+    monkeypatch.setattr(R, "_required_session", lambda now=None: REQ)
+
+
 def sandbox(tmp_path: Path, frames: dict[str, pd.DataFrame]) -> Path:
     d = tmp_path / R.PRICES_REL
     d.mkdir(parents=True)
