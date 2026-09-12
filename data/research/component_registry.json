@@ -49,7 +49,7 @@
         "operator",
         "journal_audit_reviewer"
       ],
-      "notes": "Drift audit 2026-09-09 rated it SUPPORT (degrading): about 187 lines and 19 sections, and every new sidecar gets appended. It recommended a cap near 40 lines; the governor flags anything above 60."
+      "notes": "Drift audit 2026-09-09 rated it SUPPORT (degrading): about 187 lines and 19 sections, and every new sidecar gets appended. It recommended a cap near 40 lines; the governor flags anything above 60. Governance cleanup 2026-09-12 cut the note to about 95 lines and 13 sections: duplicated candidate lists (top-candidates recap, per-candidate latest-scan records), the decommissioned-funnel appendix while none of its warnings is firing, and the long deprioritisation/policy narratives are gone; the four small evidence/policy sections now share one heading. It is still above 60 because the shortlist, emerging-watch, fundamental and program lines are the journal audit reviewer's only input — it parses the note text, not the sidecars — so cutting them would silently disable deterministic gate checks. Reaching 60 needs that reviewer moved onto the JSON sidecars first (human decision), or a cap raised on purpose."
     },
     {
       "component_id": "journal_audit_reviewer",

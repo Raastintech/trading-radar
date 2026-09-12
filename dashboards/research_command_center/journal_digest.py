@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -350,62 +351,77 @@ def _section_data_quality(inputs: Dict[str, Any],
                            else f"degraded ({frac:.1%} of universe skipped)")
     si = status.get("scan_integrity") or {}
     aligned_pct = si.get("same_session_coverage_pct")
+    # One line per subject, not one per field: every token the journal
+    # audit parses (freshness, session, readiness, benchmarks, mismatch,
+    # skips, quarantine) is preserved, just packed together.
     lines = [
         "## 1. Data Quality",
         f"- Freshness: {status.get('data_freshness')} "
-        f"(scanner artifact age {_fmt(status.get('scanner_age_hours'), 'h')})",
+        f"(scanner artifact age {_fmt(status.get('scanner_age_hours'), 'h')}) "
+        f"| price refresh: {refresh_healthy} "
+        f"| missing artifacts: {len(inputs['missing'])}"
+        + (f" ({_join(inputs['missing'], cap=3)})" if inputs["missing"] else ""),
         f"- Required market session: {si.get('required_market_session') or 'unknown'} "
         f"| scan readiness: {si.get('readiness') or 'unknown'} "
-        f"| benchmarks aligned: {si.get('benchmarks_aligned')}",
-        f"- Same-session candidate alignment: "
+        f"| benchmarks aligned: {si.get('benchmarks_aligned')} "
+        f"| same-session alignment: "
         f"{f'{aligned_pct}%' if aligned_pct is not None else 'unknown'} "
         f"| session-mismatch excluded: {_fmt(si.get('session_mismatch_excluded'))}",
         f"- Stale-price skipped: {_fmt(stale)} | suspect-feed skipped: "
-        f"{_fmt(suspect)} | quarantined: {_fmt(status.get('quarantine_count'))}",
-        f"- Missing artifacts: {len(inputs['missing'])}"
-        + (f" ({_join(inputs['missing'], cap=4)})" if inputs["missing"] else ""),
-        f"- Price refresh: {refresh_healthy}",
+        f"{_fmt(suspect)} | quarantined: {_fmt(status.get('quarantine_count'))}"
+        + _quarantine_cause_suffix(inputs),
     ]
+    context = []
     legacy = ((si.get("stale_source_consumers") or {})
               .get("legacy_universe_snapshot") or {})
-    if legacy.get("stale") is not None:
-        lines.append(
-            "- Frozen-source status: legacy universe snapshot "
-            + (f"STALE (as-of {legacy.get('source_as_of')}, "
-               f"{legacy.get('source_age_sessions')} sessions) — consumers gated"
-               if legacy.get("stale") else "fresh"))
+    if legacy.get("stale"):
+        context.append(
+            f"Frozen-source status: legacy universe snapshot STALE (as-of "
+            f"{legacy.get('source_as_of')}, "
+            f"{legacy.get('source_age_sessions')} sessions) — consumers gated")
     cov = si.get("universe_coverage_pct")
     if cov is not None:
-        newly = si.get("newly_admitted_today") or []
-        lines.append(
-            f"- Discovery-universe coverage: {cov}% of eligible market"
-            + (f" | newly admitted: {_join(newly, cap=6)}" if newly else ""))
-    # Quarantine causes (when the cause report exists): stating the
-    # per-cause breakdown here keeps the journal audit from re-proposing
-    # a quarantine diagnostic that already runs nightly.
-    qrep = inputs.get("quarantine_causes")
-    if qrep and qrep.get("n_quarantined"):
-        cause_counts = qrep.get("cause_counts") or {}
-        cause_str = ", ".join(f"{v}x {k}"
-                              for k, v in sorted(cause_counts.items()))
-        lines.append(f"- Quarantine causes: {cause_str} — see "
-                     "quarantine-cause report")
+        context.append(f"discovery-universe coverage {cov}%")
+    if context:
+        lines.append("- " + " | ".join(context))
     # Options overlay is a STRUCTURAL coverage gate (the snapshot-collector
     # universe is capped by design as a provider-budget decision), never a
-    # candidate-level deficiency.  Stating it here as a first-class data-
-    # quality line keeps the state visible even when the warning list is
-    # full, and keeps the journal audit from re-flagging it as a defect.
+    # candidate-level deficiency.  Kept as its own line so the state stays
+    # visible when the warning list is full.
     lines.append(_options_overlay_line(inputs))
     warnings = [
         warning for warning in
         ((inputs["summary"] or {}).get("warnings") or [])
         if not _is_legacy_recall_warning(warning)
     ]
-    for w in (concerns + warnings)[:5]:
+    overlay_state = str((inputs.get("options_coverage") or {})
+                        .get("overlay_state") or "")
+    shown = 0
+    for w in concerns + warnings:
+        # The overlay already has its own line directly above; a warning
+        # that only restates it is noise, not a second finding.
+        if overlay_state and overlay_state != "ENABLED" \
+                and str(w).lower().startswith("options overlay"):
+            continue
         lines.append(f"- Warning: {w}")
+        shown += 1
+        if shown == 3:
+            break
     if not concerns and not warnings:
         lines.append("- No major warnings.")
     return lines
+
+
+def _quarantine_cause_suffix(inputs: Dict[str, Any]) -> str:
+    """Per-cause quarantine breakdown, appended to the skip line.  Stating
+    it keeps the journal audit from re-proposing a quarantine diagnostic
+    that already runs nightly."""
+    qrep = inputs.get("quarantine_causes")
+    if not qrep or not qrep.get("n_quarantined"):
+        return ""
+    causes = ", ".join(f"{v}x {k}" for k, v
+                       in sorted((qrep.get("cause_counts") or {}).items()))
+    return f" ({causes} — see quarantine-cause report)" if causes else ""
 
 
 def _is_legacy_recall_warning(warning: Any) -> bool:
@@ -428,9 +444,8 @@ def _options_overlay_line(inputs: Dict[str, Any]) -> str:
     line = (f"- Options overlay: {state} — watchlist coverage "
             f"{_fmt(cov, '%')} ({_fmt(covered)}/{_fmt(total)} names)")
     if state != "ENABLED":
-        line += (" | structural gate: snapshot-collector universe is capped "
-                 "by design (provider-budget decision), NOT a candidate-"
-                 "level defect — see options-coverage report")
+        line += (" | structural gate: collector universe capped by design, "
+                 "not a candidate defect — see options-coverage report")
     return line
 
 
@@ -471,29 +486,83 @@ def _section_scanner(inputs: Dict[str, Any], top: List[str],
     store = inputs.get("store")
     lines = [
         "## Scanner / Why Names Appeared (discovery only)",
-        f"- Total candidates: {_fmt(radar.get('total_candidates') or scanner.get('watchlist_size'))}",
+        f"- Total candidates: {_fmt(radar.get('total_candidates') or scanner.get('watchlist_size'))}"
+        f" | extended/crowded: {_fmt(counts.get('EXTENDED_CROWDED') or alpha.get('extended_crowded_count'))}"
+        f" | data quarantine / young listing: {_fmt(quarantine)}"
+        f" | live board as of {scanner.get('market_as_of_date') or 'unknown'}",
         f"- Broad-scanner candidates (discovery only — see Alpha Focus / "
         f"Operator Focus above for prioritized names): "
         f"{_join(_tier_tagged(high, store))}",
-        f"- Reset/reclaim watch: {_join(reset_reclaim)}",
-        f"- Extended/crowded: {_fmt(counts.get('EXTENDED_CROWDED') or alpha.get('extended_crowded_count'))}"
-        f" | data quarantine / young listing: {_fmt(quarantine)}",
-        f"- Top research names: {_join(_tier_tagged(top, store))}",
-        f"- Live-board evidence: {_fmt(scanner.get('watchlist_size'))} current "
-        f"candidates as of {scanner.get('market_as_of_date') or 'unknown'}; "
-        "current why-appeared evidence is shown below.",
+        f"- Reset/reclaim watch: {_join(reset_reclaim, cap=6)} | top research "
+        f"names: {_join(_tier_tagged(top, store), cap=6)}",
     ]
+    lines += _latest_scan_lines(inputs)
     by_ticker = {str(w.get("ticker") or "").upper(): w
                  for w in scanner.get("watchlist") or []}
     reasons = 0
     for t in top:
         row = by_ticker.get(t)
         why = (row or {}).get("why_appeared")
-        if why and reasons < 5:
+        if why and reasons < 2:
             lines.append(f"- {t}: {why}")
             reasons += 1
     if not reasons:
         lines.append("- Why-appeared detail unavailable (scanner artifact missing).")
+    return lines
+
+
+def _latest_scan_lines(inputs: Dict[str, Any]) -> List[str]:
+    """Per-program counts from the latest scan, plus any name that also sits
+    on an avoid/red-flag list elsewhere in this digest.
+
+    The per-candidate records are deliberately not repeated here: they are
+    the same rows the scan already wrote to its own sidecar and verbose log
+    twin, and reprinting three of them per program was the single largest
+    block of duplicated candidate detail in the note.
+    """
+    payload = inputs.get("latest_scan")
+    if not payload or not payload.get("present"):
+        return ["- Latest-scan sidecar missing — run "
+                "./scripts/run_research_cycle.sh latest-scan-programs"]
+    from dashboards.research_command_center.presentation import split_candidates
+    programs = payload.get("programs") or {}
+    bits = []
+    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+        block = programs.get(pid) or {}
+        bits.append(f"{pid} {block.get('candidate_count', 0)} "
+                    f"(new {block.get('new_count', 0)}, repeat "
+                    f"{block.get('repeat_count', 0)}, exited "
+                    f"{block.get('exited_count', 0)})")
+    lines = [f"- Latest scan (as-of {payload.get('market_as_of_date') or 'unknown'}, "
+             f"universe hash match {payload.get('manifest_hash_match')}): "
+             + " | ".join(bits)
+             + " — per-candidate records in the latest-scan sidecar and log."]
+    warnings = list(payload.get("integrity_warnings") or [])
+    if payload.get("scan_stale") and not warnings:
+        warnings = [f"latest scan is STALE ({payload.get('scan_age_hours')}h old)"]
+    if warnings:
+        lines.append(f"- Warning: {warnings[0]}")
+    # A name that is a top candidate here and an avoid/red-flag name
+    # elsewhere in the same digest must say so, or the two contradict.
+    rejected_by_ticker = {
+        str(r.get("ticker") or "").upper(): r
+        for r in (inputs.get("high_conviction") or {}).get("rejected") or []
+    }
+    avoid_set = {str(t).upper() for t in
+                 (inputs.get("radar") or {}).get("priority_tickers", {})
+                 .get("DATA_QUARANTINE") or []}
+    contradictions = []
+    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+        top, _, _ = split_candidates(programs.get(pid) or {}, top_n=3)
+        for c in top:
+            ticker = str(c.get("ticker") or "").upper()
+            rationale = _avoid_rationale_for(ticker, rejected_by_ticker,
+                                             avoid_set, inputs)
+            if rationale:
+                contradictions.append(f"{ticker} — {rationale}")
+    if contradictions:
+        lines.append("- Also on an avoid/red-flag list: "
+                     + "; ".join(contradictions[:3]))
     return lines
 
 
@@ -578,18 +647,24 @@ def _section_sector_regime(inputs: Dict[str, Any], top: List[str]) -> List[str]:
     leading = market.get("leading_sectors") or []
     weak = market.get("weak_sectors") or []
     top_sectors, aligned = _alignment_for_top(inputs, top)
+    # Two lines, both still carrying the tokens the journal audit parses
+    # (regime + confidence, leading/weak sectors, top-name alignment).
     lines = [
         "## 3. Sector / Regime",
         f"- Regime: {market.get('regime') or 'UNKNOWN'} "
         f"(confidence {market.get('confidence') or 'n/a'}; "
         f"bias 5d {market.get('bias_5d') or 'n/a'} / 10d "
-        f"{market.get('bias_10d') or 'n/a'} / 30d {market.get('bias_30d') or 'n/a'})",
-        f"- Leading sectors: {_join(leading, cap=5)} | weak sectors: {_join(weak, cap=5)}",
-        f"- Top-name sectors: {_join(top_sectors, cap=6)} — alignment: {aligned}",
+        f"{market.get('bias_10d') or 'n/a'} / 30d {market.get('bias_30d') or 'n/a'}) "
+        f"| Leading sectors: {_join(leading, cap=4)} "
+        f"| weak sectors: {_join(weak, cap=4)}",
+        f"- Top-name sectors: {_join(top_sectors, cap=4)} — alignment: {aligned}",
     ]
-    posture = market.get("research_posture")
+    posture = str(market.get("research_posture") or "").strip()
     if posture:
-        lines.append(f"- Posture: {posture}")
+        # The sidecar prefixes its own label; the digest supplies one.
+        posture = re.sub(r"^research posture:\s*", "", posture,
+                         flags=re.IGNORECASE)
+        lines.append("- Posture: " + posture.split(";")[0].strip())
     return lines
 
 
@@ -825,22 +900,37 @@ def _section_forward(inputs: Dict[str, Any]) -> List[str]:
         f"matured 5d: {_fmt(status.get('matured_5d'))} | matured 10d: "
         f"{_fmt(status.get('matured_10d'))} | matured 20d: {_mat('20d')} "
         f"| matured 45d: {_mat('45d')} | matured 60d: {_mat('60d')}",
-        f"- Benchmark readiness: {status.get('benchmark_readiness')} | "
-        f"sample status: {_fmt(fwd.get('sample_status'))}",
-        f"- Tracker verdict: {status.get('tracker_verdict')}"
+        f"- Tracker verdict: {status.get('tracker_verdict')} (unproven)"
         + (f" | moment-of-truth verdict: {truth.get('verdict')}"
-           if truth.get("verdict") else ""),
-        f"- Phase 4B: {phase4b.get('status') or 'UNKNOWN'} "
-        f"({phase4b.get('reason') or 'n/a'})",
-        f"- Post-fix evidence: {post_fix}",
+           if truth.get("verdict") else "")
+        + f" | Phase 4B: {phase4b.get('status') or 'UNKNOWN'} "
+        f"({phase4b.get('reason') or 'n/a'})"
+        + f" | benchmark readiness: {status.get('benchmark_readiness')} "
+        f"| sample status: {_fmt(fwd.get('sample_status'))}",
+        f"- Post-fix evidence: {post_fix} — wait for maturity before reading "
+        "any cohort as an edge.",
     ]
     declaration = _forward_stats_declaration(inputs)
     if declaration:
-        lines.append(declaration)
-    for warning in _forward_incomplete_warnings(inputs):
-        lines.append(f"- {warning}")
-    lines += _maturity_eta_lines(inputs)
-    lines += _milestone_lines(inputs)
+        lines[1] += " | " + declaration.lstrip("- ")
+    # The tracker emits one incompleteness warning per horizon; they say the
+    # same thing, so they are stated once with the horizons listed.
+    incomplete = _forward_incomplete_warnings(inputs)
+    if len(incomplete) == 1:
+        lines.append(f"- {incomplete[0]}")
+    elif incomplete:
+        horizons = sorted({h for w in incomplete
+                           for h in re.findall(r"(\d+d)\s+resolution", w)})
+        pcts = re.findall(r"resolution\s+([\d.]+)%", " ".join(incomplete))
+        detail = (f" ({', '.join(f'{h} {p}%' for h, p in zip(horizons, pcts))})"
+                  if horizons and len(pcts) == len(horizons) else "")
+        lines.append("- Forward evidence incomplete — unresolved cohorts may "
+                     f"bias results{detail}.")
+    lines += _maturity_eta_lines(inputs)[:1]
+    # Only a milestone that fires the re-audit hook belongs in the daily
+    # note; a crossing already acted on is history, not today's business.
+    lines += [line for line in _milestone_lines(inputs)
+              if line.startswith("- RE-AUDIT DUE")]
     return lines
 
 
@@ -897,16 +987,12 @@ def _section_cohort_attribution(inputs: Dict[str, Any]) -> List[str]:
         f"(10d mean {_fmt(best.get('headline_mean_return_pct', best.get('mean_return_pct')))}, "
         f"win {best.get('win_rate')}){_outlier_note(best)}.")
     lines.append(
-        f"- High-Conviction 10d sample: {hc.get('matured_count')} "
-        f"({hc.get('result') or hc.get('status')}).")
-    lines.append(
-        f"- Emerging Outlier 10d sample: {eo.get('matured_count')} "
-        f"({eo.get('result') or eo.get('status')}).")
-    if warning:
-        lines.append(f"- Sample maturity: {warning}")
-    lines.append(
-        "- Do not conclude HC/EO alpha until their own matured samples clear "
-        "the pre-registered evidence floor.")
+        f"- 10d samples: High-Conviction {hc.get('matured_count')} "
+        f"({hc.get('result') or hc.get('status')}) | Emerging Outlier "
+        f"{eo.get('matured_count')} ({eo.get('result') or eo.get('status')})"
+        + (f" | {warning}" if warning else "")
+        + " — immature. Do not conclude HC/EO alpha until each clears its "
+        "pre-registered evidence floor.")
     return lines
 
 
@@ -925,15 +1011,15 @@ def _section_research_operating_policy(inputs: Dict[str, Any]) -> List[str]:
         vals = [v for v in vals if v]
         return ", ".join(vals) if vals else "none"
 
-    lines.append(f"- Operator attention today: {labels("focus_now")}.")
-    lines.append(f"- Use caution: {labels("use_caution")}.")
-    lines.append(f"- Discovery only: {labels("discovery_only")}.")
-    lines.append(f"- Do not conclude yet: {labels("do_not_conclude_yet")}.")
-    if dash.get("immature_reminder"):
-        lines.append(f"- Immature evidence: {dash.get("immature_reminder")}")
     lines.append(
-        "- Policy is presentation guidance only; it does not remove candidates, "
-        "alter ranking, change scores, or promote research to signals.")
+        f"- Operator attention today: {labels("focus_now")} | Use caution: "
+        f"{labels("use_caution")} | Discovery only: {labels("discovery_only")} "
+        f"| Do not conclude yet: {labels("do_not_conclude_yet")}."
+        + (f" | Immature evidence: {dash.get("immature_reminder")}"
+           if dash.get("immature_reminder") else ""))
+    lines.append(
+        "- Presentation guidance only; it does not remove candidates, alter "
+        "ranking, change scores, or promote research to signals.")
     return lines
 
 
@@ -977,13 +1063,15 @@ def _section_alpha_root_cause(inputs: Dict[str, Any]) -> List[str]:
             "- Do not infer a root cause until the audit has run at least once.",
         ]
     dash = rc.get("dashboard_summary") or {}
-    lines.append(f"- Top likely failure cause: {dash.get('top_likely_failure_cause') or 'n/a'}.")
-    lines.append(f"- Best surviving cohort: {dash.get('best_surviving_cohort') or 'n/a'}.")
-    lines.append(f"- Worst harmful cohort: {dash.get('worst_harmful_cohort') or 'n/a'}.")
+    lines.append(
+        f"- Top likely failure cause: {dash.get('top_likely_failure_cause') or 'n/a'} "
+        f"| best surviving cohort: {dash.get('best_surviving_cohort') or 'n/a'} "
+        f"| worst harmful cohort: {dash.get('worst_harmful_cohort') or 'n/a'}.")
     lines.append(_decision_date_line(dash, inputs))
     lines.append(
-        "- Diagnostic only — no scanner, scoring, routing, gate, threshold, "
-        "factor-weight, High-Conviction, Emerging Outlier, or program-verdict change.")
+        "- Research-only diagnostic: the review changes no scanner, score, "
+        "gate, threshold, shortlist or program verdict, and no decision here "
+        "promotes anything.")
     return lines
 
 
@@ -997,13 +1085,13 @@ def _section_alpha_focus(inputs: Dict[str, Any]) -> List[str]:
         ]
     counts = af.get("counts") or {}
     lines.append(
-        f"- Today ({af.get('market_as_of_date') or 'unknown'}): "
+        f"- Alpha Focus today ({af.get('market_as_of_date') or 'unknown'}): "
         f"{counts.get('review_now')} review now / {counts.get('higher_risk_eo_review')} higher-risk EO / "
         f"{counts.get('wait_for_reset')} wait-for-reset / {counts.get('deprioritized')} deprioritized "
         f"of {counts.get('total_today')} candidates "
         f"(HC overlap {counts.get('high_conviction_overlap')}, EO overlap {counts.get('emerging_outlier_overlap')}).")
     review_now = [r.get("ticker") for r in (af.get("review_now") or [])[:5]]
-    lines.append(f"- Review Now names: {_join(review_now) if review_now else 'none'}.")
+    review_now_line = f"- Review Now names: {_join(review_now) if review_now else 'none'}"
     # A ticker with material red-flag risk notes must not also sit in the
     # clean Higher-Risk EO Review line — it belongs only in Red-flag
     # review / Risk Review below, never in both (WGS/RIVN 2026-08-22
@@ -1013,17 +1101,21 @@ def _section_alpha_focus(inputs: Dict[str, Any]) -> List[str]:
         (r.get("ticker") for r in (af.get("higher_risk_eo_review") or []))
         if not _priority_red_flag_for(inputs, ticker)
     ][:5]
-    lines.append(f"- Higher-Risk EO Review names: {_join(eo_review) if eo_review else 'none'}.")
+    lines.append(
+        review_now_line + " | higher-risk EO review: "
+        + (_join(eo_review) if eo_review else "none") + ".")
+    # Reason counts, not a paragraph each: the full description lives in the
+    # Alpha Focus sidecar.
     reasons = af.get("deprioritized_by_reason_summary") or {}
-    for reason, summary in sorted(reasons.items()):
-        lines.append(f"- Deprioritized ({reason}): {summary.get('count')} — {summary.get('description')}")
+    if reasons:
+        lines.append("- Deprioritized: " + ", ".join(
+            f"{reason} {summary.get('count')}"
+            for reason, summary in sorted(reasons.items()))
+            + " — flagged for extra scrutiny today, not excluded; they still "
+              "appear unchanged in the shortlist and emerging sections.")
     lines.append(
-        "- " + (af.get("purpose_statement")
-        or "Same-day manual research prioritization layer only — no new score, no new "
-           "forward-evidence ledger, no scanner/gate/HC/EO/program-verdict change."))
-    lines.append(
-        "- Deprioritized names still appear, unaffected, in their original High-Conviction / "
-        "Emerging Outlier sections — they are not permanently excluded.")
+        "- Same-day manual prioritization only — no new score, no new "
+        "forward-evidence ledger, no scanner/gate/shortlist/program change.")
     return lines
 
 
@@ -1064,16 +1156,15 @@ def _section_research_programs(inputs: Dict[str, Any]) -> List[str]:
                 f"{matured or 'none'}")
         if gap:
             line += f" | primary horizons not collected: {gap}"
-        lines.append(line)
         diag = p.get("diagnostic_signal")
         if diag and diag not in ("NONE", None):
-            lines.append(
-                f"  - diagnostic read at "
-                f"{p.get('diagnostic_horizon_td')}d: {diag}"
-                + (f" ({p.get('diagnostic_excess_vs_qqq_pct'):+}% vs QQQ,"
-                   f" win {p.get('diagnostic_win_rate_pct')}%)"
-                   if p.get("diagnostic_excess_vs_qqq_pct") is not None
-                   else ""))
+            line += (f" | diagnostic read at {p.get('diagnostic_horizon_td')}d: "
+                     f"{diag}"
+                     + (f" ({p.get('diagnostic_excess_vs_qqq_pct'):+}% vs QQQ,"
+                        f" win {p.get('diagnostic_win_rate_pct')}%)"
+                        if p.get("diagnostic_excess_vs_qqq_pct") is not None
+                        else ""))
+        lines.append(line)
     if counts.get("UNROUTED"):
         lines.append(f"- UNROUTED candidates: {counts['UNROUTED']} "
                      "(labels missing from the program map)")
@@ -1137,7 +1228,28 @@ def _priority_red_flag_for(inputs: Dict[str, Any], ticker: str) -> bool:
         term in note for term in material_terms for note in notes)
 
 
-def _section_todays_operator_focus(inputs: Dict[str, Any]) -> List[str]:
+def _executive_summary(inputs: Dict[str, Any],
+                       status: Optional[str] = None) -> str:
+    """One line the operator can read alone: how much came out of the
+    cycle, how mature the evidence is, and whether the data is trusted."""
+    st = inputs.get("status") or {}
+    radar = inputs.get("radar") or {}
+    scanner = inputs.get("scanner") or {}
+    hc = inputs.get("high_conviction") or {}
+    eo = inputs.get("emerging_outlier") or {}
+    total = (radar.get("total_candidates")
+             or scanner.get("watchlist_size"))
+    shortlist = len(hc.get("shortlist") or [])
+    watch = len(eo.get("watch") or [])
+    return (f"- Summary: {_fmt(total)} candidates | {shortlist} shortlist + "
+            f"{watch} emerging for manual review | forward verdict "
+            f"{st.get('tracker_verdict') or 'UNKNOWN'} (immature, not "
+            f"validated) | data {st.get('data_freshness') or 'unknown'}"
+            + (f" / {status}" if status else "") + ".")
+
+
+def _section_todays_operator_focus(inputs: Dict[str, Any],
+                                   status: Optional[str] = None) -> List[str]:
     """Small, source-ordered action block for today's human review."""
     hc = inputs.get("high_conviction") or {}
     eo = inputs.get("emerging_outlier") or {}
@@ -1164,23 +1276,58 @@ def _section_todays_operator_focus(inputs: Dict[str, Any]) -> List[str]:
     ][:4]
     lines = [
         "## Today's Operator Focus",
+        _executive_summary(inputs, status),
         f"- Review first: {_join(review_first, cap=5)}",
         f"- Higher-risk emerging review: {_join(higher_risk, cap=5)}",
-        f"- Wait for reset: {_join(wait_reset, cap=5)}",
-        f"- Red-flag review only: {_join(red_flags, cap=4)}",
+        f"- Wait for reset: {_join(wait_reset, cap=5)} | Red-flag review "
+        f"only: {_join(red_flags, cap=4)}",
     ]
-    for ticker in wait_reset:
-        anomalies = _metric_anomalies_for(ticker, inputs.get("store"))
-        if anomalies:
-            lines.append(
-                f"- Metric anomaly — {ticker}: Fundamental Metric Anomaly / "
-                "Manual Normalization Required: "
-                + "; ".join(anomalies) + ".")
+    # Metric anomalies for these names are stated once, in the review queue.
     verdict = (inputs.get("status") or {}).get("tracker_verdict") or "UNKNOWN"
     lines.append(
-        "- Do not conclude alpha: HC/EO immature; broad forward verdict "
-        f"{verdict}.")
+        "- Research-only: nothing here is validated. HC/EO evidence is "
+        f"immature and the broad forward verdict is {verdict} — review and "
+        "monitor, do not conclude alpha.")
     return lines
+
+
+# How many shortlist / watch names the note carries.  Each one is a line
+# the journal audit parses for gate violations, so the cap trades digest
+# length against audit coverage — it is the daily review list, not the
+# whole sidecar.
+HC_NAMES_SHOWN = 6
+EO_NAMES_SHOWN = 5
+
+
+def _shown_with_risk_carveout(shortlist: List[Dict[str, Any]]
+                              ) -> List[Dict[str, Any]]:
+    """The first HC_NAMES_SHOWN names, plus any name below the cap that
+    would trip one of the journal audit's shortlist checks.
+
+    The cap shortens a daily review list; it must never be the reason a
+    gate violation goes unstated.  The conditions mirror the journal audit
+    reviewer's shortlist checks (build_high_conviction_flaws): elevated
+    deterioration risk, a missing scoring input, or a hard-exclusion red
+    flag in the stated risks.  Keep the two in step.
+    """
+    shown = list(shortlist[:HC_NAMES_SHOWN])
+    for c in shortlist[HC_NAMES_SHOWN:]:
+        cs = c.get("component_scores") or {}
+        risks = " ".join(c.get("main_risks") or []).lower()
+        if (str(c.get("dead_horse_risk") or "LOW").upper() != "LOW"
+                or cs.get("quality_score") is None
+                or cs.get("growth_score") is None
+                or "negative gross margin" in risks
+                or "extreme dilution" in risks):
+            shown.append(c)
+    return shown
+
+
+def _why_summary(why: Any, cap: int = 70) -> str:
+    """Short form of the why-selected list — the sidecar keeps the full
+    reasoning; the digest carries enough to recognise the name."""
+    text = ", ".join(why or []) or "—"
+    return text if len(text) <= cap else text[:cap].rstrip(", ") + "…"
 
 
 _DETERIORATION_LABELS = {"LOW": "Low", "MEDIUM": "Medium", "HIGH": "High",
@@ -1210,51 +1357,57 @@ def _section_high_conviction(inputs: Dict[str, Any]) -> List[str]:
         f"- Evaluated {cts.get('evaluated', 0)} | qualified "
         f"{cts.get('qualified', 0)} | quality-but-extended "
         f"{cts.get('quality_but_extended', 0)} | rejected "
-        f"{cts.get('rejected', 0)}")
-    lines.append("- Membership is research-only and NOT validated alpha.")
+        f"{cts.get('rejected', 0)} — membership is research-only and NOT "
+        "validated alpha; the labels below are classifications, not verdicts.")
     shortlist = hc.get("shortlist") or []
     if not shortlist:
         lines.append("- NO_HIGH_CONVICTION_CANDIDATES — nothing met the "
                      "qualification standards in the latest scan.")
-    for i, s in enumerate(shortlist, 1):
-        cs = s.get("component_scores") or {}
+    for i, c in enumerate(_shown_with_risk_carveout(shortlist), 1):
+        cs = c.get("component_scores") or {}
         val = (cs.get("value_score") if cs.get("value_score") is not None
-               else s.get("valuation_status"))
+               else c.get("valuation_status"))
+        # "unproven" is not decoration: an optimistic classification token
+        # (PROMISING, READY_*) must never read as a verdict on its own line.
         lines.append(
-            f"  {i}. {s['ticker']} [{s['classification']}] "
-            f"{s['program']} score {s['high_conviction_score']} "
+            f"  {i}. {c['ticker']} [{c['classification']}] "
+            f"{c['program']} score {c['high_conviction_score']} "
             f"(quality {cs.get('quality_score')}, growth "
             f"{cs.get('growth_score')}, momentum "
-            f"{cs.get('price_momentum_score')}, value {val}) — "
-            f"{', '.join(s.get('why_selected') or []) or '—'}"
-            + (f" | risk: {', '.join(s['main_risks'])}"
-               if s.get("main_risks") else "")
+            f"{cs.get('price_momentum_score')}, value {val}) — unproven; "
+            f"{_why_summary(c.get('why_selected'))}"
+            + (f" | risk: {', '.join(c['main_risks'])}"
+               if c.get("main_risks") else "")
             + f" | Business Deterioration Risk: "
-            f"{_deterioration_label(s.get('dead_horse_risk'))}")
+            f"{_deterioration_label(c.get('dead_horse_risk'))}")
+    shown = len(_shown_with_risk_carveout(shortlist))
+    if len(shortlist) > shown:
+        lines[1] += (f" Showing {shown} of {len(shortlist)} (every name "
+                     "carrying risk is shown); the rest are in the shortlist "
+                     "sidecar.")
     ext = hc.get("quality_but_extended") or []
     if ext:
         lines.append("- Quality but extended (wait for reset): "
                      + ", ".join(f"{c['ticker']} "
                                  f"({c['high_conviction_score']})"
-                                 for c in ext[:8]))
-    # rejected high-score names + why (the whole point: strong signal that
-    # did not clear the quality/risk bar)
+                                 for c in ext[:6]))
+    # Strong-signal names that did not clear the quality/risk bar — one
+    # line, because the reasons repeat across names.
     rej = sorted((hc.get("rejected") or []),
                  key=lambda c: -(c.get("research_score") or 0))
     high_signal_rejects = [c for c in rej
-                           if (c.get("research_score") or 0) >= 90][:6]
+                           if (c.get("research_score") or 0) >= 90][:4]
     if high_signal_rejects:
-        lines.append("- Strong-signal names rejected by quality/risk:")
-        for c in high_signal_rejects:
-            lines.append(f"  - {c['ticker']} (scan score "
-                         f"{c.get('research_score')}): "
-                         f"{'; '.join(c.get('exclusions') or [])}")
-    fwd = inputs.get("high_conviction") or {}
+        lines.append("- Strong-signal names rejected by quality/risk: "
+                     + "; ".join(
+                         f"{c['ticker']} ({'; '.join(c.get('exclusions') or []) or 'no reason recorded'})"
+                         for c in high_signal_rejects))
     fv = _load_json(inputs["store"].high_conviction_forward_json) \
         if inputs.get("store") else None
     if fv and fv.get("present"):
-        lines.append(f"- Forward validation (separate hypothesis): "
-                     f"{fv.get('verdict')} — {fv.get('verdict_reason')}")
+        lines.append(f"- Forward validation (separate hypothesis, not "
+                     f"validated): {fv.get('verdict')} — "
+                     f"{fv.get('verdict_reason')}")
     return lines
 
 
@@ -1270,33 +1423,33 @@ def _section_emerging_outlier(inputs: Dict[str, Any]) -> List[str]:
                      "./scripts/run_research_cycle.sh emerging-outlier")
         return lines
     watch = eo.get("watch") or []
+    fa = inputs.get("filter_audit") or {}
+    audit_bit = ""
+    if fa.get("present"):
+        audit_bit = (f" | V1 filter audit: one-rule-away "
+                     f"{(fa.get('one_rule_away') or {}).get('count', 0)}, gate "
+                     f"decomposition matches V1: "
+                     f"{fa.get('gate_decomposition_matches_v1')}")
     lines.append(f"- Evaluated {eo.get('counts', {}).get('evaluated', 0)} | "
                  f"emerging outliers {len(watch)} | separate higher-risk "
-                 "lane, research-only (not validated alpha).")
+                 "lane, research-only (not validated alpha)." + audit_bit)
     if not watch:
         lines.append("- NO_EMERGING_OUTLIERS — nothing met the multi-factor "
                      "emergence bar.")
-    for w in watch[:8]:
-        dims = ", ".join(d["dimension"].lower()
-                         for d in w.get("emergence_dimensions") or [])
+    for w in watch[:EO_NAMES_SHOWN]:
+        dims = _why_summary([d["dimension"].lower()
+                             for d in w.get("emergence_dimensions") or []])
         lines.append(
             f"  - {w['ticker']} ({w['program']}): {w.get('why_not_high_conviction')}"
             f" — why watched: {dims}"
             f" | business-deterioration {w.get('business_deterioration_risk')}")
-    if len(watch) > 8:
-        lines.append(f"  - … and {len(watch) - 8} more")
-    # audit deterministic flags for this lane
-    flags = _emerging_audit_flags(watch)
-    for f in flags:
+    if len(watch) > EO_NAMES_SHOWN:
+        lines[1] += (f" | showing {EO_NAMES_SHOWN} of {len(watch)}; the rest "
+                     "are in the emerging-outlier sidecar")
+    # Audit flags stay in full: they are the lane's own gate violations,
+    # and the journal audit promotes each one to a finding.
+    for f in _emerging_audit_flags(watch):
         lines.append(f"- AUDIT FLAG: {f}")
-    fa = inputs.get("filter_audit")
-    if fa and fa.get("present"):
-        oa = fa.get("one_rule_away") or {}
-        lines.append(
-            f"- V1 filter audit: {fa.get('n_candidates')} evaluated | "
-            f"one-rule-away {oa.get('count', 0)} "
-            f"{oa.get('by_gate', {})} | gate decomposition matches V1: "
-            f"{fa.get('gate_decomposition_matches_v1')}")
     return lines
 
 
@@ -1343,100 +1496,6 @@ def _avoid_rationale_for(ticker: str,
     return "; ".join(reasons)
 
 
-def _section_top_candidates(inputs: Dict[str, Any]) -> List[str]:
-    """Concise top-candidates recap (one line per program, existing
-    score/priority order, one short reason each).  Purely a reading aid
-    placed before the full latest-scan section — the detailed records
-    below remain the audit copy."""
-    lines = ["## 4c. Top Candidates by Program"]
-    payload = inputs.get("latest_scan")
-    if not payload or not payload.get("present"):
-        lines.append("- Latest-scan sidecar missing — run "
-                     "./scripts/run_research_cycle.sh latest-scan-programs")
-        return lines
-    from dashboards.research_command_center.presentation import (
-        short_reason, split_candidates)
-    rejected_by_ticker = {
-        str(r.get("ticker") or "").upper(): r
-        for r in (inputs.get("high_conviction") or {}).get("rejected") or []
-    }
-    avoid_set = {str(t).upper() for t in
-                (inputs.get("radar") or {}).get("priority_tickers", {})
-                .get("DATA_QUARANTINE") or []}
-    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
-        block = (payload.get("programs") or {}).get(pid) or {}
-        top, _, issues = split_candidates(block, top_n=3)
-        if not top:
-            lines.append(f"- {pid}: no candidates in the latest scan.")
-            continue
-        bits = [f"{c['ticker']} (score {c.get('research_score')}, "
-                f"{c['scan_status']}) — {short_reason(c, 60)}"
-                for c in top]
-        lines.append(f"- {pid}: " + "; ".join(bits))
-        if issues:
-            lines.append(f"  - {pid} data issues (excluded from top): "
-                         + ", ".join(c["ticker"] for c in issues))
-        for c in top:
-            ticker = str(c.get("ticker") or "").upper()
-            rationale = _avoid_rationale_for(ticker, rejected_by_ticker,
-                                             avoid_set, inputs)
-            if rationale:
-                lines.append(f"  - {ticker}: also on an avoid/red-flag "
-                             f"list — {rationale}")
-    return lines
-
-
-def _section_latest_scan_programs(inputs: Dict[str, Any]) -> List[str]:
-    """Latest-scan candidates per program (what the most recent cycle
-    detected) — deliberately separate from the forward-evidence and
-    program-maturity summaries above it."""
-    lines = ["## 4d. Latest Scan by Research Program"]
-    payload = inputs.get("latest_scan")
-    if not payload or not payload.get("present"):
-        lines.append("- Latest-scan sidecar missing — run "
-                     "./scripts/run_research_cycle.sh latest-scan-programs")
-        return lines
-    lines.append(
-        f"- Market as-of: {payload.get('market_as_of_date') or 'unknown'} "
-        f"| universe hash match: {payload.get('manifest_hash_match')} "
-        f"| scan readiness: {payload.get('scan_readiness') or 'unknown'}")
-    for w in payload.get("integrity_warnings") or []:
-        lines.append(f"- Warning: {w}")
-    if payload.get("scan_stale") and not payload.get("integrity_warnings"):
-        lines.append(f"- Warning: latest scan is STALE "
-                     f"({payload.get('scan_age_hours')}h old)")
-    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
-        block = (payload.get("programs") or {}).get(pid) or {}
-        n = block.get("candidate_count", 0)
-        lines.append(
-            f"- {pid}: {n} candidates | new {block.get('new_count', 0)} "
-            f"| repeat {block.get('repeat_count', 0)} | returning "
-            f"{block.get('returning_count', 0)} | exited "
-            f"{block.get('exited_count', 0)}")
-        if not n:
-            lines.append("  - No candidates detected in the latest scan.")
-            continue
-        for c in (block.get("candidates") or [])[:3]:
-            session_tag = ("same-session" if c.get("same_session")
-                           else "SESSION_MISMATCH"
-                           if c.get("same_session") is False else "session ?")
-            lines.append(
-                f"  - {c['ticker']} [{c['scan_status']}] hold "
-                f"{c.get('holding_period')} | "
-                f"lifecycle {c.get('lifecycle_stage') or '?'} | verdict "
-                f"{c.get('program_verdict')} | bar "
-                f"{c.get('bar_as_of_date') or '?'} vs bench "
-                f"{c.get('benchmark_as_of_date') or '?'} ({session_tag}) | "
-                f"{(c.get('detection_reason') or '')[:70]}")
-        exited = [e.get("ticker") for e in block.get("exited") or []][:6]
-        if exited:
-            lines.append(f"  - Exited since previous scan: "
-                         f"{', '.join(exited)}"
-                         + (" (+more)" if block.get("exited_count", 0) > 6
-                            else ""))
-    return lines
-
-
 def _fundamental_line(ticker: str, store: ArtifactStore) -> str:
     f = build_fundamentals(ticker, store)
     if f.get("fallback"):
@@ -1470,13 +1529,29 @@ def _fundamental_line(ticker: str, store: ArtifactStore) -> str:
     return line
 
 
+#: Review names carrying a fundamental row.  Each row is also the journal
+#: audit's quality input for that name, so this is a review-list cap, not a
+#: cosmetic one.
+FUNDAMENTAL_ROWS_SHOWN = 6
+
+
 def _section_fundamentals(inputs: Dict[str, Any], top: List[str]) -> List[str]:
     lines = ["## 5. Fundamental Overlay"]
     if not top:
         lines.append("- No review candidates available.")
         return lines
-    for t in top[:10]:
+    for t in top[:FUNDAMENTAL_ROWS_SHOWN]:
         lines.append(_fundamental_line(t, inputs["store"]))
+    hidden = 0
+    for t in top[FUNDAMENTAL_ROWS_SHOWN:]:
+        line = _fundamental_line(t, inputs["store"])
+        if "RED FLAG" in line or "Anomaly" in line:
+            lines.append(line)
+        else:
+            hidden += 1
+    if hidden:
+        lines[-1] += (f" (+{hidden} further review names with no red flag: "
+                      "fundamentals in the research cards)")
     return lines
 
 
@@ -1597,27 +1672,30 @@ def _section_review_queue(inputs: Dict[str, Any], top: List[str],
     groups = _review_queue_groups(inputs, top, high, reset_reclaim)
     lines = [
         "## 6. Journal Review Queue",
-        f"- Opportunity Review: {_join(groups['opportunity'], cap=10)}",
-        f"- Risk / Red-Flag Review: {_join(groups['risk'], cap=10)}",
+        f"- Opportunity Review: {_join(groups['opportunity'], cap=8)}",
+        f"- Risk / Red-Flag Review: {_join(groups['risk'], cap=8)}",
     ]
     risk_notes = []
-    for ticker in groups["risk"][:10]:
+    for ticker in groups["risk"][:4]:
         notes = _risk_notes_for(inputs, ticker)
         if notes:
             risk_notes.append(f"{ticker} ({', '.join(notes)})")
     if risk_notes:
         lines.append("  - Risk details: " + "; ".join(risk_notes))
-    lines += [
-        f"- Watch Only: {_join(groups['watch_only'], cap=10)}",
-        f"- Avoid / Data Issue: {_join(groups['avoid'], cap=10)}",
-        f"- Wait for Reset: {_join(groups['wait_reset'], cap=10)}",
-    ]
-    for ticker in groups["wait_reset"][:10]:
+    lines.append(
+        f"- Watch Only: {_join(groups['watch_only'], cap=6)} | Avoid / Data "
+        f"Issue: {_join(groups['avoid'], cap=6)} | Wait for Reset: "
+        f"{_join(groups['wait_reset'], cap=6)}")
+    # A metric anomaly is a data-quality blocker for the name, so it is
+    # stated here once, for the names actually in front of the operator.
+    anomaly_notes = []
+    for ticker in groups["wait_reset"][:6]:
         anomalies = _metric_anomalies_for(ticker, inputs.get("store"))
         if anomalies:
-            lines.append(
-                f"  - {ticker}: Fundamental Metric Anomaly / Manual "
-                "Normalization Required: " + "; ".join(anomalies))
+            anomaly_notes.append(f"{ticker} ({'; '.join(anomalies)})")
+    if anomaly_notes:
+        lines.append("  - Fundamental Metric Anomaly / Manual Normalization "
+                     "Required: " + "; ".join(anomaly_notes))
     return lines
 
 
@@ -1629,9 +1707,11 @@ def _section_diagnostics_appendix(inputs: Dict[str, Any]) -> List[str]:
         ((inputs.get("summary") or {}).get("warnings") or [])
         if _is_legacy_recall_warning(warning)
     ]
-    filters = (rd or {}).get("reject_counts_by_filter") or []
-    if not filters and not warnings:
+    # Decommissioned-funnel detail is history: it belongs in the note only
+    # while one of its warnings is still firing.
+    if not warnings:
         return []
+    filters = (rd or {}).get("reject_counts_by_filter") or []
     top_filters = ", ".join(
         f"{r.get('filter')} ({r.get('rejected_n')} rejected/"
         f"{r.get('winners_missed')} winners missed)"
@@ -1721,41 +1801,73 @@ def _section_final_finding(inputs: Dict[str, Any], status: str,
     else:
         finding = ("Pipeline is healthy, forward evidence supports the current "
                    "research board, and no urgent issues surfaced today.")
-    lines = ["## 7. Final Finding", finding]
     structural = _final_structural_notes(inputs, top)
-    if structural:
-        lines.append(structural)
+    return ["## 7. Final Finding",
+            finding + (f" {structural}" if structural else "")]
+
+
+def _merged(title: str, *groups: List[str]) -> List[str]:
+    """One section from several builders.  Each builder keeps its own
+    heading when called on its own (the dashboard tests read them that
+    way); inside the note they are folded under one heading, because four
+    two-line sections cost more heading-and-blank lines than they carry
+    content.  Every content line is preserved verbatim."""
+    lines = [title]
+    for group in groups:
+        lines += [line for line in group if not line.startswith("## ")]
     return lines
+
+
+def _joined(*blocks: List[str]) -> List[str]:
+    """Sections separated by one blank line, skipping empty sections so an
+    absent section does not leave a stray blank behind."""
+    out: List[str] = []
+    for block in blocks:
+        if not block:
+            continue
+        if out:
+            out.append("")
+        out += block
+    return out
 
 
 def build_note(inputs: Dict[str, Any], *, status: str, concerns: List[str],
                top: List[str], high: List[str],
                reset_reclaim: List[str]) -> str:
-    sections = (
-        ["# Daily Research Digest", ""]
-        + _section_todays_operator_focus(inputs) + [""]
-        + _section_data_quality(inputs, concerns) + [""]
-        + _section_sector_regime(inputs, top) + [""]
-        + _section_forward(inputs) + [""]
-        + _section_cohort_attribution(inputs) + [""]
-        + _section_research_operating_policy(inputs) + [""]
-        + _section_alpha_root_cause(inputs) + [""]
-        + _section_alpha_focus(inputs) + [""]
-        + _section_research_programs(inputs) + [""]
-        + _section_high_conviction(inputs) + [""]
-        + _section_emerging_outlier(inputs) + [""]
-        # Broad scanner + its raw candidate/scan listings are discovery-only
-        # (priority hierarchy tier F) — grouped here, after Alpha Focus/HC/EO,
-        # so unfiltered scanner names never outrank the prioritized sections
-        # above them.
-        + _section_scanner(inputs, top, reset_reclaim) + [""]
-        + _section_top_candidates(inputs) + [""]
-        + _section_latest_scan_programs(inputs) + [""]
-        + _section_fundamentals(inputs, top) + [""]
-        + _section_review_queue(inputs, top, high, reset_reclaim) + [""]
-        + _section_final_finding(inputs, status, high, concerns, top) + [""]
-        + _section_diagnostics_appendix(inputs) + [""]
-        + [RESEARCH_ONLY_FOOTER]
+    """The daily note.
+
+    Target length is the operating cap in the component registry (60
+    lines).  What keeps it above that cap is deliberate: the per-name
+    shortlist and emerging-watch lines, the fundamental rows, and the
+    program lines are the journal audit reviewer's only input — it parses
+    this text, not the sidecars — so cutting them would silently disable
+    deterministic gate checks.  Everything that is not an operator
+    decision or an audit input has been folded, capped, or dropped.
+    """
+    sections = _joined(
+        ["# Daily Research Digest"],
+        _section_todays_operator_focus(inputs, status),
+        _section_data_quality(inputs, concerns),
+        _section_sector_regime(inputs, top),
+        _section_forward(inputs),
+        _merged("## 4a. Evidence Read & Policy",
+                _section_cohort_attribution(inputs),
+                _section_research_operating_policy(inputs),
+                _section_alpha_root_cause(inputs),
+                _section_alpha_focus(inputs)),
+        _section_research_programs(inputs),
+        _section_high_conviction(inputs),
+        _section_emerging_outlier(inputs),
+        # Broad scanner + the latest-scan counts are discovery-only
+        # (priority hierarchy tier F) — grouped here, after Alpha Focus/
+        # HC/EO, so unfiltered scanner names never outrank the prioritized
+        # sections above them.
+        _section_scanner(inputs, top, reset_reclaim),
+        _section_fundamentals(inputs, top),
+        _section_review_queue(inputs, top, high, reset_reclaim),
+        _section_final_finding(inputs, status, high, concerns, top),
+        _section_diagnostics_appendix(inputs),
+        [RESEARCH_ONLY_FOOTER],
     )
     return "\n".join(sections)
 

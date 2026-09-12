@@ -834,7 +834,9 @@ def _evaluate_stop_continue(cohort_report: Dict[str, Any], ablation: Dict[str, A
         recommendation = "CONTINUE"
         rationale = (
             f"{robust_positive[0].get('label')} shows a ROBUST, positive, >=50% win-rate 10d read — "
-            "continue collecting evidence toward a promotion review."
+            "research-only and not validated: keep collecting forward evidence. "
+            "There is no promotion path; the next step is another review of the "
+            "same gate, never a signal or live capital."
         )
     elif meaningful_positive:
         recommendation = "NARROW"

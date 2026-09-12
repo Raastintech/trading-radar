@@ -582,8 +582,9 @@ def test_review_queue_separates_opportunity_from_red_flags(monkeypatch):
     assert "negative GM" in text
     assert "dilution +25.0%/3q" in text
     assert "Business Deterioration Risk High" in text
+    # the three tail buckets share one line; each is still named
     for label in ("Watch Only", "Avoid / Data Issue", "Wait for Reset"):
-        assert f"- {label}:" in text
+        assert f"{label}:" in text
 
 
 def test_metric_anomaly_requires_manual_normalization(monkeypatch):
@@ -640,8 +641,15 @@ def test_todays_operator_focus_uses_artifact_order(monkeypatch):
     assert "Higher-risk emerging review: ACVA, MRVI, CDNA, OMDA, ETON" in text
     assert "Wait for reset: ATEX, DELL, MET, FIVN, DINO" in text
     assert "Red-flag review only: AVTR, CLF, IP, QTTB" in text
-    assert "Fundamental Metric Anomaly / Manual Normalization Required" in text
-    assert "Do not conclude alpha: HC/EO immature; broad forward verdict NO_FORWARD_EDGE" in text
+    # The anomaly is stated once, in the review queue — not here as well.
+    assert "Fundamental Metric Anomaly / Manual Normalization Required" not in text
+    queue = "\n".join(_section_review_queue(inputs, [], [], []))
+    assert "Fundamental Metric Anomaly / Manual Normalization Required" in queue
+    assert "ATEX" in queue
+    assert ("Research-only: nothing here is validated. HC/EO evidence is "
+            "immature and the broad forward verdict is NO_FORWARD_EDGE"
+            in text)
+    assert "do not conclude alpha" in text
 
 
 def test_operator_focus_excludes_data_suspect_from_review_first(monkeypatch):
@@ -678,7 +686,7 @@ def test_operator_focus_excludes_data_suspect_from_review_first(monkeypatch):
     text = "\n".join(lines)
     review_first_line = next(l for l in lines if l.startswith("- Review first:"))
     red_flag_line = next(l for l in lines
-                         if l.startswith("- Red-flag review only:"))
+                         if "Red-flag review only:" in l)
 
     assert "RYAN" not in review_first_line
     assert "HRB" in review_first_line          # clean shortlist member unaffected
@@ -719,7 +727,7 @@ def test_operator_focus_excludes_red_flagged_from_higher_risk(monkeypatch):
     higher_risk_line = next(
         l for l in lines if l.startswith("- Higher-risk emerging review:"))
     red_flag_line = next(
-        l for l in lines if l.startswith("- Red-flag review only:"))
+        l for l in lines if "Red-flag review only:" in l)
 
     assert "BBNX" not in higher_risk_line
     assert "ACVA" in higher_risk_line          # unflagged watch member unaffected
@@ -770,7 +778,7 @@ def test_alpha_focus_excludes_red_flagged_from_higher_risk_eo(monkeypatch):
     }
     lines = _section_alpha_focus(inputs)
     eo_line = next(
-        l for l in lines if l.startswith("- Higher-Risk EO Review names:"))
+        l for l in lines if "higher-risk EO review:" in l)
 
     assert "WGS" not in eo_line
     assert "RIVN" not in eo_line
@@ -801,7 +809,7 @@ def test_options_overlay_disabled_is_first_class_structural_line(fixture_root):
     dq = note.split("## 3.")[0]
     assert "- Options overlay: DISABLED" in dq
     assert "structural gate" in dq
-    assert "NOT a candidate-level defect" in dq
+    assert "not a candidate defect" in dq
     final = note.split("## 7. Final Finding")[1]
     assert "Known structural context" in final
     assert "options overlay is DISABLED" in final
@@ -1025,11 +1033,36 @@ def test_legacy_recall_diagnostics_are_collapsed_out_of_main_body(fixture_root):
            })
     note = _note(fixture_root)
     scanner = note.split("## Scanner / Why Names Appeared")[1].split(
-        "## 4c.")[0]
-    main_body = note.split("<details>", 1)[0]
+        "## 5.")[0]
     assert "no_atr_contraction" not in scanner
+    assert "live board as of" in scanner
+    # No live legacy warning: the decommissioned-funnel detail is history
+    # and stays out of the note entirely, appendix included.
+    assert "no_atr_contraction" not in note
+    assert "Technical diagnostics appendix" not in note
+
+
+def test_legacy_recall_appendix_returns_while_its_warning_is_live(fixture_root):
+    """The appendix is not deleted — it reappears, collapsed, for as long
+    as one of its own warnings is still firing."""
+    _write(fixture_root / "cache" / "research"
+           / "scanner_recall_diagnostics_latest.json", {
+               "generated_at": _now_iso(),
+               "asof_date": "2026-06-04",
+               "reject_counts_by_filter": [
+                   {"filter": "no_atr_contraction", "rejected_n": 511,
+                    "winners_missed": 128},
+               ],
+           })
+    summary_path = (fixture_root / "cache" / "research"
+                    / "nightly_operator_summary_latest.json")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["warnings"] = ["Legacy council-funnel recall 0.0% (decommissioned "
+                           "funnel) — historical diagnostic only"]
+    _write(summary_path, summary)
+    note = _note(fixture_root)
+    main_body = note.split("<details>", 1)[0]
     assert "no_atr_contraction" not in main_body
-    assert "Live-board evidence" in scanner
     assert "<summary>Technical diagnostics appendix</summary>" in note
     assert "### Legacy / Decommissioned Recall Diagnostics" in note
     assert "no_atr_contraction (511 rejected/128 winners missed)" in note
@@ -1101,7 +1134,7 @@ def test_scanner_section_lists_carry_tier_tags(monkeypatch):
     lines = jd._section_scanner(inputs, ["AVTR", "FBIN"], [])
     high_line = next(l for l in lines
                      if l.startswith("- Broad-scanner candidates"))
-    top_line = next(l for l in lines if l.startswith("- Top research names:"))
+    top_line = next(l for l in lines if "top research names:" in l)
     assert "AVTR (UNPROFITABLE_FUNDED)" in high_line
     assert "FBIN" in high_line and "FBIN (" not in high_line
     assert "AVTR (UNPROFITABLE_FUNDED)" in top_line
@@ -1135,9 +1168,9 @@ def test_top_candidate_hc_rejected_gets_explicit_rationale(monkeypatch):
         "radar": {"priority_tickers": {}},
         "store": object(),
     }
-    lines = jd._section_top_candidates(inputs)
-    flag_line = next(l for l in lines if l.startswith("  - AGL:"))
-    assert "avoid/red-flag list" in flag_line
+    flag_line = next(l for l in jd._latest_scan_lines(inputs)
+                     if l.startswith("- Also on an avoid/red-flag list:"))
+    assert "AGL — " in flag_line
     assert "High-Conviction REJECTED (negative gross margin" in flag_line
     assert "deterioration risk MEDIUM" in flag_line
 
@@ -1155,8 +1188,9 @@ def test_top_candidate_data_quarantine_gets_explicit_rationale(monkeypatch):
         "radar": {"priority_tickers": {"DATA_QUARANTINE": ["QUAR1"]}},
         "store": object(),
     }
-    lines = jd._section_top_candidates(inputs)
-    flag_line = next(l for l in lines if l.startswith("  - QUAR1:"))
+    flag_line = next(l for l in jd._latest_scan_lines(inputs)
+                     if l.startswith("- Also on an avoid/red-flag list:"))
+    assert "QUAR1 — " in flag_line
     assert "Avoid / Data Issue list (quarantined)" in flag_line
 
 
@@ -1173,5 +1207,6 @@ def test_top_candidate_clean_ticker_gets_no_rationale_line(monkeypatch):
         "radar": {"priority_tickers": {"DATA_QUARANTINE": []}},
         "store": object(),
     }
-    lines = jd._section_top_candidates(inputs)
-    assert not any(l.startswith("  - GOODCO:") for l in lines)
+    lines = jd._latest_scan_lines(inputs)
+    assert not any(l.startswith("- Also on an avoid/red-flag list:")
+                   for l in lines)

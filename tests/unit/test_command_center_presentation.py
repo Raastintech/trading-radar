@@ -316,21 +316,23 @@ def test_terminal_separates_data_issues():
 # ── 11. journal digest: concise top + full detail both present ───────────────
 
 
-def test_journal_has_concise_top_and_full_detail():
+def test_journal_summarises_the_scan_and_the_terminal_keeps_the_detail():
+    """The journal carries per-program counts only; the ranked names and
+    the data-issue split stay in the terminal/log renderings, which are
+    not length-capped."""
     from dashboards.research_command_center.journal_digest import (
-        _section_top_candidates, _section_latest_scan_programs)
+        _latest_scan_lines)
     block = _block([_cand("MEI", 94), _cand("UMC", 91),
                     _cand("HCC", 99, priority="DATA_QUARANTINE")],
                    candidate_count=3)
     payload = _payload(block)
-    top = "\n".join(_section_top_candidates({"latest_scan": payload}))
-    full = "\n".join(_section_latest_scan_programs({"latest_scan": payload}))
-    assert top.startswith("## 4c. Top Candidates by Program")
-    assert "MEI (score 94" in top
-    assert "HCC" in top and "data issues" in top  # quarantine surfaced apart
-    # the detailed section remains, after, with full records
-    assert full.startswith("## 4d. Latest Scan by Research Program")
-    assert "verdict INSUFFICIENT_MATURE_EVIDENCE" in full
+    summary = "\n".join(_latest_scan_lines({"latest_scan": payload}))
+    assert summary.startswith("- Latest scan (as-of ")
+    assert "SWING 3" in summary
+    assert "MEI (score 94" not in summary  # the ranked list is not repeated
+    terminal = lsp.render_terminal(payload)
+    assert "MEI" in terminal
+    assert "data issues (1)" in terminal and "HCC" in terminal
 
 
 # ── 12. no scanner/score/routing/validation logic imported here ──────────────

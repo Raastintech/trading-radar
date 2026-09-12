@@ -135,3 +135,55 @@ def test_digest_section_reports_zero(tmp_path):
     text = "\n".join(_section_high_conviction(
         {"high_conviction": payload, "store": ArtifactStore(root=tmp_path)}))
     assert "NO_HIGH_CONVICTION_CANDIDATES" in text
+
+
+def _hc_member(ticker: str, *, risk: str = "LOW", growth: float = 66.0,
+               main_risks=()) -> dict:
+    return {"ticker": ticker, "program": "SWING",
+            "high_conviction_score": 70.0, "classification": "PROMISING",
+            "component_scores": {"quality_score": 90.0, "growth_score": growth,
+                                 "price_momentum_score": 70.0,
+                                 "value_score": 60.0},
+            "valuation_status": "VALUATION_AVAILABLE",
+            "dead_horse_risk": risk, "why_selected": ["profitable"],
+            "main_risks": list(main_risks)}
+
+
+def _hc_text(shortlist, tmp_path) -> str:
+    from dashboards.research_command_center.journal_digest import (
+        _section_high_conviction)
+    payload = {"present": True,
+               "counts": {"evaluated": 100, "qualified": len(shortlist)},
+               "shortlist": shortlist, "quality_but_extended": [],
+               "rejected": []}
+    return "\n".join(_section_high_conviction(
+        {"high_conviction": payload, "store": ArtifactStore(root=tmp_path)}))
+
+
+def test_shortlist_lines_carry_an_unproven_qualifier(tmp_path):
+    """A classification token (PROMISING and friends) must never read as a
+    verdict on its own line — the digest states the qualifier inline."""
+    text = _hc_text([_hc_member("AAA")], tmp_path)
+    line = next(l for l in text.splitlines() if "AAA [PROMISING]" in l)
+    assert "unproven" in line
+    assert "NOT validated alpha" in text
+
+
+def test_display_cap_never_hides_a_risky_shortlist_name(tmp_path):
+    """The cap shortens the daily review list.  It must not hide a name the
+    journal audit would flag: elevated deterioration risk, a missing scoring
+    input, or a hard-exclusion red flag."""
+    from dashboards.research_command_center.journal_digest import (
+        HC_NAMES_SHOWN)
+    clean = [_hc_member(f"C{i:02d}") for i in range(HC_NAMES_SHOWN)]
+    hidden_clean = _hc_member("PLAIN")
+    risky = [
+        _hc_member("DETER", risk="HIGH"),
+        _hc_member("NOGROWTH", growth=None),
+        _hc_member("DILUTE", main_risks=["extreme dilution +40%/3q"]),
+    ]
+    text = _hc_text(clean + [hidden_clean] + risky, tmp_path)
+    for ticker in ("DETER", "NOGROWTH", "DILUTE"):
+        assert f"{ticker} [PROMISING]" in text, ticker
+    assert "PLAIN [PROMISING]" not in text
+    assert f"Showing {HC_NAMES_SHOWN + len(risky)} of " in text

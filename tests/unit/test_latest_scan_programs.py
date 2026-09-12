@@ -194,15 +194,21 @@ def test_adapter_payload_includes_candidate_metadata(tmp_path):
 # 9. digest separation --------------------------------------------------------
 
 
-def test_digest_lists_latest_candidates_separately(payload):
+def test_digest_summarises_latest_scan_without_repeating_records(payload):
+    """The digest carries the per-program counts and points at the sidecar
+    for the records themselves — repeating three candidate rows per program
+    was the largest block of duplicated candidate detail in the note."""
     from dashboards.research_command_center.journal_digest import (
-        _section_latest_scan_programs)
-    lines = _section_latest_scan_programs({"latest_scan": payload})
-    text = "\n".join(lines)
-    assert text.startswith("## 4d. Latest Scan by Research Program")
-    assert "FBIN [REPEAT]" in text
-    assert "Exited since previous scan: GONE" in text
-    # forward-evidence style aggregates do not belong here
+        _latest_scan_lines)
+    text = "\n".join(_latest_scan_lines({"latest_scan": payload}))
+    assert text.startswith("- Latest scan (as-of ")
+    for pid in ("TACTICAL", "SWING", "LONG_TERM"):
+        assert pid in text
+    assert "per-candidate records in the latest-scan sidecar" in text
+    # the records themselves are not reprinted here
+    assert "FBIN [REPEAT]" not in text
+    assert "Exited since previous scan" not in text
+    # forward-evidence style aggregates do not belong here either
     assert "matured 5d:" not in text and "win rate" not in text.lower()
 
 

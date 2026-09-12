@@ -255,6 +255,31 @@ def test_stop_continue_gates_exist(tmp_path):
     assert set(sc["gate_definitions"].keys()) == {"CONTINUE", "NARROW", "FREEZE", "SUNSET"}
 
 
+def test_continue_rationale_promises_no_promotion():
+    """Under a permanent research-only posture there is no promotion path,
+    so the CONTINUE rationale must not point at one — the gate's next step
+    is another review, never a signal or live capital."""
+    cohort_report = {
+        "primary_horizon": "10d",
+        "cohorts": [{
+            "id": "high_conviction_alpha",
+            "label": "High-Conviction Alpha",
+            "horizons": {"10d": {"matured_count": 400,
+                                 "sample_status": "ROBUST",
+                                 "mean_return_pct": 2.5,
+                                 "win_rate": 0.55}},
+        }],
+    }
+    sc = rca._evaluate_stop_continue(
+        cohort_report, {"top_likely_failure_cause": {}}, {})
+
+    assert sc["recommendation"] == "CONTINUE"
+    text = sc["rationale"].lower()
+    assert "promotion review" not in text
+    assert "research-only" in text and "not validated" in text
+    assert "no promotion path" in text
+
+
 def test_dashboard_summary_fields_present(tmp_path):
     _fixture(tmp_path)
     report = rca.build_report(tmp_path)
