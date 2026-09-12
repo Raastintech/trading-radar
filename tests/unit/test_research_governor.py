@@ -479,6 +479,19 @@ def test_missing_artifacts_produce_warnings_not_crashes(tmp_path):
     assert ev["observed_evidence_level"] == "NOT_ENOUGH_EVIDENCE"
 
 
+def test_ignored_generated_reports_are_not_counted_as_git_noise():
+    """An untracked, ignored report cannot dirty the tree, so it is not a
+    finding — including while its untracking is still staged as a deletion."""
+    generated = ["docs/research/DAILY_ALPHA_RADAR_REPORT.md",
+                 "docs/research/NIGHTLY_OPERATOR_SUMMARY.md"]
+    tracked, error = rg._git_tracked(REPO, generated)
+    if error:
+        pytest.skip(f"git unavailable: {error}")
+    assert tracked == [], "a generated report is still tracked"
+    durable, error = rg._git_tracked(REPO, ["docs/ops/RESEARCH_GOVERNOR_RUNBOOK.md"])
+    assert error is None and durable, "durable docs must stay tracked"
+
+
 def test_artifact_without_a_verdict_is_unverified_not_a_mismatch(tmp_path):
     artifact = "cache/research/pool_latest.json"
     root = make_root(tmp_path, [comp(

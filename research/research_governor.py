@@ -853,12 +853,39 @@ def _git_modified(root: Path, paths: List[str]) -> Tuple[Optional[List[str]], Op
     return sorted(line[3:].strip() for line in out.stdout.splitlines() if line.strip()), None
 
 
+def _git_tracked(root: Path, paths: List[str]) -> Tuple[Optional[List[str]], Optional[str]]:
+    """Which of ``paths`` git still tracks (read-only)."""
+    try:
+        out = subprocess.run(
+            ["git", "--no-optional-locks", "ls-files", "--", *paths],
+            cwd=str(root), capture_output=True, text=True, timeout=20)
+    except Exception as exc:
+        return None, type(exc).__name__
+    if out.returncode != 0:
+        return None, (out.stderr.strip().splitlines() or [f"exit {out.returncode}"])[0][:120]
+    return sorted(p.strip() for p in out.stdout.splitlines() if p.strip()), None
+
+
 def check_generated_docs(run: _Run) -> None:
     docs = [d for d in run.registry.get("generated_docs") or []
             if d != DEFAULT_OUTPUT_MD_REL]
     if not docs:
         return
-    modified, error = _git_modified(run.root, docs)
+    # Only a *tracked* report can dirty the tree. Once a generated report is
+    # untracked and ignored it is no longer version-controlled noise, so it is
+    # not a finding — and while the untracking is still staged, git reports the
+    # path as a deletion, which would otherwise read as one more dirty doc.
+    tracked, error = _git_tracked(run.root, docs)
+    if error:
+        run.warn("git_unavailable", f"git status unavailable ({error}); generated-doc "
+                 "check skipped", severity="INFO")
+        return
+    if not tracked:
+        run.warn("generated_docs_ignored",
+                 f"{len(docs)} generated report(s) are untracked and ignored, so they "
+                 "cannot dirty the working tree", severity="INFO")
+        return
+    modified, error = _git_modified(run.root, tracked)
     if error:
         run.warn("git_unavailable", f"git status unavailable ({error}); generated-doc "
                  "check skipped", severity="INFO")

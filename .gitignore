@@ -68,3 +68,19 @@ docs/research/M1_DAILY_REVIEW_PACKET.md
 # Generated Research Governor outputs
 docs/research/RESEARCH_GOVERNOR_REPORT_latest.md
 cache/research/research_governor_latest.json
+
+# Generated research reports (rewritten by a scheduled cycle on every run).
+# The writers and their tests stay tracked; their output does not, because a
+# report rebuilt twice a day puts a diff in every commit. The files stay on
+# disk and are still read by the operator — they are simply not versioned.
+#   DAILY_ALPHA_RADAR_REPORT      nightly + premarket
+#   NIGHTLY_OPERATOR_SUMMARY      nightly
+#   OPTIONS_CHAIN_SNAPSHOT_*      options snapshot timer, 15:45 ET Mon-Fri
+#   PARTICIPATION_BOTTLENECK_AUDIT  midday Mon-Fri
+#   SOCIAL_ATTENTION_FORWARD_RESULTS  nightly + the social cron
+docs/research/DAILY_ALPHA_RADAR_REPORT.md
+docs/research/NIGHTLY_OPERATOR_SUMMARY.md
+docs/research/OPTIONS_CHAIN_SNAPSHOT_HEALTH.md
+docs/research/OPTIONS_CHAIN_SNAPSHOT_QUALITY.md
+docs/research/PARTICIPATION_BOTTLENECK_AUDIT.md
+docs/research/SOCIAL_ATTENTION_FORWARD_RESULTS.md
