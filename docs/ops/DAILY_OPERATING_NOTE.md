@@ -57,7 +57,12 @@ whole basket and its ticker-clustered confidence interval is *negative* at every
 horizon. A name being in M1 is not a statement about that name.
 
 **Automatic, no action needed:** the M1 cohort tracker (Sat, ~75 calls), the
-weekly liquid lens refresh, the daily options chain snapshot.
+weekly liquid lens refresh, the daily options chain snapshot, and the style-cell
+leader forward shadow (Sat, zero provider calls —
+`docs/ops/STYLE_CELL_SHADOW_CADENCE.md`). That last one currently records a
+weekly refusal rather than a snapshot: the merged price cache sits under its
+80% freshness floor, and fixing that is a provider-budget decision, not a
+cadence one.
 
 ---
 

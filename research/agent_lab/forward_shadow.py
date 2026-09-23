@@ -1124,7 +1124,9 @@ def render_doc(summary: dict) -> str:
         f"*Ledger: `{summary['ledger']}` (append-only JSONL). Artifact:*",
         "*`cache/research/agent_lab/style_cell_leader_forward_latest.json`.*",
         "*Re-run with* `GEM_TRADER_SKIP_DOTENV=true .venv/bin/python -m research.agent_lab.forward_shadow run`.",
-        "*Not scheduled: there is no timer, cron entry, or unit for this module.*",
+        "*Scheduled weekly, Sat 10:00 ET, by the user timer*",
+        "*`gem-trader-style-cell-shadow.timer` → `scripts/style_cell_shadow_weekly.sh`,*",
+        "*cache-only and provider-free. Runbook: `docs/ops/STYLE_CELL_SHADOW_CADENCE.md`.*",
         "",
     ]
     return "\n".join(lines)

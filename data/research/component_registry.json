@@ -665,6 +665,7 @@
       "name": "Style-cell leader forward shadow",
       "owner_file_or_artifact": [
         "research/agent_lab/forward_shadow.py",
+        "scripts/style_cell_shadow_weekly.sh",
         "docs/research/agent_lab/STYLE_CELL_LEADER_FORWARD_SHADOW.md"
       ],
       "kind": "tracker",
@@ -682,7 +683,7 @@
       "next_decision_date": null,
       "maturity_date": "2026-12-04",
       "expiration_date": null,
-      "cadence": "manual",
+      "cadence": "weekly",
       "artifacts": [
         "cache/research/agent_lab/style_cell_leader_forward_latest.json",
         "data/research/agent_lab/style_cell_leader_forward_ledger.jsonl"
@@ -697,7 +698,7 @@
       "consumers": [
         "operator"
       ],
-      "notes": "First 60d session matures about 2026-12-04 (business-day estimate from 2026-09-10); the floor needs 30 matured sessions, so no verdict before 2027. Never pooled with the live forward ledger, programs, M1, HC/EO/Alpha Focus or dashboards."
+      "notes": "First 60d session matures about 2026-12-04 (business-day estimate from 2026-09-10); the floor needs 30 matured sessions, so no verdict before 2027. Never pooled with the live forward ledger, programs, M1, HC/EO/Alpha Focus or dashboards. Operator decision 2026-09-23 replaced the manual cadence with a weekly zero-provider one: scripts/style_cell_shadow_weekly.sh on gem-trader-style-cell-shadow.timer (user timer, Sat 10:00 ET), cache-only, source live_plus_replay_cache, no refresh and no --allow-backdate. Runbook: docs/ops/STYLE_CELL_SHADOW_CADENCE.md. Open issue: the first scheduled run refused at 42.4% fresh against an 80% floor, because only about 1,000 universe names get a daily price refresh and the merged cache decays below the floor within a couple of weeks; until a broad price refresh runs (a provider-budget decision, not a cadence one) this lane records weekly refusals and its floor does not advance."
     },
     {
       "component_id": "social_attention_radar",

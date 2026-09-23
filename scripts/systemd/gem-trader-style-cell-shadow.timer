@@ -1,0 +1,20 @@
+[Unit]
+Description=gem-trader style-cell leader forward-shadow timer (weekly, Sat 10:00 ET)
+Requires=gem-trader-style-cell-shadow.service
+
+[Timer]
+# Weekly, after the week's last nightly cycle (Fri 20:30 ET) has refreshed the
+# ~1,000 universe names it covers (not the full candidate set — this job never
+# refreshes prices itself), and an hour after the M1 cohort job so the two weekly research
+# jobs do not overlap. The primary horizon is 60 SESSIONS, so a daily snapshot
+# would buy nothing a weekly one does not — and the ledger is graded on
+# non-overlapping windows, not on row count.
+OnCalendar=Sat 10:00 America/New_York
+
+# If the host was down at fire time, catch up once. A snapshot is keyed by
+# session date and append_ledger skips a duplicate key, so a late run either
+# records the session it missed or does nothing.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

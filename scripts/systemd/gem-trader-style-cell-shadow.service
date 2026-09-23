@@ -1,0 +1,20 @@
+[Unit]
+Description=gem-trader style-cell leader forward shadow (research-only, cache-only, zero provider calls)
+
+# Deliberately no After=network-online.target: this unit must never need the
+# network. Nothing in its import graph can reach a provider, and the wrapper
+# runs with GEM_TRADER_SKIP_DOTENV=true so no credential is ever loaded.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/gem/trading-production
+
+# No Environment=SNIPER_ENV_PATH here, unlike the M1 cohort unit. That is the
+# point: this job has no provider path to authorise, and leaving the credential
+# path unset keeps it that way if the wrapper is ever edited.
+Environment=GEM_TRADER_SKIP_DOTENV=true
+
+ExecStart=/home/gem/trading-production/scripts/style_cell_shadow_weekly.sh
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-style-cell-shadow.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-style-cell-shadow.log
+TimeoutStartSec=20min
