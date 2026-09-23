@@ -326,3 +326,29 @@ def test_addressed_task_confirmable_once_no_longer_requeued(root):
     # an OPEN task whose area is still flagged is not offered as resolved
     assert P0_TASK not in [
         t["task"] for t in review["audit_resolved_candidates"]]
+
+
+def test_a_closed_task_the_latest_audit_requeued_is_surfaced_again(root):
+    """Two tasks were stamped RESOLVED_BY_AUDIT in July and re-queued every
+    night into late September — 57 and 33 digests later — while the review
+    headline still read "0 open".  A closed task the latest audit queues
+    again is neither open nor done, so it gets its own surface instead of
+    disappearing into the closed counts."""
+    p0 = _task_by_text(fq.load_queue_tasks(root), P0_TASK)
+    fq.append_state_entry(p0["task_id"], "RESOLVED_BY_AUDIT", root=root)
+
+    before = (root / fq.STATE_REL).read_bytes()
+    review = fq.build_review(root)
+
+    # digest B (the latest audit) queues it again
+    assert [t["task"] for t in review["reopened_by_latest_audit"]] == [P0_TASK]
+    assert review["counts"]["open"] == 3          # unchanged: P1, P2, legacy
+    assert review["counts"]["resolved_by_audit"] == 1
+    # surfaced, never re-opened: the ledger is append-only and a human decides
+    assert (root / fq.STATE_REL).read_bytes() == before
+    assert fq.load_state(root)[p0["task_id"]]["status"] == "RESOLVED_BY_AUDIT"
+    assert P0_TASK in fq.render_review(review)
+
+    # once a newer audit stops queueing it, it drops off this surface
+    _point_latest_audit_at(root, "c" * 64)
+    assert fq.build_review(root)["reopened_by_latest_audit"] == []

@@ -936,7 +936,10 @@ def check_queue(run: _Run) -> None:
     last_queued = max((t for t in queue_ts if t), default=None)
     pending = (int(counts.get("open", 0)) + int(counts.get("in_progress", 0))
                + len(review.get("addressed_unconfirmed") or [])
-               + len(review.get("audit_resolved_candidates") or []))
+               + len(review.get("audit_resolved_candidates") or [])
+               # A closed task the latest audit queued again still needs a
+               # human: the ledger calls it done and the audit disagrees.
+               + len(review.get("reopened_by_latest_audit") or []))
     age = (run.now - last_state).days if last_state else None
     run.queue = {"queue_lines": len(queue_ts), "distinct_tasks": counts.get("total_tasks", 0),
                  "counts": counts, "pending_human_review": pending,

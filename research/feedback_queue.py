@@ -318,6 +318,14 @@ def build_review(root: Optional[Path] = None) -> Dict[str, Any]:
         t for t in tasks
         if t["status"] == "ADDRESSED" and t.get("commit")
         and t.get("requeued_by_latest_audit")]
+    # A closed task the latest audit queued again. The ledger says the work is
+    # done, the audit says the condition is back — so the task is neither open
+    # nor genuinely closed, and counting it as closed is how a nightly P1 can
+    # recur for months behind a "0 open" headline. Surfaced, never re-opened
+    # here: the ledger is append-only and a human decides what the status is.
+    reopened = [t for t in tasks
+                if t["status"] in CLOSED_STATUSES
+                and t.get("requeued_by_latest_audit")]
     recommended_next = open_like[0] if open_like else None
 
     counts = {"total_tasks": len(tasks)}
@@ -342,6 +350,7 @@ def build_review(root: Optional[Path] = None) -> Dict[str, Any]:
         "repeat_offenders": repeat_offenders,
         "audit_resolved_candidates": audit_resolved,
         "addressed_unconfirmed": addressed_unconfirmed,
+        "reopened_by_latest_audit": reopened,
         "recommended_next": recommended_next,
     }
 
@@ -421,7 +430,16 @@ def render_review(review: Dict[str, Any], *, verbose: bool = False) -> str:
     else:
         lines.append("  (none)")
 
-    lines.append("\n5. RECOMMENDED NEXT TASK (human decides — nothing "
+    lines.append("\n5. CLOSED BUT QUEUED AGAIN BY THE LATEST AUDIT — the "
+                 "condition came back (pick it up with: resolve <id> "
+                 "--status in_progress)")
+    if review["reopened_by_latest_audit"]:
+        for t in review["reopened_by_latest_audit"]:
+            lines.append(_fmt_task(t, verbose=verbose))
+    else:
+        lines.append("  (none)")
+
+    lines.append("\n6. RECOMMENDED NEXT TASK (human decides — nothing "
                  "runs automatically)")
     if review["recommended_next"]:
         lines.append(_fmt_task(review["recommended_next"], verbose=True))
