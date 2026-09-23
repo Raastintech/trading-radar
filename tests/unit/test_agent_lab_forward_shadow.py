@@ -17,10 +17,40 @@ import pytest
 from research.agent_lab import forward_shadow as F
 
 
+# The session every fixture in this file is built around: the bars end here and
+# the assertions are written against it. See `pin_write_clock` below.
+FIXTURE_SESSION = "2026-09-09"
+
+
 # ------------------------------------------------------------- fixtures -----
 
+@pytest.fixture(autouse=True)
+def pin_write_clock(monkeypatch):
+    """Pin the write clock to the session these fixtures are built around.
+
+    `snapshot_record` stamps each row with its age at write time and
+    `run_session` refuses to write anything older than MAX_BACKDATE_DAYS (7)
+    without `allow_backdate`. The fixtures end their bars on FIXTURE_SESSION,
+    so once the real calendar moved more than a week past it every write in
+    this file started being refused as backdated — the ledger was never
+    created and the tests that read it failed, while the tests that only read
+    `summarise` passed vacuously against an empty ledger.
+
+    Pinning the clock is the whole fix. The backdate guard is not relaxed: it
+    is what the two tests below still exercise, and they pass their own `now`
+    explicitly, which this fixture leaves untouched.
+    """
+    real = F.snapshot_record
+
+    def pinned(*args, now=None, **kwargs):
+        return real(*args, now=pd.Timestamp(FIXTURE_SESSION) if now is None else now,
+                    **kwargs)
+
+    monkeypatch.setattr(F, "snapshot_record", pinned)
+
+
 def _series(n: int, *, start: float = 100.0, drift: float = 0.0004, vol: float = 0.02,
-            end: str = "2026-09-09", seed: int = 0, volume: float = 1_000_000.0) -> pd.DataFrame:
+            end: str = FIXTURE_SESSION, seed: int = 0, volume: float = 1_000_000.0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     idx = pd.bdate_range(end=pd.Timestamp(end), periods=n)
     steps = rng.normal(drift, vol, size=n)
@@ -43,7 +73,7 @@ def _cache(tmp_path, specs: dict[str, dict]) -> F.PriceSource:
     return src
 
 
-def _healthy_specs(n_names: int = 140, bars: int = 400, end: str = "2026-09-09") -> dict:
+def _healthy_specs(n_names: int = 140, bars: int = 400, end: str = FIXTURE_SESSION) -> dict:
     specs = {}
     for i in range(n_names):
         specs[f"T{i:03d}"] = {
