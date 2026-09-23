@@ -131,7 +131,8 @@ VERDICT_TO_EVIDENCE = {
     # beat a baseline on one regime window, which is not evidence of edge
     # until its own pre-registered maturity is met.  Mapped explicitly so
     # this is a decision rather than an unmapped default.
-    "SHORTLIST_IMPROVES_OUTCOMES": _NEE,
+    "SHORTLIST_IMPROVES_OUTCOMES": _NEE, "EO_IMPROVES_OUTCOMES": _NEE,
+    "NO_EXCESS_VS_SPY": _FG,
     "NO_VALUE": _FG, "NO_FORWARD_EDGE": _FG, "FAIL": _FG, "FAILED": _FG,
     "LOOSE_NOT_BETTER": _FG, "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES": _FG,
     "NO_EVIDENCE_OF_EDGE": _FG, "DECOMMISSIONED_AUTOPSY": _FG,

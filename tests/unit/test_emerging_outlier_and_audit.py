@@ -359,6 +359,47 @@ def test_emerging_forward_is_distinct_hypothesis(tmp_path):
     assert fwd["verdict"] == eow.V_NEED_MORE_DATA
 
 
+def _vs_spy(n, headline):
+    return {"n": n, "mean": headline, "median": headline,
+            "headline_mean": headline}
+
+
+def test_forward_verdict_below_floor_needs_more_data():
+    v, reason = eow.forward_verdict(_vs_spy(9, 5.0), _vs_spy(900, -1.0))
+    assert v == eow.V_NEED_MORE_DATA
+    assert "only 9" in reason
+
+
+def test_forward_verdict_matures_once_floor_is_met():
+    """Regression: the verdict was hard-coded NEED_MORE_DATA, so a lane
+    with 1,177 matured episodes printed 'only 1177 … need >=10'."""
+    v, reason = eow.forward_verdict(_vs_spy(1177, 0.0), _vs_spy(7000, -1.65))
+    assert v != eow.V_NEED_MORE_DATA
+    assert "only 1177" not in reason
+    assert v == eow.V_NO_EXCESS_VS_SPY     # zero excess is not positive
+
+
+def test_forward_verdict_positive_but_below_baseline():
+    v, _ = eow.forward_verdict(_vs_spy(50, 0.5), _vs_spy(900, 1.0))
+    assert v == eow.V_NO_IMPROVEMENT
+
+
+def test_forward_verdict_improves_is_qualified_not_validated():
+    v, reason = eow.forward_verdict(
+        _vs_spy(50, 1.2), _vs_spy(900, -1.0), {"n": 12, "median": 0.3})
+    assert v == eow.V_IMPROVES
+    assert "not validated" in reason and "12 distinct names" in reason
+    assert "VALIDATED_EDGE" not in v
+
+
+def test_every_eo_forward_token_maps_to_a_non_validated_level():
+    from research.research_governor import VERDICT_TO_EVIDENCE
+    for token in (eow.V_NEED_MORE_DATA, eow.V_IMPROVES,
+                  eow.V_NO_EXCESS_VS_SPY, eow.V_NO_IMPROVEMENT):
+        assert token in VERDICT_TO_EVIDENCE
+        assert VERDICT_TO_EVIDENCE[token] != "VALIDATED_EDGE"
+
+
 # ── 20. stress tests never mutate production config ─────────────────────────
 
 

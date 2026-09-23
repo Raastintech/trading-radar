@@ -467,7 +467,55 @@ FORWARD_SIDECAR_REL = (Path("cache") / "research"
                        / "emerging_outlier_forward_latest.json")
 FORWARD_LOG_REL = Path("logs") / "emerging_outlier_forward_latest.txt"
 V_NEED_MORE_DATA = "NEED_MORE_DATA"
+# The lane's registered hypothesis (component registry) is that it "beats SPY
+# on its own pre-registered horizons". Until 2026-09-23 the ladder below was
+# never evaluated: the verdict was assigned NEED_MORE_DATA unconditionally,
+# with a reason ("only 1177 matured … need >=10") that contradicted itself,
+# so the lane could not mature at any sample size. The ladder is the one the
+# High-Conviction forward module applies with the same machinery and the
+# same constant — 10d anchor, outlier-guarded headline, program-candidate
+# baseline — carried over unchanged, not tuned to this lane's numbers.
+V_IMPROVES = "EO_IMPROVES_OUTCOMES"
+V_NO_EXCESS_VS_SPY = "NO_EXCESS_VS_SPY"
+V_NO_IMPROVEMENT = "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES"
 MIN_MATURED_FOR_VERDICT = 10
+
+
+def forward_verdict(eo_10d_vs_spy: Dict[str, Any],
+                    baseline_10d_vs_spy: Optional[Dict[str, Any]],
+                    per_ticker: Optional[Dict[str, Any]] = None
+                    ) -> Tuple[str, str]:
+    """(verdict, reason) for the lane's 10d anchor. Pure; no I/O.
+
+    NEED_MORE_DATA below the matured floor. Above it the lane must show a
+    positive outlier-guarded excess vs SPY (its registered hypothesis) and
+    beat the program-candidate baseline. Every verdict is research-only; a
+    positive one is a comparison over one regime window, not evidence of
+    edge."""
+    n = eo_10d_vs_spy.get("n") or 0
+    if n < MIN_MATURED_FOR_VERDICT:
+        return V_NEED_MORE_DATA, (f"only {n} matured 10d episodes "
+                                  f"(need >={MIN_MATURED_FOR_VERDICT})")
+    excess = eo_10d_vs_spy.get("headline_mean")
+    base = (baseline_10d_vs_spy or {}).get("headline_mean")
+    names = ""
+    if per_ticker and per_ticker.get("n"):
+        names = (f"; {per_ticker['n']} distinct names behind {n} matured "
+                 f"episodes, per-name median {per_ticker.get('median')}%")
+    base_txt = "n/a" if base is None else f"{base:+.2f}%"
+    if excess is None or excess <= 0:
+        shown = "n/a" if excess is None else f"{excess:+.2f}%"
+        return V_NO_EXCESS_VS_SPY, (
+            f"10d excess vs SPY {shown} is not positive (program baseline "
+            f"{base_txt}){names}; one regime window, research-only")
+    if base is not None and excess <= base:
+        return V_NO_IMPROVEMENT, (
+            f"10d excess vs SPY {excess:+.2f}% does not beat program "
+            f"baseline {base_txt}{names}; research-only")
+    return V_IMPROVES, (
+        f"10d excess vs SPY {excess:+.2f}% beats program baseline "
+        f"{base_txt}{names}; one regime window, research-only and not "
+        "validated")
 
 
 def build_forward(root: Optional[Path] = None,
@@ -478,7 +526,9 @@ def build_forward(root: Optional[Path] = None,
     root = Path(root) if root else REPO_ROOT
     now = now or _utcnow()
     from research.high_conviction_forward import (
-        _load_closes, _resolve_entry, _cohort_summary, HORIZONS, BENCHMARKS)
+        _load_closes, _resolve_entry, _cohort_summary, _program_baseline,
+        HORIZONS, BENCHMARKS)
+    from research.forward_stat_safety import per_entity_stats
     path = root / HISTORY_REL
     base = {
         "kind": "emerging_outlier_forward", "version": VERSION,
@@ -506,12 +556,19 @@ def build_forward(root: Optional[Path] = None,
     bench_cache: Dict[str, Any] = {}
     resolved = [_resolve_entry(e, root, bench_cache) for e in history]
     cohort = _cohort_summary(resolved)
-    n_matured = cohort["10d"]["vs_spy"]["n"]
-    verdict = V_NEED_MORE_DATA
-    reason = (f"only {n_matured} matured 10d episodes "
-              f"(need >={MIN_MATURED_FOR_VERDICT})")
+    per_ticker = per_entity_stats(resolved, "ret_10d_vs_spy")
+    baseline = _program_baseline(root)
+    base_10d = ((baseline or {}).get("10d", {}).get("vs_spy")
+                if baseline else None)
+    verdict, reason = forward_verdict(cohort["10d"]["vs_spy"], base_10d,
+                                      per_ticker)
     return {**base, "present": True, "n_history_rows": len(history),
-            "cohort": cohort, "verdict": verdict, "verdict_reason": reason}
+            "cohort": cohort, "per_ticker_10d_vs_spy": per_ticker,
+            "program_baseline_10d_vs_spy": base_10d,
+            "verdict_rule": ("n>=%d matured 10d episodes; outlier-guarded "
+                             "10d excess vs SPY > 0 and above the program-"
+                             "candidate baseline" % MIN_MATURED_FOR_VERDICT),
+            "verdict": verdict, "verdict_reason": reason}
 
 
 def write_forward(payload: Dict[str, Any],
