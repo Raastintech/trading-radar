@@ -146,6 +146,24 @@ def test_the_alpha_radar_does_not_surface_quarantined_ten_x_names():
     assert "ten_x_candidates = []" in block
 
 
+def test_an_empty_ten_x_section_says_quarantined_not_no_candidates():
+    """The section printed "(none — stricter criteria require …)" whether the
+    names missed the bar or the surface was quarantined. Those are different
+    facts, and only one of them is about today's candidates."""
+    from research.daily_alpha_radar_report import _ten_x_empty_note
+
+    quarantined = _ten_x_empty_note({"ten_x_surface_is_current": False},
+                                    "stricter criteria require theme")
+    assert "quarantined" in quarantined
+    assert "stricter criteria" not in quarantined
+
+    # a re-registered surface goes back to reporting the criteria
+    live = _ten_x_empty_note({"ten_x_surface_is_current": True},
+                             "stricter criteria require theme")
+    assert "stricter criteria require theme" in live
+    assert "quarantined" not in live
+
+
 def test_the_ten_x_radar_is_off_the_schedule():
     src = (ROOT / "scripts/run_research_cycle.sh").read_text(encoding="utf-8")
     active = [ln for ln in src.splitlines()

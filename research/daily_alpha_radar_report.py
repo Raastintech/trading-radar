@@ -634,7 +634,8 @@ def build_daily_radar(sidecars: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str
     # still loaded and preserved — it is simply not surfaced. If the radar earns
     # a forward hypothesis, core.quarantined_surfaces is the one place to lift
     # this, and these lists repopulate with no change here.
-    if quarantine_is_current("ten_x_candidates", ten_x):
+    ten_x_is_current = quarantine_is_current("ten_x_candidates", ten_x)
+    if ten_x_is_current:
         ten_x_candidates = (ten_x or {}).get("candidates", [])
     else:
         ten_x_candidates = []
@@ -697,6 +698,9 @@ def build_daily_radar(sidecars: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str
             ASYMMETRIC_RECOVERY_WATCH: len(asymmetric),
             THEME_ONLY: len(theme_only),
         },
+        # False means the lists above are empty because the surface is
+        # quarantined, not because today's names missed the criteria.
+        "ten_x_surface_is_current": ten_x_is_current,
         "guardrails": {
             "no_trade_recommendation": True,
             "no_buy_sell": True,
@@ -712,6 +716,21 @@ def build_daily_radar(sidecars: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str
         " ".join(f"{k}={v}" for k, v in sorted(priority_counts.items())),
     )
     return result, buckets, enriched, true_10x, asymmetric, social_items, ten_x_candidates
+
+
+def _ten_x_empty_note(result: Dict[str, Any], criteria_reason: str) -> str:
+    """Say which of the two reasons emptied a 10x list.
+
+    An empty section reads as "nothing qualified today". For a quarantined
+    surface that is the wrong story: the list is empty because the radar was
+    taken off the board on 2026-09-09 for having no forward hypothesis, and it
+    would stay empty even on a day when names did qualify.
+    """
+    if result.get("ten_x_surface_is_current", True):
+        return f"*(none — {criteria_reason})*"
+    return ("*(not shown — this surface is quarantined: no registered forward "
+            "hypothesis. Its sidecar is preserved, and an empty list here is "
+            "the quarantine, not a reading on today's candidates.)*")
 
 
 def generate_report(
@@ -818,7 +837,8 @@ def generate_report(
     )
     lines.append("")
     if not true_10x:
-        lines.append("*(none — stricter criteria require theme + small-cap + confirmed price recovery)*")
+        lines.append(_ten_x_empty_note(
+            result, "stricter criteria require theme + small-cap + confirmed price recovery"))
     else:
         for c in true_10x[:10]:
             themes = ", ".join(c.get("themes", [])[:3]) or "—"
@@ -838,7 +858,7 @@ def generate_report(
     )
     lines.append("")
     if not asymmetric:
-        lines.append("*(none)*")
+        lines.append(_ten_x_empty_note(result, "no names met the criteria"))
     else:
         for c in asymmetric[:10]:
             dd = c.get("dd_from_high_pct")
