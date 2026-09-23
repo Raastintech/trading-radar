@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import socket
 import sys
@@ -199,12 +200,25 @@ def test_real_registry_is_valid_and_honest():
     assert style["evidence_level"] == "FORWARD_IMMATURE"
     assert style["research_label"] == "FORWARD_SHADOW_RESEARCH_ONLY"
     assert by["research_governor"]["expiration_date"] == "2026-10-23"
+    # Found invisible by the 2026-09-23 usefulness review; registered dormant,
+    # never revived and never a source of names.
+    cs = by["core_satellite_forward_shadow"]
+    assert cs["status"] == "DORMANT" and cs["cadence"] == "none"
+    assert cs["allowed_to_surface_candidates"] is False
+    assert "data/research/core_satellite_forward_shadow.jsonl" in cs["ledgers"]
 
 
 def test_real_registry_m1_cohort_waits_for_maturity():
     report = rg.build_report(root=REPO, now=NOW)
     assert decision(report, "m1_frozen_cohort_tracker")["action"] == "WAIT_FOR_MATURITY"
-    assert decision(report, "style_cell_leader_forward_shadow")["action"] == "WAIT_FOR_MATURITY"
+    # The style-cell lane waits only while it is accruing. Its live ledger
+    # has recorded refusals since 2026-09-22, and the label-number check
+    # rightly turns "wait" into a human decision then; either way the
+    # governor never reads it as KEEP or as anything promotable.
+    style = decision(report, "style_cell_leader_forward_shadow")
+    assert style["action"] in ("WAIT_FOR_MATURITY", "NEEDS_HUMAN_APPROVAL")
+    if style["action"] == "NEEDS_HUMAN_APPROVAL":
+        assert "label-number mismatch" in style["reason"]
 
 
 @pytest.mark.parametrize("field, value, rule", [
@@ -574,3 +588,172 @@ def test_episode_independence_probe_fires_on_a_real_ratio(tmp_path):
     assert decision(report, "programs")["action"] == "FIX_NEXT"
     assert [w for w in report["drift_warnings"]
             if w["category"] == "fake_precision"]
+
+
+# ── label-number consistency (2026-09-23) ───────────────────────────────────
+
+
+def _write_ledger(root: Path, rel: str, rows: list) -> None:
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+
+_ACCRUAL = {"kind": "accrual", "artifact": "cache/research/shadow_latest.json",
+            "ledger": "data/research/shadow_ledger.jsonl",
+            "max_days_without_accepted": 10}
+
+
+def _shadow_root(tmp_path, status, rows):
+    root = make_root(tmp_path, [comp(
+        "shadow", kind="tracker", status="RESEARCH_ONLY",
+        evidence_level="FORWARD_IMMATURE", cadence="weekly",
+        artifacts=["cache/research/shadow_latest.json"],
+        label_number_probes=[_ACCRUAL])])
+    write_json(root, "cache/research/shadow_latest.json",
+               {"generated_at": NOW.isoformat(), "latest_status": status})
+    _write_ledger(root, "data/research/shadow_ledger.jsonl", rows)
+    return root
+
+
+def test_fresh_refusal_is_a_label_number_mismatch_not_a_wait(tmp_path):
+    """The file is fresh only because a refusal rewrote it, and the last
+    accepted session is older than the limit — "wait for maturity" would
+    tell the operator to wait on a lane that cannot mature."""
+    root = _shadow_root(tmp_path, "REFUSED_INSUFFICIENT_LIVE_CACHE_COVERAGE", [
+        {"status": "OK", "session_date": "2026-08-20", "record_key": "a"},
+        {"status": "REFUSED_X", "session_date": "2026-09-10", "record_key": "b"}])
+    report = build(root)
+    d = decision(report, "shadow")
+    assert d["action"] == "NEEDS_HUMAN_APPROVAL"
+    assert "label-number mismatch" in d["reason"]
+    assert "2026-08-20" in d["reason"]
+    row = next(c for c in report["components"] if c["component_id"] == "shadow")
+    assert row["freshness"]["state"] == "FRESH_FILE_NOT_ACCRUING"
+    assert "evidence labels overstate numeric state" in report["verdict_reasons"]
+
+
+def test_accruing_lane_still_waits_for_maturity(tmp_path):
+    root = _shadow_root(tmp_path, "OK", [
+        {"status": "OK", "session_date": "2026-09-08", "record_key": "a"}])
+    report = build(root)
+    assert decision(report, "shadow")["action"] == "WAIT_FOR_MATURITY"
+    assert not [w for w in report["drift_warnings"]
+                if w["category"] == "label_number_mismatch"]
+
+
+def test_retracted_and_backdated_rows_are_not_accepted_evidence(tmp_path):
+    root = _shadow_root(tmp_path, "OK", [
+        {"status": "OK", "session_date": "2026-08-01", "record_key": "old"},
+        {"status": "OK", "session_date": "2026-09-09", "record_key": "gone"},
+        {"invalidates_record_key": "gone", "session_date": "2026-09-09",
+         "record_key": "inv"},
+        {"status": "OK", "session_date": "2026-09-10", "record_key": "late",
+         "contemporaneous": False}])
+    d = decision(build(root), "shadow")
+    assert d["action"] == "NEEDS_HUMAN_APPROVAL"
+    assert "last accepted session 2026-08-01" in d["reason"]
+
+
+def _label_root(tmp_path, payload):
+    probe = [{"kind": "positive_vs_numbers",
+              "artifact": "cache/research/fwd_latest.json",
+              "label_path": "verdict",
+              "support_paths": ["per_ticker.median", "per_ticker.winsorized_mean"],
+              "support_true_paths": ["beats_random"]}]
+    root = make_root(tmp_path, [comp("lane", kind="tracker",
+                                     evidence_level="NOT_ENOUGH_EVIDENCE",
+                                     label_number_probes=probe)])
+    write_json(root, "cache/research/fwd_latest.json", payload)
+    return build(root)
+
+
+def test_positive_label_with_negative_robust_numbers_is_flagged(tmp_path):
+    report = _label_root(tmp_path, {
+        "verdict": "SHORTLIST_IMPROVES_OUTCOMES",
+        "per_ticker": {"median": -0.57, "winsorized_mean": -0.29},
+        "beats_random": False})
+    d = decision(report, "lane")
+    assert d["action"] == "NEEDS_HUMAN_APPROVAL"
+    assert "SHORTLIST_IMPROVES_OUTCOMES" in d["reason"] and "-0.57" in d["reason"]
+    [w] = [w for w in report["drift_warnings"]
+           if w["category"] == "label_number_mismatch"]
+    assert "evidence label overstates numeric state" in w["message"]
+
+
+@pytest.mark.parametrize("payload", [
+    # one robust number supports the label -> no mismatch (conservative)
+    {"verdict": "PROMISING_BUT_UNPROVEN",
+     "per_ticker": {"median": 0.4, "winsorized_mean": -0.1}, "beats_random": False},
+    {"verdict": "PROMISING_BUT_UNPROVEN",
+     "per_ticker": {"median": -0.4, "winsorized_mean": -0.1}, "beats_random": True},
+    # a non-positive label is never a mismatch, whatever the numbers
+    {"verdict": "NEED_MORE_DATA",
+     "per_ticker": {"median": -3.0, "winsorized_mean": -3.0}, "beats_random": False},
+])
+def test_label_supported_by_any_number_or_not_positive_is_not_flagged(tmp_path, payload):
+    report = _label_root(tmp_path, payload)
+    assert not [w for w in report["drift_warnings"]
+                if w["category"] == "label_number_mismatch"]
+
+
+def test_blocked_components_are_not_label_probed(tmp_path):
+    root = _shadow_root(tmp_path, "REFUSED_X", [])
+    reg_path = root / rg.DEFAULT_REGISTRY_REL
+    reg = json.loads(reg_path.read_text())
+    reg["components"][0]["status"] = "DORMANT"
+    reg_path.write_text(json.dumps(reg))
+    report = build(root)
+    assert decision(report, "shadow")["action"] != "NEEDS_HUMAN_APPROVAL"
+
+
+# ── invisible stale ledgers (2026-09-23) ────────────────────────────────────
+
+
+def _age(path: Path, days: float) -> None:
+    t = NOW.timestamp() - days * 86400
+    os.utime(path, (t, t))
+
+
+def test_unregistered_stale_ledger_is_flagged_once(tmp_path):
+    root = make_root(tmp_path, [comp("owner", owner_file_or_artifact=["research/owner.py"])])
+    (root / "research").mkdir(exist_ok=True)
+    (root / "research" / "owner.py").write_text(
+        'LEDGER = Path("data") / "research" / "owned_history.jsonl"\n')
+    for name, days in (("orphan_a.jsonl", 40), ("orphan_b.jsonl", 90),
+                       ("owned_history.jsonl", 90), ("young.jsonl", 2),
+                       ("archived.jsonl", 90), ("manual.example.jsonl", 90)):
+        _write_ledger(root, f"data/research/{name}", [{"x": 1}])
+        _age(root / "data" / "research" / name, days)
+    reg_path = root / rg.DEFAULT_REGISTRY_REL
+    reg = json.loads(reg_path.read_text())
+    reg["archived_ledgers"] = [{"path": "data/research/archived.jsonl",
+                                "reason": "finished study"}]
+    reg_path.write_text(json.dumps(reg))
+
+    report = build(root)
+    [w] = [w for w in report["drift_warnings"]
+           if w["category"] == "unregistered_stale_ledger"]
+    assert "orphan_a.jsonl" in w["message"] and "orphan_b.jsonl" in w["message"]
+    for quiet in ("owned_history", "young", "archived", "example"):
+        assert quiet not in w["message"]
+    item = decision(report, "system:unregistered_stale_ledgers")
+    assert item["action"] == "NEEDS_HUMAN_APPROVAL"
+
+
+def test_dormant_status_is_approved_and_blocked(tmp_path):
+    assert "DORMANT" in rg.STATUSES and "DORMANT" in rg.BLOCKED_STATUSES
+    root = make_root(tmp_path, [comp(
+        "sleeper", kind="tracker", status="DORMANT", cadence="none",
+        evidence_level="NOT_ENOUGH_EVIDENCE",
+        artifacts=["cache/research/sleeper_latest.json"],
+        ledgers=["data/research/sleeper.jsonl"])])
+    write_json(root, "cache/research/sleeper_latest.json",
+               {"generated_at": "2026-08-24T00:00:00+00:00"})
+    _write_ledger(root, "data/research/sleeper.jsonl", [{"x": 1}])
+    _age(root / "data" / "research" / "sleeper.jsonl", 30)
+    report = build(root)
+    assert decision(report, "sleeper")["action"] == "KEEP"
+    assert "sleeper" not in report["active_candidate_surfaces"]
+    assert not [w for w in report["drift_warnings"]
+                if w["category"] in ("unregistered_stale_ledger", "stale_live_artifact")]

@@ -9,7 +9,10 @@ ledgers, logs, scheduler unit files and budget counters exist, and says for
 every component exactly one of: STOP_NOW, KEEP, FIX_NEXT, WAIT_FOR_MATURITY,
 DO_NOT_BUILD, NEEDS_HUMAN_APPROVAL.  Its purpose is to catch drift, API
 waste, stale surfaces, duplicate tools, fake precision and unvalidated alpha
-claims before they cost attention.
+claims before they cost attention.  It also compares labels with the numbers
+behind them (a fresh file that only a refusal rewrote, a "wait" on a lane
+that is not accruing, a positive verdict no robust statistic supports) and
+flags append-only ledgers that no registry entry can see.
 
 What it is not
 --------------
@@ -62,8 +65,10 @@ SESSION_TZ = ZoneInfo("America/New_York")
 
 # ── approved enums ───────────────────────────────────────────────────────────
 
+# DORMANT: preserved and not running, with no runner or owner; unlike
+# DECOMMISSIONED it has not been retired, and only a human decision revives it.
 STATUSES = ("CORE", "SUPPORT", "RESEARCH_ONLY", "QUARANTINE",
-            "SUNSET_CANDIDATE", "DISABLED", "DECOMMISSIONED")
+            "SUNSET_CANDIDATE", "DISABLED", "DORMANT", "DECOMMISSIONED")
 EVIDENCE_LEVELS = ("VALIDATED_EDGE", "PROVISIONAL_POOL_LEVEL_ONLY",
                    "FORWARD_IMMATURE", "REPLAY_CONTRADICTED", "FAILED_GATES",
                    "NOT_ENOUGH_EVIDENCE", "OPERATIONAL_CONTROL_ONLY")
@@ -75,7 +80,8 @@ VERDICTS = ("HEALTHY", "CAUTION", "DRIFTING", "BLOCKED",
 APPARATUS_ANSWERS = ("CLOSER_TO_ALPHA", "WAITING_ON_EVIDENCE",
                      "BUILDING_APPARATUS")
 
-BLOCKED_STATUSES = frozenset({"QUARANTINE", "DECOMMISSIONED", "DISABLED"})
+BLOCKED_STATUSES = frozenset({"QUARANTINE", "DECOMMISSIONED", "DISABLED",
+                              "DORMANT"})
 NO_SURFACE_EVIDENCE = frozenset({"REPLAY_CONTRADICTED", "FAILED_GATES"})
 HUMAN_ACTIONS = frozenset({"STOP_NOW", "FIX_NEXT", "NEEDS_HUMAN_APPROVAL"})
 # One action per item: the most urgent finding wins.
@@ -115,6 +121,9 @@ DEFAULT_LIMITS = {
     # A manual run able to spend more than this with no planned-call gate is
     # the 2026-09-05 accident class (20,260 calls in a day) → FIX_NEXT.
     "large_run_calls": 2000,
+    # An append-only ledger under data/research that no component claims and
+    # nobody has appended to for this long is evidence nobody is watching.
+    "unregistered_ledger_stale_days": 14,
 }
 
 # Verdict strings found in local artifacts → evidence level.  Conservative:
@@ -1150,6 +1159,191 @@ def check_evidence(run: _Run) -> None:
             "evidence_source": c.get("evidence_source"), "note": note})
 
 
+# ── label-number consistency ─────────────────────────────────────────────────
+#
+# A label can be more positive than the numbers behind it: a FRESH artifact
+# that only a refusal rewrote, a lane told to wait for maturity that is not
+# accruing evidence to mature on, a comparative "improves" verdict whose
+# per-ticker median is negative.  These probes compare the label with the
+# numbers and report a label-number mismatch.  Reporting only: they never
+# change a verdict, a status or a threshold, and they encode no trading rule.
+
+POSITIVE_LABEL_RE = re.compile(r"IMPROVES|PROMISING|BEATS|READY|STRONG")
+
+
+def _last_accepted_date(run: _Run, probe: Dict[str, Any]) -> Tuple[Optional[date], int]:
+    """Newest accepted, non-retracted, contemporaneous row in a JSONL ledger."""
+    text = _read_text(run.path(probe.get("ledger", ""))) or ""
+    status_f = probe.get("status_field", "status")
+    accepted = set(probe.get("accepted_values") or ["OK"])
+    date_f = probe.get("date_field", "session_date")
+    key_f = probe.get("key_field", "record_key")
+    inval_f = probe.get("invalidation_field", "invalidates_record_key")
+    rows, retracted = [], set()
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+            if row.get(inval_f):
+                retracted.add(row[inval_f])
+    dates = [_parse_date(r.get(date_f)) for r in rows
+             if r.get(status_f) in accepted and r.get(key_f) not in retracted
+             and r.get("contemporaneous") is not False]
+    dates = [d for d in dates if d]
+    return (max(dates) if dates else None), len(dates)
+
+
+def _probe_accrual(run: _Run, c: Dict[str, Any], probe: Dict[str, Any]) -> Optional[str]:
+    cid = c["component_id"]
+    payload, error = run.json(probe.get("artifact", ""))
+    if payload is None:
+        run.warn("missing_artifact", f"accrual probe artifact {probe.get('artifact')} "
+                 f"{error}", component_id=cid, severity="INFO")
+        return None
+    status = next(iter(dig(payload, probe.get("status_path", "latest_status"))), None)
+    prefix = probe.get("refusal_prefix", "REFUSED")
+    refused = isinstance(status, str) and status.upper().startswith(prefix)
+    last_ok, n_ok = _last_accepted_date(run, probe)
+    max_days = int(probe.get("max_days_without_accepted", 10))
+    idle = (run.today - last_ok).days if last_ok else None
+    stalled = last_ok is None or idle > max_days
+    if not (refused or stalled):
+        return None
+    fresh = (run.freshness.get(cid) or {}).get("state") == "FRESH"
+    if fresh:
+        run.freshness[cid]["state"] = "FRESH_FILE_NOT_ACCRUING"
+    parts = []
+    if refused:
+        parts.append(f"latest session {status}")
+    parts.append(f"last accepted session {last_ok or 'none'}"
+                 + (f" ({idle}d ago, limit {max_days}d)" if idle is not None else ""))
+    detail = "; ".join(parts)
+    if fresh:
+        detail += "; the artifact reads FRESH only because the refusal rewrote it"
+    if c.get("evidence_level") == "FORWARD_IMMATURE":
+        detail += "; waiting for maturity overstates a lane that is not accruing evidence"
+    return detail
+
+
+def _probe_positive_vs_numbers(run: _Run, c: Dict[str, Any],
+                               probe: Dict[str, Any]) -> Optional[str]:
+    cid = c["component_id"]
+    payload, error = run.json(probe.get("artifact", ""))
+    if payload is None:
+        run.warn("missing_artifact", f"label probe artifact {probe.get('artifact')} "
+                 f"{error}", component_id=cid, severity="INFO")
+        return None
+    label = next(iter(dig(payload, probe.get("label_path", "verdict"))), None)
+    if not isinstance(label, str):
+        return None
+    positive = (label in (probe.get("positive_labels") or [])
+                or bool(POSITIVE_LABEL_RE.search(label)))
+    if not positive:
+        return None
+    numbers, flags = {}, {}
+    for path in probe.get("support_paths") or []:
+        v = next(iter(dig(payload, path)), None)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            numbers[path] = v
+    for path in probe.get("support_true_paths") or []:
+        v = next(iter(dig(payload, path)), None)
+        if isinstance(v, bool):
+            flags[path] = v
+    if not numbers and not flags:
+        run.warn("label_probe_unreadable", f"{c.get('name')}: none of the supporting "
+                 f"numbers for label {label} were found", component_id=cid,
+                 severity="INFO")
+        return None
+    # Conservative: a mismatch only when NO robust number supports the label.
+    if any(v > 0 for v in numbers.values()) or any(flags.values()):
+        return None
+    shown = [f"{k.rsplit('.', 1)[-1]} {v}" for k, v in numbers.items()]
+    shown += [f"{k.rsplit('.', 1)[-1]} {v}" for k, v in flags.items()]
+    return f"label {label} but {', '.join(shown)}"
+
+
+LABEL_PROBES = {"accrual": _probe_accrual,
+                "positive_vs_numbers": _probe_positive_vs_numbers}
+
+
+def check_label_numbers(run: _Run) -> None:
+    for c in run.comps:
+        cid = c["component_id"]
+        if c.get("status") in BLOCKED_STATUSES:
+            continue
+        for probe in c.get("label_number_probes") or []:
+            fn = LABEL_PROBES.get(probe.get("kind"))
+            if fn is None:
+                run.warn("label_probe_unknown", f"{c.get('name')}: unknown label probe "
+                         f"kind {probe.get('kind')!r}", component_id=cid, severity="INFO")
+                continue
+            detail = fn(run, c, probe)
+            if not detail:
+                continue
+            run.warn("label_number_mismatch",
+                     f"{c.get('name')}: evidence label overstates numeric state — {detail}",
+                     component_id=cid)
+            run.find(cid, "NEEDS_HUMAN_APPROVAL",
+                     f"label-number mismatch: {detail}",
+                     probe.get("next_step") or
+                     "requalify the label or record why it stands (human decision); "
+                     "the governor never changes a verdict",
+                     "label_number_mismatch")
+
+
+def _ledger_owners(run: _Run) -> Dict[str, str]:
+    """Ledger filename -> owning component, from registry paths and from the
+    source of every module a component owns."""
+    owners: Dict[str, str] = {}
+    for c in run.comps:
+        cid = c["component_id"]
+        refs = [a["path"] for a in _artifact_specs(c)]
+        refs += _as_list(c.get("owner_file_or_artifact")) + _as_list(c.get("ledgers"))
+        for ref in refs:
+            if ref.endswith(".jsonl"):
+                owners.setdefault(Path(ref).name, cid)
+        for ref in _as_list(c.get("owner_file_or_artifact")):
+            if ref.endswith(".py"):
+                for name in re.findall(r"[A-Za-z0-9_.\-]+\.jsonl", _read_text(run.path(ref)) or ""):
+                    owners.setdefault(name, cid)
+    return owners
+
+
+def check_unregistered_ledgers(run: _Run) -> None:
+    owners = _ledger_owners(run)
+    archived = {str(a.get("path")) for a in run.registry.get("archived_ledgers") or []
+                if isinstance(a, dict)}
+    archived |= set(run.registry.get("ignored_artifacts") or [])
+    stale_days = float(run.limits["unregistered_ledger_stale_days"])
+    hits = []
+    for d in run.registry.get("ledger_scan_dirs") or ["data/research"]:
+        base = run.path(d)
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*.jsonl")):
+            rel = str(p.relative_to(run.root)) if run.root in p.parents else str(p)
+            if ".example." in p.name or rel in archived or p.name in owners:
+                continue
+            age_d = (run.now.timestamp() - p.stat().st_mtime) / 86400.0
+            if age_d > stale_days:
+                hits.append(f"{rel} ({age_d:.0f}d)")
+    if not hits:
+        return
+    run.warn("unregistered_stale_ledger",
+             f"{len(hits)} append-only ledger(s) no component claims and nobody has "
+             f"appended to for more than {stale_days:.0f} days: " + "; ".join(hits[:8])
+             + (f"; +{len(hits) - 8} more" if len(hits) > 8 else ""))
+    run.system_item("system:unregistered_stale_ledgers", "Unregistered stale ledgers",
+                    "NEEDS_HUMAN_APPROVAL",
+                    f"{len(hits)} ledger(s) invisible to the registry: " + "; ".join(hits),
+                    "register each as a component (DORMANT if nothing runs it), or list "
+                    "it under archived_ledgers with a reason (human decision)",
+                    evidence="NOT_ENOUGH_EVIDENCE", stale="STALE")
+
+
 def _static_budget_facts(run: _Run) -> Dict[str, Any]:
     src = run.registry.get("cost_sources") or {}
     pb = _read_text(run.path(src.get("provider_budget_module", "core/provider_budget.py"))) or ""
@@ -1428,7 +1622,9 @@ def decide_verdict(run: _Run, decisions: List[Dict[str, Any]]) -> Tuple[str, Lis
     for cat, text in (("untriaged_queue", "untriaged audit queue"),
                       ("stale_live_artifact", "stale surfaces still shown as current"),
                       ("uncontrolled_provider_risk", "uncontrolled provider-call risk"),
-                      ("decision_date_passed", "decision dates passed without a decision")):
+                      ("decision_date_passed", "decision dates passed without a decision"),
+                      ("label_number_mismatch", "evidence labels overstate numeric state"),
+                      ("unregistered_stale_ledger", "stale ledgers invisible to the registry")):
         if cat in cats:
             caution.append(text)
     if counts.get("FIX_NEXT"):
@@ -1525,6 +1721,8 @@ CHECKS: Tuple[Tuple[str, Callable[[_Run], None]], ...] = (
     ("scheduled_components", check_scheduled_components),
     ("precision", check_precision),
     ("evidence", check_evidence),
+    ("label_numbers", check_label_numbers),
+    ("unregistered_ledgers", check_unregistered_ledgers),
     ("cost", check_cost),
     ("proposals", build_proposals),
 )

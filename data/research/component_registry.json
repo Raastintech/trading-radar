@@ -50,7 +50,7 @@
         "operator",
         "journal_audit_reviewer"
       ],
-      "notes": "Drift audit 2026-09-09 rated it SUPPORT (degrading): about 187 lines and 19 sections, and every new sidecar gets appended. It recommended a cap near 40 lines; the governor flags anything above 60. Governance cleanup 2026-09-12 cut the note to about 95 lines and 13 sections: duplicated candidate lists (top-candidates recap, per-candidate latest-scan records), the decommissioned-funnel appendix while none of its warnings is firing, and the long deprioritisation/policy narratives are gone; the four small evidence/policy sections now share one heading. It is still above 60 because the shortlist, emerging-watch, fundamental and program lines are the journal audit reviewer's only input — it parses the note text, not the sidecars — so cutting them would silently disable deterministic gate checks. Reaching 60 needs that reviewer moved onto the JSON sidecars first (human decision), or a cap raised on purpose. Operator decision 2026-09-23 took the second option: the operating cap is 100 lines against a note of about 95-97, so the governor flags real growth instead of the known gap. Temporary cap is 100 until journal audit reviewer moves from digest-text parsing to JSON sidecars. After that, target can return to 60."
+      "notes": "Drift audit 2026-09-09 rated it SUPPORT (degrading): about 187 lines and 19 sections, and every new sidecar gets appended. It recommended a cap near 40 lines; the governor flags anything above 60. Governance cleanup 2026-09-12 cut the note to about 95 lines and 13 sections: duplicated candidate lists (top-candidates recap, per-candidate latest-scan records), the decommissioned-funnel appendix while none of its warnings is firing, and the long deprioritisation/policy narratives are gone; the four small evidence/policy sections now share one heading. It is still above 60 because the shortlist, emerging-watch, fundamental and program lines are the journal audit reviewer's only input \u2014 it parses the note text, not the sidecars \u2014 so cutting them would silently disable deterministic gate checks. Reaching 60 needs that reviewer moved onto the JSON sidecars first (human decision), or a cap raised on purpose. Operator decision 2026-09-23 took the second option: the operating cap is 100 lines against a note of about 95-97, so the governor flags real growth instead of the known gap. Temporary cap is 100 until journal audit reviewer moves from digest-text parsing to JSON sidecars. After that, target can return to 60."
     },
     {
       "component_id": "journal_audit_reviewer",
@@ -330,7 +330,7 @@
         "daily_research_digest",
         "journal_audit_reviewer"
       ],
-      "notes": "All three programs INSUFFICIENT_MATURE_EVIDENCE. Ledger rows duplicate episodes about 4.6x (drift audit): any n-based claim must use deduplicated episodes. Precision probe re-pointed 2026-09-12: it read duplication_factor (ledger rows per episode, 4.68), which is high by construction because the ledger re-appends a name every night it is on the board, and which this report never counts as evidence — every statistic and gate here reads deduped episodes. The probe now reads episodes_per_unique_ticker (1.88), which measures what is actually at risk: a ticker entering under several labels contributes several 'independent' episodes. Both numbers stay published."
+      "notes": "All three programs INSUFFICIENT_MATURE_EVIDENCE. Ledger rows duplicate episodes about 4.6x (drift audit): any n-based claim must use deduplicated episodes. Precision probe re-pointed 2026-09-12: it read duplication_factor (ledger rows per episode, 4.68), which is high by construction because the ledger re-appends a name every night it is on the board, and which this report never counts as evidence \u2014 every statistic and gate here reads deduped episodes. The probe now reads episodes_per_unique_ticker (1.88), which measures what is actually at risk: a ticker entering under several labels contributes several 'independent' episodes. Both numbers stay published."
     },
     {
       "component_id": "alpha_root_cause_gate",
@@ -426,7 +426,21 @@
         "alpha_focus",
         "daily_research_digest"
       ],
-      "notes": "The forward verdict is a comparison against the program-candidate baseline. Until 2026-09-12 that baseline was outlier-contaminated (mean +29.44% against a median of -1.7%) by a single broken price row — PI 2026-08-15, a weekend bar from a 24/7 symbol spliced into the equity series, +189,857% at 10d — and the verdict read NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES because a real +1.7% lost to it. Batch E quarantines such rows and compares both sides on the outlier-guarded headline: the baseline is now -1.67% and the verdict reads SHORTLIST_IMPROVES_OUTCOMES. That is a corrected comparison, NOT evidence of edge: 423 matured episodes are only 87 distinct names in one regime window, so the level stays NOT_ENOUGH_EVIDENCE until the pre-registered maturity is met. Operator decision 2026-09-11: a label on the board, not an independent candidate list."
+      "notes": "The forward verdict is a comparison against the program-candidate baseline. Until 2026-09-12 that baseline was outlier-contaminated (mean +29.44% against a median of -1.7%) by a single broken price row \u2014 PI 2026-08-15, a weekend bar from a 24/7 symbol spliced into the equity series, +189,857% at 10d \u2014 and the verdict read NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES because a real +1.7% lost to it. Batch E quarantines such rows and compares both sides on the outlier-guarded headline: the baseline is now -1.67% and the verdict reads SHORTLIST_IMPROVES_OUTCOMES. That is a corrected comparison, NOT evidence of edge: 423 matured episodes are only 87 distinct names in one regime window, so the level stays NOT_ENOUGH_EVIDENCE until the pre-registered maturity is met. Operator decision 2026-09-11: a label on the board, not an independent candidate list.",
+      "label_number_probes": [
+        {
+          "kind": "positive_vs_numbers",
+          "artifact": "cache/research/high_conviction_forward_latest.json",
+          "label_path": "verdict",
+          "positive_labels": [
+            "SHORTLIST_IMPROVES_OUTCOMES"
+          ],
+          "support_paths": [
+            "shortlist_per_ticker_10d_vs_spy.median",
+            "shortlist_per_ticker_10d_vs_spy.winsorized_mean"
+          ]
+        }
+      ]
     },
     {
       "component_id": "emerging_outlier_watch",
@@ -473,7 +487,21 @@
         "alpha_focus",
         "daily_research_digest"
       ],
-      "notes": "Forward verdict NEED_MORE_DATA. Operator decision 2026-09-11: a label on the board, not an independent candidate list."
+      "notes": "Forward verdict NEED_MORE_DATA. Operator decision 2026-09-11: a label on the board, not an independent candidate list.",
+      "label_number_probes": [
+        {
+          "kind": "positive_vs_numbers",
+          "artifact": "cache/research/emerging_outlier_forward_latest.json",
+          "label_path": "verdict",
+          "positive_labels": [
+            "EO_IMPROVES_OUTCOMES"
+          ],
+          "support_paths": [
+            "per_ticker_10d_vs_spy.median",
+            "per_ticker_10d_vs_spy.winsorized_mean"
+          ]
+        }
+      ]
     },
     {
       "component_id": "alpha_focus",
@@ -698,7 +726,22 @@
       "consumers": [
         "operator"
       ],
-      "notes": "First 60d session matures about 2026-12-04 (business-day estimate from 2026-09-10); the floor needs 30 matured sessions, so no verdict before 2027. Never pooled with the live forward ledger, programs, M1, HC/EO/Alpha Focus or dashboards. Operator decision 2026-09-23 replaced the manual cadence with a weekly zero-provider one: scripts/style_cell_shadow_weekly.sh on gem-trader-style-cell-shadow.timer (user timer, Sat 10:00 ET), cache-only, source live_plus_replay_cache, no refresh and no --allow-backdate. Runbook: docs/ops/STYLE_CELL_SHADOW_CADENCE.md. Open issue: the first scheduled run refused at 42.4% fresh against an 80% floor, because only about 1,000 universe names get a daily price refresh and the merged cache decays below the floor within a couple of weeks; until a broad price refresh runs (a provider-budget decision, not a cadence one) this lane records weekly refusals and its floor does not advance."
+      "notes": "First 60d session matures about 2026-12-04 (business-day estimate from 2026-09-10); the floor needs 30 matured sessions, so no verdict before 2027. Never pooled with the live forward ledger, programs, M1, HC/EO/Alpha Focus or dashboards. Operator decision 2026-09-23 replaced the manual cadence with a weekly zero-provider one: scripts/style_cell_shadow_weekly.sh on gem-trader-style-cell-shadow.timer (user timer, Sat 10:00 ET), cache-only, source live_plus_replay_cache, no refresh and no --allow-backdate. Runbook: docs/ops/STYLE_CELL_SHADOW_CADENCE.md. Open issue: the first scheduled run refused at 42.4% fresh against an 80% floor, because only about 1,000 universe names get a daily price refresh and the merged cache decays below the floor within a couple of weeks; until a broad price refresh runs (a provider-budget decision, not a cadence one) this lane records weekly refusals and its floor does not advance.",
+      "label_number_probes": [
+        {
+          "kind": "accrual",
+          "artifact": "cache/research/agent_lab/style_cell_leader_forward_latest.json",
+          "status_path": "latest_status",
+          "refusal_prefix": "REFUSED",
+          "ledger": "data/research/agent_lab/style_cell_leader_forward_ledger.jsonl",
+          "accepted_values": [
+            "OK"
+          ],
+          "date_field": "session_date",
+          "max_days_without_accepted": 10,
+          "next_step": "the lane cannot mature on refusals; decide on a sized price-cache refresh or mark the lane DORMANT (human budget decision)"
+        }
+      ]
     },
     {
       "component_id": "social_attention_radar",
@@ -737,7 +780,25 @@
         "daily_research_digest",
         "command center"
       ],
-      "notes": "The one current social lane (user cron, 21:30 UTC Mon-Fri; StockTwits and Google Trends, capped watch universe). Never a source of names."
+      "notes": "The one current social lane (user cron, 21:30 UTC Mon-Fri; StockTwits and Google Trends, capped watch universe). Never a source of names.",
+      "label_number_probes": [
+        {
+          "kind": "positive_vs_numbers",
+          "artifact": "cache/research/social_attention_forward_latest.json",
+          "label_path": "verdict",
+          "positive_labels": [
+            "PROMISING_BUT_UNPROVEN"
+          ],
+          "support_paths": [
+            "comparisons.social_led_rel_spy",
+            "comparisons.all_leads_rel_spy"
+          ],
+          "support_true_paths": [
+            "comparisons.social_beats_random",
+            "comparisons.leads_beat_random"
+          ]
+        }
+      ]
     },
     {
       "component_id": "social_arb_news_catalyst",
@@ -975,6 +1036,36 @@
         "audit"
       ],
       "notes": "About 30 sidecars frozen since mid-June; their value is that they say no and are dated. Core-Satellite is the one provisional exception and has its own forward shadow ledger. Never consult for candidate selection. Provider risk is HIGH: the manual fetch scripts here default to 8,500-11,500 calls per run (historical_replay_price_backfill, historical_replay_fundamental_fetch) and the M1 analyst-actions study to 3,800, guarded only by the global daily FMP cap, with no planned-call gate. Gated 2026-09-11: research/backtests/common.py require_execute_fetch now applies the planned-call confirmation threshold, so any stage planning more than 100 calls refuses unless --allow-large-run is named, even with --execute-fetch."
+    },
+    {
+      "component_id": "core_satellite_forward_shadow",
+      "name": "Core-Satellite forward shadow (dormant)",
+      "owner_file_or_artifact": [
+        "research/core_satellite_forward_shadow.py"
+      ],
+      "kind": "tracker",
+      "status": "DORMANT",
+      "evidence_level": "NOT_ENOUGH_EVIDENCE",
+      "daily_decision_impact": false,
+      "provider_call_risk": "NONE",
+      "allowed_to_surface_candidates": false,
+      "allowed_in_daily_digest": false,
+      "allowed_in_dashboard": false,
+      "requires_human_approval_to_change": true,
+      "next_decision_date": null,
+      "maturity_date": null,
+      "expiration_date": null,
+      "cadence": "none",
+      "artifacts": [
+        "cache/research/core_satellite_forward_shadow_latest.json",
+        "data/research/core_satellite_forward_shadow.jsonl"
+      ],
+      "ledgers": [
+        "data/research/core_satellite_forward_shadow.jsonl"
+      ],
+      "purpose": "arithmetic forward-shadow ledger for the two Core-Satellite regime variants; seeded once and never advanced",
+      "consumers": [],
+      "notes": "Registered 2026-09-23 after the agent usefulness review found it invisible to the registry: one seed row from 2026-08-24, no runner command, no timer and no owner, so it has not advanced since. DORMANT, not revived: no cadence is created. The ledger and sidecar are preserved unchanged. The in-window backtest gate pass it was built to follow is replay evidence only (the regime classifier was authored in-window), and no forward evidence exists, hence NOT_ENOUGH_EVIDENCE. Reviving it would be a separate human decision. Never a candidate source."
     },
     {
       "component_id": "scanner_truth_autopsy",
