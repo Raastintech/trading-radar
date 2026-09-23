@@ -1014,6 +1014,48 @@ def test_backfill_pending_keeps_data_quality_action():
     assert "data_quality" in areas  # actionable cause -> still proposed
 
 
+def test_red_flag_review_grouping_declares_the_red_flag_deliverable():
+    """97967cc renamed "Red flags in review order:" to the review-queue
+    grouping "Risk / Red-Flag Review:". The successor line must still
+    suppress the closed P2 (70884dde3217) — it re-queued 33 nights."""
+    successor = DECLARATIONS.replace(
+        "  - Red flags in review order: SDGR (unprofitable, OM -64.7%)",
+        "- Risk / Red-Flag Review: SDGR\n"
+        "  - Risk details: SDGR (unprofitable, OM -64.7%)")
+    assert "red flags in review order" not in successor.lower()
+    digest = _digest_without_plan_warning() + successor
+    assert jar.extract_digest_signals(digest)["red_flags_line_present"]
+    audit = jar.audit_daily_digest(digest, use_llm=False)
+    assert "fundamental_overlay" not in {
+        a["area"] for a in audit["next_system_actions"]}
+
+
+def test_pending_backfill_with_report_is_a_distinct_task_from_july():
+    """When the quarantine-cause report exists, only execution is pending.
+    That task must hash to a new id rather than land on afa49350da0a, which
+    was closed RESOLVED_BY_AUDIT on 2026-07-10."""
+    from research.feedback_queue import compute_task_id
+    actionable = DECLARATIONS.replace(
+        "3x YOUNG_LISTING, 2x REPAIRED",
+        "5x REPAIRED, 1x BACKFILL_PENDING")
+    audit = jar.audit_daily_digest(make_analyst_digest() + actionable,
+                                   use_llm=False)
+    [dq] = [a for a in audit["next_system_actions"]
+            if a["area"] == "data_quality"]
+    assert "already exists" in dq["task"]
+    new_id = compute_task_id("system_repair_task", dq["priority"],
+                             dq["area"], dq["task"])
+    assert new_id != "afa49350da0a"
+
+    # With no report referenced, the original build-both task — and its
+    # original id — is unchanged.
+    bare = jar.audit_daily_digest(make_analyst_digest(), use_llm=False)
+    [dq0] = [a for a in bare["next_system_actions"]
+             if a["area"] == "data_quality"]
+    assert compute_task_id("system_repair_task", dq0["priority"],
+                           dq0["area"], dq0["task"]) == "afa49350da0a"
+
+
 def test_plan_warning_blocks_data_quality_suppression():
     # a live "backfill plan: N tickers need" warning is actionable even
     # when the quarantine report is referenced (non-quarantined names

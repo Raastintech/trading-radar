@@ -532,7 +532,14 @@ def extract_digest_signals(digest_text: str) -> Dict[str, Any]:
         # sidecar actually carries them.
         "forward_stats_referenced":
             "see forward-evidence tracker report" in lower,
-        "red_flags_line_present": "red flags in review order:" in lower,
+        # Red flags: 58dd944 declared the deliverable as "Red flags in review
+        # order:". 97967cc (2026-08-03) folded that line into the review-queue
+        # grouping, which states it as "Risk / Red-Flag Review:". Matching only
+        # the old phrase re-queued the closed P2 70884dde3217 on 33 nights
+        # while the surfacing it asks for was on the page.
+        "red_flags_line_present": (
+            "red flags in review order:" in lower
+            or "risk / red-flag review:" in lower),
         "quarantine_report_referenced":
             "see quarantine-cause report" in lower,
         "quarantine_backfill_pending": "backfill_pending" in lower,
@@ -1304,18 +1311,38 @@ def build_next_system_actions(
             detail.append("targeted-backfill warnings present")
         if signals.get("missing_artifacts"):
             detail.append("missing artifacts reported")
-        actions.append(_action(
-            "P1", "data_quality",
-            "Run the targeted price-cache backfill plan (dry-run first, "
-            "then --execute) and produce a quarantine-cause report giving "
-            "each quarantined ticker an explicit reason and clearance "
-            "condition.",
-            ("Data-quality issues in the digest: " + "; ".join(detail) + "."
-             if detail else "Data-quality issues flagged in the digest.")
-            + " Thin or quarantined history distorts RS and MA fields.",
-            "Backfill run is logged with the tickers that now meet the "
-            "bar-depth floor; quarantine report shows a reason and "
-            "clearance condition for every quarantined ticker."))
+        why = (("Data-quality issues in the digest: " + "; ".join(detail)
+                + "." if detail else "Data-quality issues flagged in the "
+                "digest.") + " Thin or quarantined history distorts RS and "
+               "MA fields.")
+        if signals.get("quarantine_report_referenced"):
+            # The quarantine-cause report exists (the July deliverable), so
+            # only the execution half is outstanding. It gets its own text,
+            # and therefore its own task id: a task id is a hash of the text,
+            # and reusing the build-both wording landed every night on
+            # afa49350da0a, closed RESOLVED_BY_AUDIT on 2026-07-10 — a live
+            # condition hidden inside a closed task.
+            actions.append(_action(
+                "P1", "data_quality",
+                "Decide whether to run the pending targeted price-cache "
+                "backfill (dry-run first, then --execute, provider budget "
+                "permitting). The quarantine-cause report already exists; "
+                "only the backfill execution is outstanding.",
+                why,
+                "The backfill plan has no remaining tickers below the "
+                "bar-depth floor, or each remaining ticker is recorded as "
+                "source-exhausted in the quarantine-cause report."))
+        else:
+            actions.append(_action(
+                "P1", "data_quality",
+                "Run the targeted price-cache backfill plan (dry-run first, "
+                "then --execute) and produce a quarantine-cause report "
+                "giving each quarantined ticker an explicit reason and "
+                "clearance condition.",
+                why,
+                "Backfill run is logged with the tickers that now meet the "
+                "bar-depth floor; quarantine report shows a reason and "
+                "clearance condition for every quarantined ticker."))
 
     # P2 — options coverage health.  Suppressed when the digest already
     # cites the options-coverage report (the deliverable exists; the
