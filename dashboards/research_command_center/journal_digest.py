@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 from dashboards.research_command_center.data_adapter import (
     ArtifactStore,
     RESEARCH_ONLY_FOOTER,
+    _downstream_dependency_audit,
     _load_json,
     build_fundamentals,
     build_status,
@@ -161,6 +162,11 @@ def collect_inputs(store: Optional[ArtifactStore] = None) -> Dict[str, Any]:
         "latest_scan": latest_scan,
         "high_conviction": high_conviction,
         "emerging_outlier": emerging_outlier,
+        "emerging_outlier_stale": bool(
+            emerging_outlier
+            and _downstream_dependency_audit(
+                "emerging_outlier_watch", emerging_outlier, store
+            ).get("stale_for_latest_scan")),
         "filter_audit": filter_audit,
         "options_coverage": options_coverage,
         "recall_diagnostics": recall_diagnostics,
@@ -1228,6 +1234,16 @@ def _priority_red_flag_for(inputs: Dict[str, Any], ticker: str) -> bool:
         term in note for term in material_terms for note in notes)
 
 
+def _current_eo_watch(inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """EO names that may be read as today's review. EO runs weekly since
+    2026-09-24 (failed forward gate, no daily decision impact); between runs
+    its list describes an earlier scan and is shown only in its own section,
+    labelled as such — never as today's review."""
+    if inputs.get("emerging_outlier_stale"):
+        return []
+    return list((inputs.get("emerging_outlier") or {}).get("watch") or [])
+
+
 def _executive_summary(inputs: Dict[str, Any],
                        status: Optional[str] = None) -> str:
     """One line the operator can read alone: how much came out of the
@@ -1236,11 +1252,10 @@ def _executive_summary(inputs: Dict[str, Any],
     radar = inputs.get("radar") or {}
     scanner = inputs.get("scanner") or {}
     hc = inputs.get("high_conviction") or {}
-    eo = inputs.get("emerging_outlier") or {}
     total = (radar.get("total_candidates")
              or scanner.get("watchlist_size"))
     shortlist = len(hc.get("shortlist") or [])
-    watch = len(eo.get("watch") or [])
+    watch = len(_current_eo_watch(inputs))
     return (f"- Summary: {_fmt(total)} candidates | {shortlist} shortlist + "
             f"{watch} emerging for manual review | forward verdict "
             f"{st.get('tracker_verdict') or 'UNKNOWN'} (immature, not "
@@ -1252,7 +1267,6 @@ def _section_todays_operator_focus(inputs: Dict[str, Any],
                                    status: Optional[str] = None) -> List[str]:
     """Small, source-ordered action block for today's human review."""
     hc = inputs.get("high_conviction") or {}
-    eo = inputs.get("emerging_outlier") or {}
     # A data-suspect fundamental (e.g. RYAN-style implausible dilution)
     # must not sit in the clean Review First line — it belongs only in
     # Red-flag review below, never in both.
@@ -1260,7 +1274,7 @@ def _section_todays_operator_focus(inputs: Dict[str, Any],
         c.get("ticker") for c in (hc.get("shortlist") or [])[:5]
         if not _dilution_data_suspect(c.get("ticker"), inputs.get("store"))
     ]
-    eo_watch = [w.get("ticker") for w in (eo.get("watch") or [])]
+    eo_watch = [w.get("ticker") for w in _current_eo_watch(inputs)]
     # A ticker with material red-flag risk notes must not also sit in the
     # clean Higher-risk emerging review line — it belongs only in
     # Red-flag review below, never in both (BBNX 2026-08-19 duplicate).
@@ -1423,6 +1437,11 @@ def _section_emerging_outlier(inputs: Dict[str, Any]) -> List[str]:
                      "./scripts/run_research_cycle.sh emerging-outlier")
         return lines
     watch = eo.get("watch") or []
+    if inputs.get("emerging_outlier_stale"):
+        lines.append(
+            f"- Weekly lane (failed its forward gate; no daily decision "
+            f"impact): list from the {str(eo.get('generated_at') or '?')[:10]}"
+            " run, not today's scan — context only.")
     fa = inputs.get("filter_audit") or {}
     audit_bit = ""
     if fa.get("present"):

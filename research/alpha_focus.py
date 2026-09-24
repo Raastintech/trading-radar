@@ -60,6 +60,7 @@ from research.cohort_attribution import (
     _load_json,
     _load_jsonl,
 )
+from research.artifact_dependency_audit import dependency_audit
 
 VERSION = "ALPHA_FOCUS_V1"
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -160,7 +161,38 @@ def _latest_appearance_date(rows: List[Dict[str, Any]]) -> Optional[str]:
     return dates[-1] if dates else None
 
 
-def _load_hc_eo_context(root: Path) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+SCANNER_REL = Path("cache/research/research_scanner_latest.json")
+ROUTED_REL = Path("cache/research/latest_scan_programs_latest.json")
+
+
+def _eo_context(root: Path) -> Dict[str, Any]:
+    """Whether the Emerging Outlier list may be read as today's context.
+
+    EO runs weekly since 2026-09-24 (failed forward gate, no daily decision
+    impact). Between weekly runs its sidecar describes an older scan, and
+    reading it would credit last week's names with EO membership today.
+    A data-freshness guard only: when the list is stale for the latest scan
+    its membership is not used; no Alpha Focus rule, threshold or ordering
+    changes."""
+    eo = _load_json(root / EMERGING_OUTLIER_REL)
+    if not eo:
+        return {"used": False, "status": "MISSING", "reason": "no EO sidecar"}
+    deps = dependency_audit(
+        artifact_kind="emerging_outlier_watch",
+        artifact_timestamp=eo.get("generated_at") or eo.get("artifact_timestamp"),
+        scanner_doc=_load_json(root / SCANNER_REL),
+        routed_doc=_load_json(root / ROUTED_REL),
+        recorded_dependencies=eo.get("source_dependencies") or {})
+    stale = bool(deps.get("stale_for_latest_scan"))
+    return {"used": not stale, "status": deps.get("status"),
+            "eo_generated_at": eo.get("generated_at"),
+            "reason": ("EO list is from an earlier scan (weekly lane) — its "
+                       "membership is not used as today's context")
+            if stale else "EO list is current for the latest scan"}
+
+
+def _load_hc_eo_context(root: Path, use_eo: bool = True
+                        ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     """Read-only lookup of today's HC shortlist / EO watch entries.
 
     Passthrough only — never reads/writes anything else in either artifact,
@@ -170,7 +202,7 @@ def _load_hc_eo_context(root: Path) -> Tuple[Dict[str, Dict[str, Any]], Dict[str
     `business_deterioration_risk` fields verbatim. HC/EO's own sections
     remain fully intact and unaffected regardless of what Alpha Focus does."""
     hc = _load_json(root / HIGH_CONVICTION_REL) or {}
-    eo = _load_json(root / EMERGING_OUTLIER_REL) or {}
+    eo = (_load_json(root / EMERGING_OUTLIER_REL) or {}) if use_eo else {}
     hc_by_ticker = {
         str(t.get("ticker") or "").upper(): t
         for t in (hc.get("shortlist") or []) if t.get("ticker")
@@ -333,7 +365,9 @@ def build_report(root: Optional[Path] = None, now: Optional[datetime] = None) ->
     history = _enrich_rows(root, raw_history, lane="BROAD_SCANNER")
     market_as_of_date = _latest_appearance_date(history)
     today_rows = [r for r in history if str(r.get("appearance_date") or "")[:10] == market_as_of_date]
-    hc_by_ticker, eo_by_ticker = _load_hc_eo_context(root)
+    eo_context = _eo_context(root)
+    hc_by_ticker, eo_by_ticker = _load_hc_eo_context(
+        root, use_eo=eo_context["used"])
 
     review_now: List[Dict[str, Any]] = []
     higher_risk_eo_review: List[Dict[str, Any]] = []
@@ -390,6 +424,7 @@ def build_report(root: Optional[Path] = None, now: Optional[datetime] = None) ->
             "high_conviction_alpha": str(HIGH_CONVICTION_REL),
             "emerging_outlier_watch": str(EMERGING_OUTLIER_REL),
         },
+        "emerging_outlier_context": eo_context,
         "positive_reasons": POSITIVE_REASON_TEXT,
         "deprioritization_reasons": REASON_DESCRIPTIONS,
         "counts": {

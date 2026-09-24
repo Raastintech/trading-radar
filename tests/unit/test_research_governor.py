@@ -780,6 +780,37 @@ def test_real_registry_archives_the_june_ledgers_and_downgrades_labels():
     assert by["emerging_outlier_watch"]["evidence_level"] == "FAILED_GATES"
     assert by["emerging_outlier_watch"]["status"] == "SUPPORT"
     assert by["emerging_outlier_watch"]["daily_decision_impact"] is False
+    assert by["emerging_outlier_watch"]["cadence"] == "weekly"
     assert by["social_attention_radar"]["research_label"] == "CONTEXT_LABEL_ONLY"
     assert by["high_conviction_shortlist"]["research_label"] == \
         "MIXED_OR_NEGATIVE_FORWARD_STATS"
+
+
+# ── failed lanes: weekly is the recommended remedy (2026-09-24) ──────────────
+
+
+@pytest.mark.parametrize("calendar, expect_fix", [
+    ("Mon-Fri 20:30", True),                      # daily: still flagged
+    ("Sat 10:30 America/New_York", False),        # weekly: remedy taken
+])
+def test_failed_lane_is_flagged_only_while_it_runs_daily(tmp_path, calendar, expect_fix):
+    root = make_root(tmp_path, [
+        comp("failed_lane", kind="surface", status="SUPPORT",
+             evidence_level="FAILED_GATES", runner_refs=["research.dead_report"]),
+    ])
+    (root / "units" / "gem-trader-test.timer").write_text(
+        f"[Timer]\nOnCalendar={calendar}\n")
+    report = build(root)
+    fixes = [x for x in report["decisions_due"]
+             if x["component_id"] == "failed_lane" and x["action"] == "FIX_NEXT"]
+    assert bool(fixes) is expect_fix
+    rows = [w for w in report["drift_warnings"] + report["info_notes"]
+            if w["category"] == "scheduled_failed_research"]
+    assert rows and (rows[0]["severity"] == "INFO") is (not expect_fix)
+
+
+def test_weekly_or_slower_parses_single_weekday_only():
+    assert rg._weekly_or_slower("Sat 10:30 America/New_York")
+    assert rg._weekly_or_slower("Sun 03:00")
+    for daily in ("Mon-Fri 20:30", "Mon,Wed 08:00", "*-*-* 04:00", None, ""):
+        assert not rg._weekly_or_slower(daily)

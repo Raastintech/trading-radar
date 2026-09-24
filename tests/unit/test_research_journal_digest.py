@@ -1210,3 +1210,34 @@ def test_top_candidate_clean_ticker_gets_no_rationale_line(monkeypatch):
     lines = jd._latest_scan_lines(inputs)
     assert not any(l.startswith("- Also on an avoid/red-flag list:")
                    for l in lines)
+
+
+# ── EO weekly: a stale list is labelled, never today's review (2026-09-24) ──
+
+
+def test_stale_weekly_eo_list_is_context_not_todays_review(monkeypatch):
+    import dashboards.research_command_center.journal_digest as jd
+    monkeypatch.setattr(jd, "build_fundamentals",
+                        lambda ticker, store: {"fallback": True})
+    eo = {"present": True, "generated_at": "2026-09-19T15:30:00+00:00",
+          "counts": {"evaluated": 40},
+          "watch": [{"ticker": t, "program": "SWING",
+                     "why_not_high_conviction": "pre-profit",
+                     "emergence_dimensions": [{"dimension": "GROWTH"}],
+                     "business_deterioration_risk": "LOW"}
+                    for t in ("ACVA", "MRVI")]}
+    base = {"store": object(), "status": {"tracker_verdict": "MIXED"},
+            "summary": {}, "high_conviction": {}, "emerging_outlier": eo}
+
+    stale = dict(base, emerging_outlier_stale=True)
+    focus = "\n".join(jd._section_todays_operator_focus(stale))
+    assert "Higher-risk emerging review: ACVA" not in focus
+    assert "0 emerging for manual review" in focus
+    section = "\n".join(jd._section_emerging_outlier(stale))
+    assert "list from the 2026-09-19 run, not today's scan — context only" in section
+    assert "ACVA (SWING)" in section          # still listed, labelled as weekly
+
+    current = dict(base, emerging_outlier_stale=False)
+    focus = "\n".join(jd._section_todays_operator_focus(current))
+    assert "Higher-risk emerging review: ACVA, MRVI" in focus
+    assert "context only" not in "\n".join(jd._section_emerging_outlier(current))

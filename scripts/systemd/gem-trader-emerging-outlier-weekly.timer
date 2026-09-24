@@ -1,0 +1,20 @@
+[Unit]
+Description=gem-trader Emerging Outlier Watch timer (weekly, Sat 10:30 ET)
+# No Requires= on the service: in a timer it starts the service whenever the
+# timer itself starts (enable --now, every boot), outside the schedule. The
+# timer triggers gem-trader-emerging-outlier-weekly.service by name.
+
+[Timer]
+# Weekly since 2026-09-24. The lane's forward verdict matured to
+# NO_EXCESS_VS_SPY (registry FAILED_GATES, daily_decision_impact false), so
+# it left the premarket and nightly cycles. Saturday, after the week's last
+# nightly (Fri 20:30 ET) has written the scan it evaluates, and after the
+# M1 cohort (09:00) and style-cell shadow (10:00) jobs.
+OnCalendar=Sat 10:30 America/New_York
+
+# A missed week catches up once; the lane's forward ledger is keyed by
+# (ticker, appearance date, version), so a late run appends nothing twice.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

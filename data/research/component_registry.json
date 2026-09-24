@@ -461,7 +461,7 @@
       "next_decision_date": null,
       "maturity_date": null,
       "expiration_date": null,
-      "cadence": "nightly",
+      "cadence": "weekly",
       "artifacts": [
         "cache/research/emerging_outlier_watch_latest.json",
         "cache/research/emerging_outlier_forward_latest.json"
@@ -488,7 +488,7 @@
         "alpha_focus",
         "daily_research_digest"
       ],
-      "notes": "Forward verdict NEED_MORE_DATA. Operator decision 2026-09-11: a label on the board, not an independent candidate list. 2026-09-23: the forward verdict had been hard-coded NEED_MORE_DATA since a12d528; fixed in f764a8b to apply the High-Conviction ladder unchanged. On 1,177 matured 10d episodes (136 names) it reads NO_EXCESS_VS_SPY: +0.00% 10d excess vs SPY, per-name median -0.93%. Operator decision 2026-09-23: evidence level FAILED_GATES (one regime window, 10d anchor). Status stays SUPPORT and EO selection logic is unchanged; whether it stays in the daily path is a separate human decision. Operator decision 2026-09-24: daily_decision_impact false. EO stays visible as a context label on names already under review; it no longer counts as influencing the daily decision.",
+      "notes": "Forward verdict NEED_MORE_DATA. Operator decision 2026-09-11: a label on the board, not an independent candidate list. 2026-09-23: the forward verdict had been hard-coded NEED_MORE_DATA since a12d528; fixed in f764a8b to apply the High-Conviction ladder unchanged. On 1,177 matured 10d episodes (136 names) it reads NO_EXCESS_VS_SPY: +0.00% 10d excess vs SPY, per-name median -0.93%. Operator decision 2026-09-23: evidence level FAILED_GATES (one regime window, 10d anchor). Status stays SUPPORT and EO selection logic is unchanged; whether it stays in the daily path is a separate human decision. Operator decision 2026-09-24: daily_decision_impact false. EO stays visible as a context label on names already under review; it no longer counts as influencing the daily decision. Operator decision 2026-09-24: off the premarket and nightly cycles; weekly from gem-trader-emerging-outlier-weekly.timer (user timer, Sat 10:30 ET, cache-only) and on demand with `emerging-outlier`. Alpha Focus and the digest read EO as today's context only when its list is current for the latest scan; otherwise the digest labels it as the weekly list. Files and history preserved; selection logic unchanged.",
       "label_number_probes": [
         {
           "kind": "positive_vs_numbers",

@@ -1043,7 +1043,19 @@ def check_purpose(run: _Run) -> None:
                      "unvalidated_candidate_surface")
 
 
+_WEEKDAY_RE = re.compile(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$")
+
+
+def _weekly_or_slower(schedule: Optional[str]) -> bool:
+    """True for an OnCalendar that names a single weekday ("Sat 10:30 …");
+    ranges and lists ("Mon-Fri", "Mon,Wed") fire more often than weekly."""
+    first = (schedule or "").split()[:1]
+    return bool(first and _WEEKDAY_RE.match(first[0]))
+
+
 def check_scheduled_components(run: _Run) -> None:
+    schedules = {t["timer"]: t.get("schedule")
+                 for t in (run.schedule.get("timers") or [])}
     for c in run.comps:
         cid = c["component_id"]
         timers = run.scheduled.get(cid) or []
@@ -1058,11 +1070,20 @@ def check_scheduled_components(run: _Run) -> None:
                      "scheduled_blocked_component")
         elif (c.get("evidence_level") in NO_SURFACE_EVIDENCE
               and c.get("kind") in {"surface", "report"}):
+            # The remedy this check recommends is weekly or on-demand, so a
+            # failed lane that only weekly timers run has already taken it.
+            daily = [t for t in timers if not _weekly_or_slower(schedules.get(t))]
+            if not daily:
+                run.warn("scheduled_failed_research",
+                         f"{c.get('name')} has {c.get('evidence_level')} and runs "
+                         f"weekly only ({', '.join(timers)})", component_id=cid,
+                         severity="INFO")
+                continue
             run.warn("scheduled_failed_research",
                      f"{c.get('name')} has {c.get('evidence_level')} but still runs from "
-                     f"{', '.join(timers)}", component_id=cid)
+                     f"{', '.join(daily)}", component_id=cid)
             run.find(cid, "FIX_NEXT", f"{c.get('evidence_level')} yet still scheduled "
-                     f"({', '.join(timers)})", "move it to weekly or on-demand",
+                     f"({', '.join(daily)})", "move it to weekly or on-demand",
                      "scheduled_failed_research")
 
 

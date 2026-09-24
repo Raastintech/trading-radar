@@ -468,3 +468,37 @@ def test_no_scanner_scoring_routing_filter_logic_changed_by_alpha_focus_module()
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "alpha_focus" not in text
+
+
+# ── EO freshness guard (EO weekly since 2026-09-24) ─────────────────────────
+
+
+def _stamp(root: Path, eo_ts: str, scan_ts: str) -> None:
+    eo = json.loads((root / af.EMERGING_OUTLIER_REL).read_text(encoding="utf-8"))
+    eo["generated_at"] = eo_ts
+    _write_json(root / af.EMERGING_OUTLIER_REL, eo)
+    _write_json(root / af.SCANNER_REL, {"generated_at": scan_ts})
+
+
+def test_stale_weekly_eo_list_is_not_todays_context(tmp_path):
+    """Between weekly runs the EO list describes an earlier scan. Its
+    membership must not credit a name today; nothing else changes."""
+    _fixture(tmp_path)
+    _stamp(tmp_path, "2026-07-18T15:00:00+00:00", "2026-07-24T00:30:00+00:00")
+    report = af.build_report(tmp_path)
+    ctx = report["emerging_outlier_context"]
+    assert ctx["used"] is False and "earlier scan" in ctx["reason"]
+    assert not report["higher_risk_eo_review"]
+    for row in report["review_now"] + report["deprioritized_by_focus_rule"]:
+        assert af.REASON_EO_NOT_HIGH_RISK not in (row.get("focus_reasons") or [])
+    # the EO artifact itself is untouched
+    eo = json.loads((tmp_path / af.EMERGING_OUTLIER_REL).read_text(encoding="utf-8"))
+    assert [w["ticker"] for w in eo["watch"]] == ["WIN", "EORISKY"]
+
+
+def test_current_eo_list_is_still_used(tmp_path):
+    _fixture(tmp_path)
+    _stamp(tmp_path, "2026-07-24T00:40:00+00:00", "2026-07-24T00:30:00+00:00")
+    report = af.build_report(tmp_path)
+    assert report["emerging_outlier_context"]["used"] is True
+    assert "WIN" in {r["ticker"] for r in report["higher_risk_eo_review"]}

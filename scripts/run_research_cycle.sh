@@ -1665,7 +1665,12 @@ cmd_premarket() {
     # premarket scanner + program-routing artifact. These commands are
     # cache-only/read-only on the engine and do not alter scanner output.
     cmd_high_conviction_alpha
-    cmd_emerging_outlier
+    # Emerging Outlier Watch left the premarket and nightly cycles on
+    # 2026-09-24: its forward verdict matured to NO_EXCESS_VS_SPY (registry
+    # FAILED_GATES, daily_decision_impact false). It runs weekly from
+    # gem-trader-emerging-outlier-weekly.timer (Sat 10:30 ET) and on demand
+    # with `emerging-outlier`. Its files and history are preserved; readers
+    # that treat it as today's context check it is current for the scan.
     cmd_scan_exclusion_impact
     log "premarket cycle complete"
 }
@@ -1839,11 +1844,10 @@ cmd_nightly() {
     # separate forward hypothesis.  Must precede the operator summary /
     # digest / audit so they surface tonight's shortlist.
     cmd_high_conviction_alpha
-    # Emerging Outlier Watch — separate lane for credible pre-profit /
-    # turnaround names; runs after the shortlist so it sees the same frozen
-    # V1 evaluation.  Then the V1 filter audit (diagnostic) so the operator
-    # summary / digest can surface both.
-    cmd_emerging_outlier
+    # Emerging Outlier Watch is weekly since 2026-09-24 (failed forward gate,
+    # no daily decision impact): gem-trader-emerging-outlier-weekly.timer,
+    # Sat 10:30 ET, or on demand with `emerging-outlier`. The V1 filter audit
+    # (diagnostic) still runs here.
     cmd_scan_exclusion_impact
     cmd_high_conviction_filter_audit
     # Forward-evidence re-audit hook — after the forward tracker and the

@@ -1,0 +1,16 @@
+[Unit]
+Description=gem-trader Emerging Outlier Watch, weekly (research-only, cache-only, zero provider calls)
+
+# Deliberately no After=network-online.target: Emerging Outlier Watch reads
+# cached scan, routing and fundamentals artifacts only and imports no
+# provider client.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/gem/trading-production
+# No credential is needed or loaded; the lane is cache-only.
+Environment=GEM_TRADER_SKIP_DOTENV=true
+ExecStart=/home/gem/trading-production/scripts/run_research_cycle.sh emerging-outlier
+StandardOutput=append:/home/gem/trading-production/logs/gem-trader-emerging-outlier-weekly.log
+StandardError=append:/home/gem/trading-production/logs/gem-trader-emerging-outlier-weekly.log
+TimeoutStartSec=15min
