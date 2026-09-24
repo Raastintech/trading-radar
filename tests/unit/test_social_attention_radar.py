@@ -270,7 +270,8 @@ def test_forward_validation_excludes_immature(tmp_path, monkeypatch):
 
 
 def test_verdict_ladder_values():
-    ladder = {"NEED_MORE_DATA", "NO_VALUE", "PROMISING_BUT_UNPROVEN",
+    ladder = {"NEED_MORE_DATA", "NO_VALUE", "CONTEXT_LABEL_ONLY",
+              "PROMISING_BUT_UNPROVEN",
               "SOCIAL_EDGE_DETECTED", "READY_TO_FEED_LENS_RESEARCH_ONLY"}
     # synthesize a by_cohort where social-led clearly beats everything → strong
     def coh(rel):
@@ -290,6 +291,38 @@ def test_verdict_ladder_values():
     flat["lead_NEWS_LED"] = coh(0.02)
     v2, _ = fwd._verdict(flat, history_days=15, matured_primary=30)
     assert v2 == "NO_VALUE"
+
+
+def _coh(rel):
+    return {"5d": {"mean_rel_spy": rel, "n": 30}}
+
+
+def test_beating_only_news_while_negative_is_context_label_only():
+    """The 2026-09-23 live shape: social-led -0.61% vs SPY, below random,
+    but above a worse news-led cohort. That is "loses less than news", not
+    a partial edge, so it must not read PROMISING_BUT_UNPROVEN."""
+    by_cohort = {
+        "lead_SOCIAL_LED": _coh(-0.0061), "lead_NEWS_LED": _coh(-0.0454),
+        "stage_EARLY_DISCOVERY": _coh(-0.0172), "stage_VIRAL_CROWDING": _coh(None),
+        "vel_high": _coh(-0.0142), "vel_low": _coh(-0.0164),
+        "all_leads": _coh(-0.0147), "random": _coh(-0.0024),
+    }
+    v, reason = fwd._verdict(by_cohort, history_days=73, matured_primary=31)
+    assert v == "CONTEXT_LABEL_ONLY"
+    assert "not as standalone alpha" in reason
+
+
+def test_positive_social_led_that_misses_random_can_still_be_promising():
+    """The context branch is narrow: a social-led cohort that is positive
+    vs SPY keeps the existing PROMISING_BUT_UNPROVEN reading."""
+    by_cohort = {
+        "lead_SOCIAL_LED": _coh(0.004), "lead_NEWS_LED": _coh(-0.01),
+        "stage_EARLY_DISCOVERY": _coh(0.0), "stage_VIRAL_CROWDING": _coh(0.01),
+        "vel_high": _coh(0.0), "vel_low": _coh(0.01),
+        "all_leads": _coh(0.0), "random": _coh(0.006),
+    }
+    v, _ = fwd._verdict(by_cohort, history_days=73, matured_primary=31)
+    assert v == "PROMISING_BUT_UNPROVEN"
 
 
 # ── boundary / safety invariants ────────────────────────────────────────────────

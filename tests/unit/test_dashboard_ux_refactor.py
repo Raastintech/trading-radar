@@ -267,7 +267,8 @@ def test_forward_validation_display_mapping():
         fv = hc.get("forward_validation") or {}
         assert fv.get("verdict") in (
             "NEED_MORE_DATA", "SHORTLIST_IMPROVES_OUTCOMES",
-            "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES", None)
+            "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES",
+            "MIXED_OR_NEGATIVE_FORWARD_STATS", None)
 
 
 # ── high-density scannability refactor (status pills, rej table, alerts, om) ──

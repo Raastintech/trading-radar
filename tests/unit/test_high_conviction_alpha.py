@@ -457,3 +457,39 @@ def test_normal_margins_still_praised():
     assert any("strong operating margin 45%" in r for r in reasons)
     assert any("healthy gross margin 82%" in r for r in reasons)
     assert not risks
+
+
+# ── forward verdict: a row-weighted win needs per-name support ──────────────
+
+
+def _block(n, headline):
+    return {"n": n, "headline_mean": headline}
+
+
+def test_row_weighted_win_without_per_name_support_is_mixed():
+    """2026-09-23 live shape: +0.36% row-weighted vs a -1.65% baseline, but
+    per-name median -0.57% and winsorized -0.29% across 96 names."""
+    from research import high_conviction_forward as hcf
+    v, reason = hcf.shortlist_verdict(
+        _block(531, 0.36), _block(8755, -1.65),
+        {"n": 96, "median": -0.57, "winsorized_mean": -0.29})
+    assert v == hcf.V_MIXED == "MIXED_OR_NEGATIVE_FORWARD_STATS"
+    assert "not validated" in reason and "-0.57" in reason
+
+
+def test_row_weighted_win_with_per_name_support_still_improves():
+    from research import high_conviction_forward as hcf
+    v, reason = hcf.shortlist_verdict(
+        _block(531, 0.36), _block(8755, -1.65),
+        {"n": 96, "median": 0.12, "winsorized_mean": -0.1})
+    assert v == hcf.V_IMPROVES
+    assert "not validated" in reason
+
+
+def test_shortlist_verdict_floor_and_loss_are_unchanged():
+    from research import high_conviction_forward as hcf
+    v, reason = hcf.shortlist_verdict(_block(9, 5.0), _block(900, -1.0), {"n": 3})
+    assert v == hcf.V_NEED_MORE_DATA and "only 9 matured 10d shortlist" in reason
+    v, _ = hcf.shortlist_verdict(_block(50, -0.5), _block(900, -1.0),
+                                 {"n": 20, "median": 1.0})
+    assert v == hcf.V_NO_IMPROVEMENT

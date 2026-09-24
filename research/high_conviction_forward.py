@@ -67,6 +67,13 @@ SECTOR_ETF_MAP: Dict[str, str] = {
 V_NEED_MORE_DATA = "NEED_MORE_DATA"
 V_IMPROVES = "SHORTLIST_IMPROVES_OUTCOMES"
 V_NO_IMPROVEMENT = "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES"
+# A row-weighted win is not an improvement when the typical name loses: each
+# name repeats once per appearance, so a few names on the list for many
+# nights can carry the row mean while the per-name median and winsorized
+# mean are negative. Added 2026-09-23 after the governor flagged the
+# shortlist's SHORTLIST_IMPROVES_OUTCOMES against a per-name median of
+# -0.57% and a winsorized mean of -0.29%.
+V_MIXED = "MIXED_OR_NEGATIVE_FORWARD_STATS"
 MIN_MATURED_FOR_VERDICT = 10   # matured shortlist episodes at the 10d anchor
 
 
@@ -268,6 +275,43 @@ def _program_baseline(root: Path) -> Optional[Dict[str, Any]]:
     }
 
 
+def shortlist_verdict(shortlist_10d: Dict[str, Any],
+                      base_block: Dict[str, Any],
+                      per_ticker: Dict[str, Any]) -> Tuple[str, str]:
+    """(verdict, reason) for the shortlist's 10d anchor. Pure; no I/O.
+
+    Both sides are compared on the outlier-guarded headline, so the
+    comparison is like for like and no single broken bar can decide it.
+    A row-weighted win that no per-name statistic supports reads
+    V_MIXED rather than V_IMPROVES."""
+    n_matured = shortlist_10d.get("n") or 0
+    if n_matured < MIN_MATURED_FOR_VERDICT:
+        return V_NEED_MORE_DATA, (
+            f"only {n_matured} matured 10d shortlist episodes "
+            f"(need ≥{MIN_MATURED_FOR_VERDICT})")
+    sl_excess = shortlist_10d.get("headline_mean")
+    base_excess = (base_block or {}).get("headline_mean")
+    names = (f"{per_ticker.get('n')} distinct names behind "
+             f"{n_matured} matured episodes")
+    beats = sl_excess is not None and sl_excess > 0 and (
+        base_excess is None or sl_excess > base_excess)
+    if not beats:
+        return V_NO_IMPROVEMENT, (
+            f"shortlist 10d excess vs SPY {sl_excess}% does not beat "
+            f"baseline {base_excess}% — {names}")
+    per_name = [per_ticker.get(k) for k in ("median", "winsorized_mean")]
+    if not any(isinstance(v, (int, float)) and v > 0 for v in per_name):
+        return V_MIXED, (
+            f"row-weighted 10d excess vs SPY {sl_excess:+.2f}% beats "
+            f"program baseline {base_excess}%, but the per-name median "
+            f"{per_name[0]}% and winsorized mean {per_name[1]}% are not "
+            f"positive — {names}; not validated")
+    return V_IMPROVES, (
+        f"shortlist 10d excess vs SPY {sl_excess:+.2f}% beats "
+        f"program baseline {base_excess}% — {names}; one regime "
+        "window, research-only and not validated")
+
+
 def build_forward(root: Optional[Path] = None,
                   now: Optional[datetime] = None) -> Dict[str, Any]:
     root = Path(root) if root else REPO_ROOT
@@ -318,29 +362,10 @@ def build_forward(root: Optional[Path] = None,
     shortlist_10d = cohorts["full_shortlist"]["10d"]["vs_spy"]
     n_matured = shortlist_10d["n"]
     shortlist_per_ticker = per_entity_stats(resolved, "ret_10d_vs_spy")
-    verdict, reason = V_NEED_MORE_DATA, (
-        f"only {n_matured} matured 10d shortlist episodes "
-        f"(need ≥{MIN_MATURED_FOR_VERDICT})")
-    if n_matured >= MIN_MATURED_FOR_VERDICT:
-        # Both sides are compared on the outlier-guarded headline, so the
-        # comparison is like for like and no single broken bar can decide
-        # it. The plain means stay in the payload beside them.
-        sl_excess = shortlist_10d["headline_mean"]
-        base_block = ((baseline or {}).get("10d", {}).get("vs_spy")
-                      if baseline else None) or {}
-        base_excess = base_block.get("headline_mean")
-        names = (f"{shortlist_per_ticker['n']} distinct names behind "
-                 f"{n_matured} matured episodes")
-        if sl_excess is not None and sl_excess > 0 and (
-                base_excess is None or sl_excess > base_excess):
-            verdict, reason = V_IMPROVES, (
-                f"shortlist 10d excess vs SPY {sl_excess:+.2f}% beats "
-                f"program baseline {base_excess}% — {names}; one regime "
-                "window, research-only and not validated")
-        else:
-            verdict, reason = V_NO_IMPROVEMENT, (
-                f"shortlist 10d excess vs SPY {sl_excess}% does not beat "
-                f"baseline {base_excess}% — {names}")
+    base_block = ((baseline or {}).get("10d", {}).get("vs_spy")
+                  if baseline else None) or {}
+    verdict, reason = shortlist_verdict(shortlist_10d, base_block,
+                                        shortlist_per_ticker)
 
     return {
         **base, "present": True,

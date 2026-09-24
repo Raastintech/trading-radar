@@ -757,3 +757,12 @@ def test_dormant_status_is_approved_and_blocked(tmp_path):
     assert "sleeper" not in report["active_candidate_surfaces"]
     assert not [w for w in report["drift_warnings"]
                 if w["category"] in ("unregistered_stale_ledger", "stale_live_artifact")]
+
+
+def test_downgraded_label_tokens_map_below_validated():
+    """The 2026-09-23 HC / Social downgrades read NOT_ENOUGH_EVIDENCE, never
+    a promotable level, and are not positive labels to the label check."""
+    for token in ("MIXED_OR_NEGATIVE_FORWARD_STATS", "CONTEXT_LABEL_ONLY"):
+        assert rg.VERDICT_TO_EVIDENCE[token] == "NOT_ENOUGH_EVIDENCE"
+        assert not rg.POSITIVE_LABEL_RE.search(token)
+

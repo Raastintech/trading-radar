@@ -20,8 +20,8 @@ counted explicitly.  Never overclaims on thin data.
 Emits NO paper signals, NO trade proposals, NO gate / execution / governance /
 live-capital / universe changes, mutates NO DB rows, makes NO provider calls.
 
-Verdicts: NEED_MORE_DATA / NO_VALUE / PROMISING_BUT_UNPROVEN /
-SOCIAL_EDGE_DETECTED / READY_TO_FEED_LENS_RESEARCH_ONLY.
+Verdicts: NEED_MORE_DATA / NO_VALUE / CONTEXT_LABEL_ONLY /
+PROMISING_BUT_UNPROVEN / SOCIAL_EDGE_DETECTED / READY_TO_FEED_LENS_RESEARCH_ONLY.
 
 Outputs:
   cache/research/social_attention_forward_latest.json
@@ -317,6 +317,17 @@ def _verdict(by_cohort, history_days: int, matured_primary: int) -> Tuple[str, s
                 "horizon-decaying sample; check the cohort table's absolute "
                 "mean_rel_spy before treating this as a standalone signal, "
                 "and confirm the remaining gate before any lens routing.")
+    # Beating only the news-led cohort while losing to random and to SPY is
+    # "loses less than news", not a partial edge. Added 2026-09-23 after the
+    # governor flagged PROMISING_BUT_UNPROVEN over a social-led cohort that
+    # was negative vs SPY and below random at the primary horizon.
+    social = cmp["social_led_rel_spy"]
+    if not social_beats_random and (social is None or social <= 0):
+        return ("CONTEXT_LABEL_ONLY",
+                "social-led loses to random and is not positive vs SPY at the "
+                "primary horizon; its only favorable comparison is relative "
+                "to weaker cohorts — usable as context on names already on "
+                "the list, not as standalone alpha.")
     return ("PROMISING_BUT_UNPROVEN",
             "partial edge (some comparisons favorable) but not decisive across the "
             "gates — keep accumulating history.")
@@ -378,7 +389,7 @@ def _write_doc(res: Dict[str, Any]) -> None:
         "  attention-velocity, and all leads vs seeded random liquid controls.\n"
         "- Point-in-time forward returns at 1/3/5/10/20d; immature windows excluded.\n\n"
         "## Verdict ladder\n"
-        "NEED_MORE_DATA → NO_VALUE → PROMISING_BUT_UNPROVEN → SOCIAL_EDGE_DETECTED →\n"
+        "NEED_MORE_DATA → NO_VALUE → CONTEXT_LABEL_ONLY → PROMISING_BUT_UNPROVEN → SOCIAL_EDGE_DETECTED →\n"
         "READY_TO_FEED_LENS_RESEARCH_ONLY. Nothing here emits signals or trades.\n\n"
         "**SOCIAL_EDGE_DETECTED / READY_TO_FEED_LENS_RESEARCH_ONLY describe a "
         "RELATIVE edge** (social-led loses less than the alternatives) — they do "
