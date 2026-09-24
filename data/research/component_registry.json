@@ -426,7 +426,7 @@
         "alpha_focus",
         "daily_research_digest"
       ],
-      "notes": "The forward verdict is a comparison against the program-candidate baseline. Until 2026-09-12 that baseline was outlier-contaminated (mean +29.44% against a median of -1.7%) by a single broken price row \u2014 PI 2026-08-15, a weekend bar from a 24/7 symbol spliced into the equity series, +189,857% at 10d \u2014 and the verdict read NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES because a real +1.7% lost to it. Batch E quarantines such rows and compares both sides on the outlier-guarded headline: the baseline is now -1.67% and the verdict reads SHORTLIST_IMPROVES_OUTCOMES. That is a corrected comparison, NOT evidence of edge: 423 matured episodes are only 87 distinct names in one regime window, so the level stays NOT_ENOUGH_EVIDENCE until the pre-registered maturity is met. Operator decision 2026-09-11: a label on the board, not an independent candidate list.",
+      "notes": "The forward verdict is a comparison against the program-candidate baseline. Until 2026-09-12 that baseline was outlier-contaminated (mean +29.44% against a median of -1.7%) by a single broken price row \u2014 PI 2026-08-15, a weekend bar from a 24/7 symbol spliced into the equity series, +189,857% at 10d \u2014 and the verdict read NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES because a real +1.7% lost to it. Batch E quarantines such rows and compares both sides on the outlier-guarded headline: the baseline is now -1.67% and the verdict reads SHORTLIST_IMPROVES_OUTCOMES. That is a corrected comparison, NOT evidence of edge: 423 matured episodes are only 87 distinct names in one regime window, so the level stays NOT_ENOUGH_EVIDENCE until the pre-registered maturity is met. Operator decision 2026-09-11: a label on the board, not an independent candidate list. 2026-09-23: the governor's label-number check flagged SHORTLIST_IMPROVES_OUTCOMES against a per-name 10d median of -0.57% and winsorized mean of -0.29% (the +0.36% row-weighted figure repeats names once per appearance). Operator decision: the forward verdict now reads MIXED_OR_NEGATIVE_FORWARD_STATS whenever neither per-name statistic is positive. Evidence level unchanged at NOT_ENOUGH_EVIDENCE; selection logic unchanged.",
       "label_number_probes": [
         {
           "kind": "positive_vs_numbers",
@@ -440,7 +440,8 @@
             "shortlist_per_ticker_10d_vs_spy.winsorized_mean"
           ]
         }
-      ]
+      ],
+      "research_label": "MIXED_OR_NEGATIVE_FORWARD_STATS"
     },
     {
       "component_id": "emerging_outlier_watch",
@@ -450,8 +451,8 @@
       ],
       "kind": "surface",
       "status": "SUPPORT",
-      "evidence_level": "FORWARD_IMMATURE",
-      "daily_decision_impact": true,
+      "evidence_level": "FAILED_GATES",
+      "daily_decision_impact": false,
       "provider_call_risk": "NONE",
       "allowed_to_surface_candidates": false,
       "allowed_in_daily_digest": true,
@@ -487,7 +488,7 @@
         "alpha_focus",
         "daily_research_digest"
       ],
-      "notes": "Forward verdict NEED_MORE_DATA. Operator decision 2026-09-11: a label on the board, not an independent candidate list.",
+      "notes": "Forward verdict NEED_MORE_DATA. Operator decision 2026-09-11: a label on the board, not an independent candidate list. 2026-09-23: the forward verdict had been hard-coded NEED_MORE_DATA since a12d528; fixed in f764a8b to apply the High-Conviction ladder unchanged. On 1,177 matured 10d episodes (136 names) it reads NO_EXCESS_VS_SPY: +0.00% 10d excess vs SPY, per-name median -0.93%. Operator decision 2026-09-23: evidence level FAILED_GATES (one regime window, 10d anchor). Status stays SUPPORT and EO selection logic is unchanged; whether it stays in the daily path is a separate human decision. Operator decision 2026-09-24: daily_decision_impact false. EO stays visible as a context label on names already under review; it no longer counts as influencing the daily decision.",
       "label_number_probes": [
         {
           "kind": "positive_vs_numbers",
@@ -753,7 +754,7 @@
       ],
       "kind": "surface",
       "status": "SUPPORT",
-      "evidence_level": "FORWARD_IMMATURE",
+      "evidence_level": "NOT_ENOUGH_EVIDENCE",
       "daily_decision_impact": false,
       "provider_call_risk": "LOW",
       "hard_guard": true,
@@ -780,7 +781,7 @@
         "daily_research_digest",
         "command center"
       ],
-      "notes": "The one current social lane (user cron, 21:30 UTC Mon-Fri; StockTwits and Google Trends, capped watch universe). Never a source of names.",
+      "notes": "The one current social lane (user cron, 21:30 UTC Mon-Fri; StockTwits and Google Trends, capped watch universe). Never a source of names. 2026-09-23: downgraded from PROMISING_BUT_UNPROVEN. At the 5d primary horizon the social-led cohort is -0.61% vs SPY and loses to random (all leads -1.47%); its one favorable comparison is beating the weaker news-led cohort. Operator decision: CONTEXT_LABEL_ONLY, not standalone alpha, evidence NOT_ENOUGH_EVIDENCE. Collection and cadence unchanged.",
       "label_number_probes": [
         {
           "kind": "positive_vs_numbers",
@@ -798,7 +799,8 @@
             "comparisons.leads_beat_random"
           ]
         }
-      ]
+      ],
+      "research_label": "CONTEXT_LABEL_ONLY"
     },
     {
       "component_id": "social_arb_news_catalyst",
@@ -1452,5 +1454,32 @@
   "surface_scan_dirs": [
     "cache/research"
   ],
-  "ignored_artifacts": []
+  "ignored_artifacts": [],
+  "archived_ledgers": [
+    {
+      "path": "data/research/rs_recall_lane_history.jsonl",
+      "reason": "RS recall lane (1G.6-1G.7): June 2026 study ledger, last appended 2026-06-09; no scheduled job writes it. Archived by operator decision on the governor's invisible-ledger flag. Preserved read-only, not revived.",
+      "archived_on": "2026-09-23"
+    },
+    {
+      "path": "data/research/recall_shadow_lens_feeder_history.jsonl",
+      "reason": "Recall-shadow lens feeder (1G.17): June 2026 study ledger, last appended 2026-06-11; no scheduled job writes it. Archived by operator decision on the governor's invisible-ledger flag. Preserved read-only, not revived.",
+      "archived_on": "2026-09-23"
+    },
+    {
+      "path": "data/research/short_detection_history.jsonl",
+      "reason": "Short detection truth audit (1G.16): June 2026 study ledger, last appended 2026-06-16; no scheduled job writes it. Archived by operator decision on the governor's invisible-ledger flag. Preserved read-only, not revived.",
+      "archived_on": "2026-09-23"
+    },
+    {
+      "path": "data/research/theme_leadership_history.jsonl",
+      "reason": "Theme leadership historizer (1G.7): June 2026 study ledger, last appended 2026-06-09; no scheduled job writes it. Archived by operator decision on the governor's invisible-ledger flag. Preserved read-only, not revived.",
+      "archived_on": "2026-09-23"
+    },
+    {
+      "path": "data/research/universe_selection_history.jsonl",
+      "reason": "Universe selection historizer (1G.7B-1G.8): June 2026 study ledger, last appended 2026-06-09; no scheduled job writes it. Archived by operator decision on the governor's invisible-ledger flag. Preserved read-only, not revived.",
+      "archived_on": "2026-09-23"
+    }
+  ]
 }

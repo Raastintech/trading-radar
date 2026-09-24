@@ -766,3 +766,20 @@ def test_downgraded_label_tokens_map_below_validated():
         assert rg.VERDICT_TO_EVIDENCE[token] == "NOT_ENOUGH_EVIDENCE"
         assert not rg.POSITIVE_LABEL_RE.search(token)
 
+
+def test_real_registry_archives_the_june_ledgers_and_downgrades_labels():
+    registry = json.loads((REPO / rg.DEFAULT_REGISTRY_REL).read_text(encoding="utf-8"))
+    archived = {a["path"] for a in registry["archived_ledgers"]}
+    assert archived == {
+        "data/research/rs_recall_lane_history.jsonl",
+        "data/research/recall_shadow_lens_feeder_history.jsonl",
+        "data/research/short_detection_history.jsonl",
+        "data/research/theme_leadership_history.jsonl",
+        "data/research/universe_selection_history.jsonl"}
+    by = {c["component_id"]: c for c in registry["components"]}
+    assert by["emerging_outlier_watch"]["evidence_level"] == "FAILED_GATES"
+    assert by["emerging_outlier_watch"]["status"] == "SUPPORT"
+    assert by["emerging_outlier_watch"]["daily_decision_impact"] is False
+    assert by["social_attention_radar"]["research_label"] == "CONTEXT_LABEL_ONLY"
+    assert by["high_conviction_shortlist"]["research_label"] == \
+        "MIXED_OR_NEGATIVE_FORWARD_STATS"
