@@ -392,9 +392,19 @@ def test_forward_verdict_improves_is_qualified_not_validated():
     assert "VALIDATED_EDGE" not in v
 
 
+def test_row_weighted_win_without_per_name_support_is_mixed():
+    """2026-09-24 live shape: +0.16% row-weighted beats a -1.61% baseline,
+    but per name the median is -0.93% and the winsorized mean -1.03%."""
+    v, reason = eow.forward_verdict(
+        _vs_spy(1196, 0.16), _vs_spy(7292, -1.61),
+        {"n": 137, "median": -0.93, "winsorized_mean": -1.03})
+    assert v == eow.V_MIXED
+    assert "not validated" in reason and "-0.93" in reason
+
+
 def test_every_eo_forward_token_maps_to_a_non_validated_level():
     from research.research_governor import VERDICT_TO_EVIDENCE
-    for token in (eow.V_NEED_MORE_DATA, eow.V_IMPROVES,
+    for token in (eow.V_NEED_MORE_DATA, eow.V_IMPROVES, eow.V_MIXED,
                   eow.V_NO_EXCESS_VS_SPY, eow.V_NO_IMPROVEMENT):
         assert token in VERDICT_TO_EVIDENCE
         assert VERDICT_TO_EVIDENCE[token] != "VALIDATED_EDGE"

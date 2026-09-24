@@ -62,7 +62,11 @@ leader forward shadow (Sat, zero provider calls —
 `docs/ops/STYLE_CELL_SHADOW_CADENCE.md`). That last one currently records a
 weekly refusal rather than a snapshot: the merged price cache sits under its
 80% freshness floor, and fixing that is a provider-budget decision, not a
-cadence one.
+cadence one. The Emerging Outlier Watch also runs here, weekly (Sat 10:30 ET,
+zero provider calls), since its forward verdict matured to `NO_EXCESS_VS_SPY`
+on 2026-09-24. Between runs, Alpha Focus and the digest treat its list as
+context only when it is current for the latest scan; otherwise the digest
+labels it as the weekly list.
 
 ---
 
@@ -193,6 +197,27 @@ Spend is now **enforced**, not just counted (`core/provider_budget.py`):
 - unlimited requires the explicit `ALLOW_UNLIMITED_PROVIDER_CALLS=true`;
 - a run planning more than 100 calls must pass an explicit override;
 - `m1_price_refresh` refuses above its per-run hard cap without `--allow-huge-run`.
+
+### Price-cache backfills and refreshes
+
+- **The nightly audit proposes; it never executes.** The nightly cycle runs
+  the targeted backfill as a dry run (`--dry-run --limit 50`, zero calls) and
+  the journal audit may queue a task to act on its plan. Nothing in the
+  scheduled cycle runs `--execute`.
+- **Small targeted backfills run only when explicitly approved**, named by
+  ticker and capped at the approved call count
+  (`targeted-backfill --execute --tickers … --max-provider-calls N`). If the
+  dry run plans more calls than approved, stop and ask. Running without
+  `--execute` is always a free dry run. No automatic execution is configured.
+  If one is ever added, it must carry a small hard cap and be registered with
+  the governor first.
+- **Broad refreshes stay human-approved, every time.** Examples are the
+  ~1,291-call style-cell universe top-up and anything above the 100-call
+  confirmation threshold. Size one with its plan stage, then decide against
+  the month's budget.
+- A ticker whose backfill adds no bars is **source-exhausted** (a young
+  listing). The provider has no more history to give, so bars accrue one
+  session at a time. Do not re-approve it.
 
 **Before any manual provider run, plan it first.** Every module's `plan` stage
 costs zero calls and prints what a fetch would cost. Check `fmp_budget_monthly`

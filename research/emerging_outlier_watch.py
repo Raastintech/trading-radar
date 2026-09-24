@@ -478,6 +478,12 @@ V_NEED_MORE_DATA = "NEED_MORE_DATA"
 V_IMPROVES = "EO_IMPROVES_OUTCOMES"
 V_NO_EXCESS_VS_SPY = "NO_EXCESS_VS_SPY"
 V_NO_IMPROVEMENT = "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES"
+# Same per-name guard the High-Conviction ladder gained on 2026-09-23: a
+# row-weighted win that neither the per-name median nor the per-name
+# winsorized mean supports is not an improvement. Added 2026-09-24 after the
+# lane read EO_IMPROVES_OUTCOMES on +0.16% row-weighted against a per-name
+# median of -0.93% and winsorized mean of -1.03% (137 names).
+V_MIXED = "MIXED_OR_NEGATIVE_FORWARD_STATS"
 MIN_MATURED_FOR_VERDICT = 10
 
 
@@ -512,6 +518,14 @@ def forward_verdict(eo_10d_vs_spy: Dict[str, Any],
         return V_NO_IMPROVEMENT, (
             f"10d excess vs SPY {excess:+.2f}% does not beat program "
             f"baseline {base_txt}{names}; research-only")
+    per_name = [(per_ticker or {}).get(k) for k in ("median", "winsorized_mean")]
+    if per_ticker and not any(isinstance(v, (int, float)) and v > 0
+                              for v in per_name):
+        return V_MIXED, (
+            f"row-weighted 10d excess vs SPY {excess:+.2f}% beats program "
+            f"baseline {base_txt}, but the per-name median {per_name[0]}% and "
+            f"winsorized mean {per_name[1]}% are not positive{names}; not "
+            "validated")
     return V_IMPROVES, (
         f"10d excess vs SPY {excess:+.2f}% beats program baseline "
         f"{base_txt}{names}; one regime window, research-only and not "
