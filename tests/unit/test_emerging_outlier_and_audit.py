@@ -402,6 +402,28 @@ def test_row_weighted_win_without_per_name_support_is_mixed():
     assert "not validated" in reason and "-0.93" in reason
 
 
+def test_positive_winsorized_mean_with_negative_median_is_not_improves():
+    """Same loophole HC had on 2026-09-26: a slightly positive winsorized
+    mean must not carry a negative per-name median and sub-50% win rate."""
+    v, reason = eow.forward_verdict(
+        _vs_spy(1230, 0.35), _vs_spy(9051, -1.56),
+        {"n": 137, "median": -0.93, "winsorized_mean": 0.1, "win_rate": 47.0})
+    assert v == eow.V_MIXED and v != eow.V_IMPROVES
+    assert "-0.93" in reason and "47.0" in reason and "not validated" in reason
+
+
+def test_positive_eo_label_requires_positive_per_name_median():
+    for per_ticker in (None, {}, {"n": 20, "median": None},
+                       {"n": 20, "median": 0.0, "winsorized_mean": 2.0},
+                       {"n": 20, "median": -0.01, "winsorized_mean": 2.0}):
+        v, _ = eow.forward_verdict(_vs_spy(50, 1.2), _vs_spy(900, -1.0),
+                                   per_ticker)
+        assert v == eow.V_MIXED, per_ticker
+    v, _ = eow.forward_verdict(_vs_spy(50, 1.2), _vs_spy(900, -1.0),
+                               {"n": 20, "median": 0.01, "winsorized_mean": -2.0})
+    assert v == eow.V_IMPROVES
+
+
 def test_every_eo_forward_token_maps_to_a_non_validated_level():
     from research.research_governor import VERDICT_TO_EVIDENCE
     for token in (eow.V_NEED_MORE_DATA, eow.V_IMPROVES, eow.V_MIXED,

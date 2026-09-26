@@ -482,7 +482,12 @@ V_NO_IMPROVEMENT = "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES"
 # row-weighted win that neither the per-name median nor the per-name
 # winsorized mean supports is not an improvement. Added 2026-09-24 after the
 # lane read EO_IMPROVES_OUTCOMES on +0.16% row-weighted against a per-name
-# median of -0.93% and winsorized mean of -1.03% (137 names).
+# median of -0.93% and winsorized mean of -1.03% (137 names). Tightened
+# 2026-09-26 to match the HC fix (c3b2c6a): accepting either statistic let
+# a slightly positive winsorized mean carry a negative per-name median, and
+# a call with no per-name block skipped the guard entirely. A positive
+# label now requires a positive per-name median; the winsorized mean and
+# win rate are reported, never decisive.
 V_MIXED = "MIXED_OR_NEGATIVE_FORWARD_STATS"
 MIN_MATURED_FOR_VERDICT = 10
 
@@ -495,9 +500,10 @@ def forward_verdict(eo_10d_vs_spy: Dict[str, Any],
 
     NEED_MORE_DATA below the matured floor. Above it the lane must show a
     positive outlier-guarded excess vs SPY (its registered hypothesis) and
-    beat the program-candidate baseline. Every verdict is research-only; a
-    positive one is a comparison over one regime window, not evidence of
-    edge."""
+    beat the program-candidate baseline, and the per-name median must be
+    positive (no per-name block means no per-name support, so V_MIXED).
+    Every verdict is research-only; a positive one is a comparison over one
+    regime window, not evidence of edge."""
     n = eo_10d_vs_spy.get("n") or 0
     if n < MIN_MATURED_FOR_VERDICT:
         return V_NEED_MORE_DATA, (f"only {n} matured 10d episodes "
@@ -518,14 +524,14 @@ def forward_verdict(eo_10d_vs_spy: Dict[str, Any],
         return V_NO_IMPROVEMENT, (
             f"10d excess vs SPY {excess:+.2f}% does not beat program "
             f"baseline {base_txt}{names}; research-only")
-    per_name = [(per_ticker or {}).get(k) for k in ("median", "winsorized_mean")]
-    if per_ticker and not any(isinstance(v, (int, float)) and v > 0
-                              for v in per_name):
+    pt = per_ticker or {}
+    median = pt.get("median")
+    if not (isinstance(median, (int, float)) and median > 0):
         return V_MIXED, (
             f"row-weighted 10d excess vs SPY {excess:+.2f}% beats program "
-            f"baseline {base_txt}, but the per-name median {per_name[0]}% and "
-            f"winsorized mean {per_name[1]}% are not positive{names}; not "
-            "validated")
+            f"baseline {base_txt}, but the per-name median {median}% is not "
+            f"positive (winsorized mean {pt.get('winsorized_mean')}%, win "
+            f"rate {pt.get('win_rate')}%){names}; not validated")
     return V_IMPROVES, (
         f"10d excess vs SPY {excess:+.2f}% beats program baseline "
         f"{base_txt}{names}; one regime window, research-only and not "
@@ -581,7 +587,8 @@ def build_forward(root: Optional[Path] = None,
             "program_baseline_10d_vs_spy": base_10d,
             "verdict_rule": ("n>=%d matured 10d episodes; outlier-guarded "
                              "10d excess vs SPY > 0 and above the program-"
-                             "candidate baseline" % MIN_MATURED_FOR_VERDICT),
+                             "candidate baseline; positive label also needs "
+                             "a positive per-name median" % MIN_MATURED_FOR_VERDICT),
             "verdict": verdict, "verdict_reason": reason}
 
 
