@@ -517,6 +517,9 @@ cmd_social_inner() {
     # internal twice_weekly guard (10h min interval) otherwise silently
     # reuses the cached artifact and reprints its old built_at, which made
     # nightly logs look like fresh runs while the sidecar rotted.
+    # Never add --allow-yfinance here: yfinance is debug-only (CLAUDE.md).
+    # The scheduled tape is the local price cache (zero provider calls);
+    # until 2026-09-26 this step made ~40 yfinance calls a night.
     run_or_warn "social arb radar" \
         "$PY" research/social_arb_radar.py --mode daily
 }

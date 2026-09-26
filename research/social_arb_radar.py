@@ -1801,10 +1801,40 @@ def attach_trends_to_groups(
     return attached
 
 
-def _metadata_tape(symbol: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+# The universe snapshot is a last-resort tape. Nothing has rewritten
+# cache/universe/universe_snapshot_latest.json since the 2026-06-12
+# decommission, yet its rows still say bars_stale=False, so without an age
+# check a months-old price read as a confirming tape. Older than this, the
+# snapshot supplies no tape at all.
+SNAPSHOT_TAPE_MAX_AGE_DAYS = 5
+# The cache tape reads the maintained daily bars; a last bar older than this
+# many calendar days (a long weekend plus one session) is marked stale.
+CACHE_TAPE_MAX_BAR_AGE_DAYS = 5
+
+
+def _snapshot_age_days(snapshot: Dict[str, Any], now: Optional[datetime] = None) -> Optional[float]:
+    ts = snapshot.get("generated_at")
+    if not ts:
+        return None
+    try:
+        when = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return ((now or datetime.now(timezone.utc)) - when).total_seconds() / 86400.0
+
+
+def _metadata_tape(symbol: str, snapshot: Dict[str, Any],
+                   now: Optional[datetime] = None) -> Dict[str, Any]:
     raw = (snapshot.get("metadata") or {}).get(symbol) or {}
     if not raw:
         return {"source": "none", "available": False}
+    age = _snapshot_age_days(snapshot, now)
+    if age is None or age > SNAPSHOT_TAPE_MAX_AGE_DAYS:
+        return {"source": "universe_snapshot_stale", "available": False,
+                "detail": (f"universe snapshot is {age:.0f} days old" if age is not None
+                           else "universe snapshot has no generated_at")}
     avg_dvol = _f(raw.get("avg_dollar_vol_20"))
     price = _f(raw.get("price"))
     ret5 = _f(raw.get("return_5d_pct"))
@@ -1830,7 +1860,75 @@ def _metadata_tape(symbol: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _fetch_cache_tape(symbols: Sequence[str], stats: Dict[str, Any],
+                      prices_dir: Optional[Path] = None,
+                      now: Optional[datetime] = None) -> Dict[str, Dict[str, Any]]:
+    """Daily-bar tape from the maintained local price cache. Zero provider calls.
+
+    Reads cache/prices/{SYMBOL}.parquet, which the premarket/nightly universe
+    refresh keeps current, and computes the same fields as the yfinance tape.
+    Symbols with no parquet get no entry (no tape), never a fetch."""
+    out: Dict[str, Dict[str, Any]] = {}
+    base = prices_dir or (cfg.CACHE_DIR / "prices")
+    today = (now or datetime.now(timezone.utc)).date()
+    try:
+        import pandas as pd
+    except Exception:  # pragma: no cover - pandas is a core dependency
+        stats["source_errors"].append("cache tape unavailable: pandas import failed")
+        return out
+    for sym in symbols:
+        path = base / f"{sym}.parquet"
+        if not path.is_file():
+            continue
+        try:
+            df = pd.read_parquet(path)
+            stats["api_attempts"]["cache_tape_reads"] = stats["api_attempts"].get("cache_tape_reads", 0) + 1
+            closes = df["close"].dropna()
+            vols = df["volume"].dropna()
+            if closes.empty or vols.empty:
+                continue
+            last_bar = pd.Timestamp(closes.index[-1]).date()
+            price = float(closes.iloc[-1])
+            prev5 = float(closes.iloc[-6]) if len(closes) >= 6 else float(closes.iloc[0])
+            prev20 = float(closes.iloc[-21]) if len(closes) >= 21 else float(closes.iloc[0])
+            avg_vol = float(vols.tail(20).mean() or 0.0)
+            cur_vol = float(vols.iloc[-1] or 0.0)
+            avg_dvol = avg_vol * price
+            vol_ratio = cur_vol / avg_vol if avg_vol > 0 else 1.0
+            ret5 = (price / prev5 - 1.0) * 100.0 if prev5 else 0.0
+            ret20 = (price / prev20 - 1.0) * 100.0 if prev20 else 0.0
+            stale = (today - last_bar).days > CACHE_TAPE_MAX_BAR_AGE_DAYS
+            out[sym] = {
+                "source": "price_cache",
+                "available": True,
+                "price": round(price, 2),
+                "avg_dollar_volume_20": round(avg_dvol, 2),
+                "return_5d_pct": round(ret5, 2),
+                "return_20d_pct": round(ret20, 2),
+                "volume_ratio_5d": round(vol_ratio, 2),
+                "last_bar_date": last_bar.isoformat(),
+                "bars_stale": stale,
+                "confirmation": (
+                    price >= 5.0
+                    and avg_dvol >= 10_000_000
+                    and not stale
+                    and (vol_ratio >= 1.05 or ret5 >= 1.0 or ret20 >= 4.0)
+                ),
+            }
+        except Exception as exc:
+            stats["source_errors"].append(f"cache tape {sym} unreadable: {type(exc).__name__}")
+    return out
+
+
 def _fetch_yfinance_tape(symbols: Sequence[str], stats: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """DEBUG / MANUAL ONLY — reached only with --allow-yfinance.
+
+    CLAUDE.md: yfinance is a debug-only fallback, never primary. Until
+    2026-09-26 this ran on every symbol of every scheduled run (about 40 calls
+    a night) and, because the Alpaca tape returns nothing post-decommission,
+    it silently became the primary tape. Scheduled runs now use the local
+    price cache instead (_fetch_cache_tape); do not re-enable this by default
+    and do not replace it with a paid provider."""
     out: Dict[str, Dict[str, Any]] = {}
     if yf is None:
         stats["source_errors"].append("yfinance unavailable: import failed")
@@ -2120,13 +2218,23 @@ def score_candidates(
     symbols = symbols[: max(args.tape_limit, args.limit)]
 
     metadata_tape = {sym: _metadata_tape(sym, snapshot) for sym in symbols}
-    # Primary tape now Alpaca minute bars (free, in-house data) — fall back
-    # to yfinance only if Alpaca didn't return rows for that symbol.
+    # Tape order: Alpaca minute bars, then the local daily price cache (zero
+    # provider calls), then the universe snapshot (refused when stale).
+    # yfinance is debug-only: it runs only with --allow-yfinance, and then
+    # only for symbols no earlier tier covered.
     alpaca_tape = (
         _alpaca_tape_context(symbols[: args.tape_limit], enabled=not getattr(args, "skip_alpaca_tape", False), stats=stats)
         if not getattr(args, "skip_alpaca_tape", False) else {}
     )
-    yf_tape = {} if args.skip_yfinance else _fetch_yfinance_tape(symbols[: args.tape_limit], stats)
+    cache_tape = _fetch_cache_tape(symbols[: args.tape_limit], stats)
+    if yfinance_enabled(args):
+        uncovered = [s for s in symbols[: args.tape_limit]
+                     if s not in alpaca_tape and s not in cache_tape]
+        yf_tape = _fetch_yfinance_tape(uncovered, stats)
+    else:
+        yf_tape = {}
+        stats["source_status"]["yfinance"] = (
+            "skipped: debug-only (pass --allow-yfinance for a manual run)")
     profiles = _profile_context(symbols[: args.profile_limit], stats, use_fmp=not args.skip_fmp)
     thirteen_f = _thirteen_f_context(symbols[: args.overlay_limit], stats, enabled=not args.skip_13f)
     tradier = _tradier_context(symbols[: args.overlay_limit], stats, enabled=not args.skip_tradier)
@@ -2171,8 +2279,10 @@ def score_candidates(
         mapping_conf = float(group["mapping_confidence"])
         theme = str(group["theme"] or "Unclassified")
         freshness = float(group["freshness_hours"])
-        # Tape preference: Alpaca minute bars > yfinance daily > universe metadata.
-        tape = alpaca_tape.get(sym) or yf_tape.get(sym) or metadata_tape.get(sym) or {"available": False, "source": "none"}
+        # Tape preference: Alpaca minute bars > local price cache > yfinance
+        # (debug only) > universe snapshot (unavailable when stale).
+        tape = (alpaca_tape.get(sym) or cache_tape.get(sym) or yf_tape.get(sym)
+                or metadata_tape.get(sym) or {"available": False, "source": "none"})
         profile = profiles.get(sym) or {}
         options = tradier.get(sym, {"available": False, "detail": "Tradier not checked"})
         inst = thirteen_f.get(sym, {"available": False, "detail": "13F not checked"})
@@ -2943,7 +3053,9 @@ def build_radar(args: argparse.Namespace) -> Dict[str, Any]:
             "alpaca_news": stats["source_status"].get("alpaca_news", "not used"),
             "google_trends": stats["source_status"].get("google_trends", "not used"),
             "alpaca_tape": "minute bars (primary)" if not getattr(args, "skip_alpaca_tape", False) else "skipped by flag",
-            "yfinance": "fallback tape only" if not args.skip_yfinance else "skipped by flag",
+            "price_cache_tape": "local daily bars (zero provider calls)",
+            "yfinance": ("debug fallback for uncovered symbols (--allow-yfinance)"
+                         if yfinance_enabled(args) else "skipped: debug-only"),
             "thirteen_f": "top candidates only" if not args.skip_13f else "skipped by flag",
             "tradier": "top candidates only" if not args.skip_tradier else "skipped by flag",
             "fmp_sentiment": "top candidates only" if not getattr(args, "skip_fmp_sentiment", False) else "skipped by flag",
@@ -3038,6 +3150,12 @@ def build_radar(args: argparse.Namespace) -> Dict[str, Any]:
     return artifact
 
 
+def yfinance_enabled(args: argparse.Namespace) -> bool:
+    """yfinance runs only on an explicit debug/manual opt-in, and never when
+    --skip-yfinance is also given."""
+    return bool(getattr(args, "allow_yfinance", False)) and not getattr(args, "skip_yfinance", False)
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smart Social Arb Radar V1")
     parser.add_argument("--mode", choices=("twice_weekly", "daily"), default="twice_weekly")
@@ -3061,7 +3179,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--offline-sample", action="store_true", help="use deterministic local sample data for smoke tests")
     parser.add_argument("--skip-fmp", action="store_true")
     parser.add_argument("--skip-newsapi", action="store_true")
-    parser.add_argument("--skip-yfinance", action="store_true")
+    parser.add_argument("--skip-yfinance", action="store_true",
+                        help="Kept for compatibility; yfinance is already off unless --allow-yfinance.")
+    parser.add_argument("--allow-yfinance", action="store_true",
+                        help="DEBUG/MANUAL ONLY: let yfinance fill tape for symbols the "
+                             "Alpaca and local price-cache tiers did not cover. Never "
+                             "set on a scheduled run (CLAUDE.md: yfinance is debug-only).")
     parser.add_argument("--skip-13f", action="store_true")
     parser.add_argument("--skip-tradier", action="store_true")
     parser.add_argument("--skip-anthropic", action="store_true")
@@ -3086,7 +3209,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--skip-analyst", action="store_true",
                         help="Skip analyst upgrades/downgrades lookup.")
     parser.add_argument("--skip-alpaca-tape", action="store_true",
-                        help="Skip Alpaca minute-bar tape (falls back to yfinance).")
+                        help="Skip Alpaca minute-bar tape (falls back to the local price cache).")
     parser.add_argument("--skip-alpaca-news", action="store_true",
                         help="Skip Alpaca News API as a third news source.")
     parser.add_argument("--skip-google-trends", action="store_true",
