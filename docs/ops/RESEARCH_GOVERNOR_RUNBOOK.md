@@ -109,6 +109,14 @@ Optional registry fields the checks use:
 - `forward_hypothesis`, `purpose`, `consumers`, `evidence_path_label`,
   `evidence_source`, `research_label`
 
+A `candidate_lists` entry names its tickers with `path` (one dotted path) or
+`paths` (a list, unioned in order and deduped). Use `paths` when the producing
+report renders several buckets as one list, so the governor's count matches the
+names a human sees; the Daily Alpha Radar's daily list is TOP_RESEARCH plus
+HIGH_PRIORITY_RESEARCH, which its "Top Research Candidates" section shows
+together (fixed 2026-09-26, when counting only one bucket said 2 names for a
+3-name section).
+
 The approved `cadence` and `kind` values are listed at the top of
 `research/research_governor.py`.
 

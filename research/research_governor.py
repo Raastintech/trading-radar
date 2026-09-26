@@ -267,6 +267,24 @@ def _extract_tickers(value: Any) -> List[str]:
     return out
 
 
+def _list_names(payload: Any, spec: Dict[str, Any]) -> List[str]:
+    """Tickers of one registered candidate list, in artifact order, deduped.
+
+    ``paths`` (a list) unions several buckets that the producing report shows
+    as one list, e.g. the radar's TOP_RESEARCH and HIGH_PRIORITY_RESEARCH
+    buckets, which its "Top Research Candidates" section renders together.
+    Counting only one of them understated the daily list (2026-09-26: the
+    governor said 2 names while the report showed 3). ``path`` (a string) is
+    the single-bucket form."""
+    paths = spec.get("paths") or [spec.get("path", "")]
+    out: List[str] = []
+    for path in paths:
+        for name in _extract_tickers(next(iter(dig(payload, path)), None)):
+            if name not in out:
+                out.append(name)
+    return out
+
+
 def _stem(path: str) -> str:
     name = Path(path).name
     for suffix in ("_latest.json", ".jsonl", ".json", ".md", ".py"):
@@ -638,8 +656,7 @@ def check_candidate_surfaces(run: _Run) -> None:
         entries = []
         for spec in c.get("candidate_lists") or []:
             payload, error = run.json(spec.get("artifact", ""))
-            names = _extract_tickers(next(iter(dig(payload, spec.get("path", ""))), None)) \
-                if payload is not None else []
+            names = _list_names(payload, spec) if payload is not None else []
             entries.append({"label": spec.get("label") or spec.get("path"),
                             "artifact": spec.get("artifact"),
                             "count": len(names) if payload is not None else None,

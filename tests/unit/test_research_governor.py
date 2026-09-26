@@ -417,6 +417,38 @@ def test_daily_list_over_limit_and_fake_precision_are_fix_next(tmp_path):
     assert {"daily_list_over_limit", "fake_precision"} <= cats
 
 
+def test_daily_list_count_includes_every_rendered_top_bucket(tmp_path):
+    """2026-09-26: the radar's top section renders TOP_RESEARCH and
+    HIGH_PRIORITY_RESEARCH together; counting one bucket said 2 names for 3."""
+    artifact = "cache/research/daily_alpha_radar_latest.json"
+    root = make_root(tmp_path, [
+        comp("board", kind="surface", allowed_to_surface_candidates=True,
+             forward_hypothesis="h", candidate_lists=[
+                 {"artifact": artifact, "daily_review_list": True,
+                  "label": "top + high-priority research buckets",
+                  "paths": ["priority_tickers.TOP_RESEARCH",
+                            "priority_tickers.HIGH_PRIORITY_RESEARCH"]}]),
+    ])
+    write_json(root, artifact, {"priority_tickers": {
+        "TOP_RESEARCH": ["CCC"], "HIGH_PRIORITY_RESEARCH": ["AAA", "BBB", "CCC"],
+        "WATCHLIST_RESEARCH": ["DDD"]}})
+    report = build(root)
+    entry = next(c for c in report["components"]
+                 if c["component_id"] == "board")["candidate_lists"][0]
+    rendered = ["CCC", "AAA", "BBB"]   # deduped union, in artifact order
+    assert entry["count"] == len(rendered) == 3
+    assert any("(3 names)" in step for step in report["daily_workflow"])
+
+
+def test_live_registry_daily_list_counts_the_rendered_radar_top_section():
+    registry = json.loads((rg.REPO_ROOT / rg.DEFAULT_REGISTRY_REL).read_text())
+    radar = next(c for c in registry["components"]
+                 if c["component_id"] == "daily_alpha_radar")
+    daily = [e for e in radar["candidate_lists"] if e.get("daily_review_list")]
+    assert daily and daily[0]["paths"] == [
+        "priority_tickers.TOP_RESEARCH", "priority_tickers.HIGH_PRIORITY_RESEARCH"]
+
+
 def test_clean_fixture_is_research_only_no_edge(tmp_path):
     report = build(make_root(tmp_path, [comp("infra")]))
     assert report["verdict"] == "RESEARCH_ONLY_NO_EDGE"

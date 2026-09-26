@@ -181,9 +181,12 @@
       "candidate_lists": [
         {
           "artifact": "cache/research/daily_alpha_radar_latest.json",
-          "path": "priority_tickers.HIGH_PRIORITY_RESEARCH",
+          "paths": [
+            "priority_tickers.TOP_RESEARCH",
+            "priority_tickers.HIGH_PRIORITY_RESEARCH"
+          ],
           "daily_review_list": true,
-          "label": "high-priority research bucket"
+          "label": "top + high-priority research buckets"
         }
       ],
       "forward_hypothesis": "board labels are tracked by the forward evidence tracker (overall verdict MIXED)",
