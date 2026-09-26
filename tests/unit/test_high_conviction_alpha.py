@@ -486,6 +486,44 @@ def test_row_weighted_win_with_per_name_support_still_improves():
     assert "not validated" in reason
 
 
+def test_positive_winsorized_mean_with_negative_median_is_not_improves():
+    """2026-09-26 live shape: the first per-name guard accepted either
+    statistic, so a +0.10% winsorized mean flipped the label back to
+    SHORTLIST_IMPROVES_OUTCOMES against a -0.72% median and 48.5% win rate."""
+    from research import high_conviction_forward as hcf
+    v, reason = hcf.shortlist_verdict(
+        _block(563, 0.33), _block(9051, -1.56),
+        {"n": 101, "median": -0.72, "winsorized_mean": 0.1, "win_rate": 48.5})
+    assert v == hcf.V_MIXED
+    assert v != hcf.V_IMPROVES
+    assert "-0.72" in reason and "48.5" in reason and "not validated" in reason
+
+
+def test_positive_label_requires_positive_per_name_median():
+    from research import high_conviction_forward as hcf
+    for median in (None, -0.01, 0, 0.0):
+        v, _ = hcf.shortlist_verdict(
+            _block(563, 2.0), _block(9051, -1.56),
+            {"n": 101, "median": median, "winsorized_mean": 3.0})
+        assert v == hcf.V_MIXED, median
+    v, _ = hcf.shortlist_verdict(
+        _block(563, 2.0), _block(9051, -1.56),
+        {"n": 101, "median": 0.01, "winsorized_mean": -3.0})
+    assert v == hcf.V_IMPROVES
+
+
+def test_no_hc_verdict_is_validated_edge():
+    """No forward verdict the shortlist ladder can emit is VALIDATED_EDGE, and
+    the governor maps the positive one to NOT_ENOUGH_EVIDENCE."""
+    from research import high_conviction_forward as hcf
+    from research import research_governor as rg
+    ladder = {hcf.V_NEED_MORE_DATA, hcf.V_IMPROVES, hcf.V_NO_IMPROVEMENT,
+              hcf.V_MIXED}
+    assert not any("VALIDATED" in v for v in ladder)
+    for v in (hcf.V_IMPROVES, hcf.V_MIXED):
+        assert rg.VERDICT_TO_EVIDENCE[v] == "NOT_ENOUGH_EVIDENCE"
+
+
 def test_shortlist_verdict_floor_and_loss_are_unchanged():
     from research import high_conviction_forward as hcf
     v, reason = hcf.shortlist_verdict(_block(9, 5.0), _block(900, -1.0), {"n": 3})

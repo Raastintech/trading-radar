@@ -72,7 +72,11 @@ V_NO_IMPROVEMENT = "NO_IMPROVEMENT_OVER_PROGRAM_CANDIDATES"
 # nights can carry the row mean while the per-name median and winsorized
 # mean are negative. Added 2026-09-23 after the governor flagged the
 # shortlist's SHORTLIST_IMPROVES_OUTCOMES against a per-name median of
-# -0.57% and a winsorized mean of -0.29%.
+# -0.57% and a winsorized mean of -0.29%. Tightened 2026-09-26: the first
+# version accepted either per-name statistic, and the label flipped back to
+# SHORTLIST_IMPROVES_OUTCOMES on a +0.10% winsorized mean while the per-name
+# median was -0.72% and the win rate 48.5%. A positive label now requires a
+# positive per-name median; the winsorized mean is reported, never decisive.
 V_MIXED = "MIXED_OR_NEGATIVE_FORWARD_STATS"
 MIN_MATURED_FOR_VERDICT = 10   # matured shortlist episodes at the 10d anchor
 
@@ -282,8 +286,9 @@ def shortlist_verdict(shortlist_10d: Dict[str, Any],
 
     Both sides are compared on the outlier-guarded headline, so the
     comparison is like for like and no single broken bar can decide it.
-    A row-weighted win that no per-name statistic supports reads
-    V_MIXED rather than V_IMPROVES."""
+    V_IMPROVES additionally requires a positive per-name median: a
+    row-weighted win whose typical name loses reads V_MIXED, even when the
+    per-name winsorized mean is slightly positive."""
     n_matured = shortlist_10d.get("n") or 0
     if n_matured < MIN_MATURED_FOR_VERDICT:
         return V_NEED_MORE_DATA, (
@@ -299,13 +304,14 @@ def shortlist_verdict(shortlist_10d: Dict[str, Any],
         return V_NO_IMPROVEMENT, (
             f"shortlist 10d excess vs SPY {sl_excess}% does not beat "
             f"baseline {base_excess}% — {names}")
-    per_name = [per_ticker.get(k) for k in ("median", "winsorized_mean")]
-    if not any(isinstance(v, (int, float)) and v > 0 for v in per_name):
+    median = per_ticker.get("median")
+    if not (isinstance(median, (int, float)) and median > 0):
         return V_MIXED, (
             f"row-weighted 10d excess vs SPY {sl_excess:+.2f}% beats "
             f"program baseline {base_excess}%, but the per-name median "
-            f"{per_name[0]}% and winsorized mean {per_name[1]}% are not "
-            f"positive — {names}; not validated")
+            f"{median}% is not positive (winsorized mean "
+            f"{per_ticker.get('winsorized_mean')}%, win rate "
+            f"{per_ticker.get('win_rate')}%) — {names}; not validated")
     return V_IMPROVES, (
         f"shortlist 10d excess vs SPY {sl_excess:+.2f}% beats "
         f"program baseline {base_excess}% — {names}; one regime "
